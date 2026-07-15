@@ -89,17 +89,20 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
         <span aria-hidden>📷</span> Scan
       </h1>
 
-      {scanning ? (
-        <div className="overflow-hidden rounded-xl2 border border-surface-border bg-black shadow-card">
-          <video ref={videoRef} className="aspect-[4/3] w-full object-cover" muted playsInline />
-          <button
-            onClick={stopScan}
-            className="w-full bg-white py-3 text-sm font-medium text-neutral-800 hover:bg-surface-muted"
-          >
-            Cancel scan
-          </button>
-        </div>
-      ) : (
+      <div
+        className={`overflow-hidden rounded-xl2 border border-surface-border bg-black shadow-card ${
+          scanning ? "" : "hidden"
+        }`}
+      >
+        <video ref={videoRef} className="aspect-[4/3] w-full object-cover" muted playsInline autoPlay />
+        <button
+          onClick={stopScan}
+          className="w-full bg-white py-3 text-sm font-medium text-neutral-800 hover:bg-surface-muted"
+        >
+          Cancel scan
+        </button>
+      </div>
+      {!scanning && (
         <button
           onClick={startScan}
           className="w-full rounded-xl2 bg-blue-500 py-4 text-center text-sm font-semibold text-white shadow-card hover:opacity-90"
