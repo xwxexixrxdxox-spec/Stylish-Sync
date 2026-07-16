@@ -175,14 +175,29 @@ interface Props {
   onRemoveStock: (input: { barcode: string; quantity: number }) => void;
 }
 
+// Fallback for devices whose browser camera stream never reports a usable
+// focus capability at all (confirmed via the diagnostics above: some Android
+// + Chrome combinations only ever expose focusMode: ["manual"], with no
+// "continuous" or "single-shot" - meaning applyCameraTuning/focusTrackAt
+// above have nothing to work with, and the live getUserMedia stream stays
+// stuck at a fixed, non-macro focus distance no matter the barcode's
+// distance or angle). Rather than fight the Web Image Capture API further,
+// this hands the shot off to the phone's native camera app instead (which
+// autofocuses fine - it's the OS camera, not the constrained web stream)
+// via <input type="file" capture>, then decodes that single still photo.
+
+
 export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const cancelFocusTimerRef = useRef<() => void>(() => {});
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [canTapFocus, setCanTapFocus] = useState(false);
   const [diagnostics, setDiagnostics] = useState<ScanDiagnostics>(EMPTY_DIAGNOSTICS);
+  const [photoDecoding, setPhotoDecoding] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const [barcode, setBarcode] = useState("");
   const [name, setName] = useState("");
@@ -296,6 +311,33 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     cancelFocusTimerRef.current = focusTrackAt(stream, x, y);
   };
 
+  const openPhotoCapture = () => {
+    if (scanning) stopScan();
+    setPhotoError(null);
+    photoInputRef.current?.click();
+  };
+
+  const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file next time
+    if (!file) return;
+    setPhotoError(null);
+    setPhotoDecoding(true);
+    const url = URL.createObjectURL(file);
+    try {
+      const reader = new BrowserMultiFormatReader(SCAN_HINTS);
+      const result = await reader.decodeFromImageUrl(url);
+      handleBarcodeDetected(result.getText());
+    } catch {
+      setPhotoError(
+        "Couldn't find a barcode in that photo. Try filling more of the frame with the barcode, more light, or holding steadier, then retake."
+      );
+    } finally {
+      URL.revokeObjectURL(url);
+      setPhotoDecoding(false);
+    }
+  };
+
   const handleBarcodeDetected = async (code: string) => {
     stopScan();
     setBarcode(code);
@@ -404,6 +446,28 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
         </button>
       )}
       {cameraError && <p className="mt-2 text-xs text-accent-low">{cameraError}</p>}
+
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handlePhotoCapture}
+      />
+      <button
+        type="button"
+        onClick={openPhotoCapture}
+        disabled={photoDecoding}
+        className="mt-2 w-full rounded-xl2 border border-surface-border bg-white py-3 text-center text-sm font-semibold text-neutral-700 shadow-card hover:bg-surface-muted disabled:opacity-60"
+      >
+        {photoDecoding ? "Reading photo…" : "🖼️ Trouble scanning? Take a photo instead"}
+      </button>
+      <p className="mt-1 text-[11px] text-neutral-400">
+        Uses your phone&apos;s regular camera app for a sharper, better-focused shot - helpful if
+        live scanning above won&apos;t lock onto the barcode.
+      </p>
+      {photoError && <p className="mt-2 text-xs text-accent-low">{photoError}</p>}
 
       <div className="mt-5 space-y-3 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <Field label="Barcode">
