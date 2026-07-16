@@ -131,6 +131,38 @@ function focusTrackAt(stream: MediaStream, x: number, y: number): () => void {
   };
 }
 
+// A native camera app photo is commonly 8-48 megapixels. ZXing's decode()
+// call is fully synchronous (it's not a Worker), so handing it a full-res
+// photo blocks the main thread - with no way to cancel or time out - until
+// it finishes, which on a mid/low-end phone can take many seconds, made
+// worse by TRY_HARDER doing extra passes on top. That reads to the user as
+// the "take a photo" button silently freezing/stopping working, especially
+// on the 2nd+ attempt if the first couple of test photos happened to be
+// smaller. Downscaling to a barcode-appropriate resolution first keeps each
+// decode fast and consistent regardless of the camera's native output size.
+const MAX_PHOTO_DIMENSION = 1800;
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Couldn't load the captured photo."));
+    img.src = url;
+  });
+}
+
+function downscaleToCanvas(image: HTMLImageElement, maxDimension: number): HTMLCanvasElement {
+  const { naturalWidth: width, naturalHeight: height } = image;
+  const scale = Math.min(1, maxDimension / Math.max(width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context unavailable.");
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
 // Temporary on-screen diagnostics for tracking down device-specific scan
 // failures (e.g. reports of "works on iOS, not on this Android phone")
 // without needing to see the device's screen directly. Shows the camera
@@ -198,6 +230,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const [diagnostics, setDiagnostics] = useState<ScanDiagnostics>(EMPTY_DIAGNOSTICS);
   const [photoDecoding, setPhotoDecoding] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoDiagnostic, setPhotoDiagnostic] = useState<string | null>(null);
 
   const [barcode, setBarcode] = useState("");
   const [name, setName] = useState("");
@@ -322,13 +355,29 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     e.target.value = ""; // allow re-selecting the same file next time
     if (!file) return;
     setPhotoError(null);
+    setPhotoDiagnostic(null);
     setPhotoDecoding(true);
+    // Let the "Reading photo…" label actually paint before the synchronous
+    // decode below blocks the main thread - otherwise the UI can appear to
+    // freeze with no feedback at all while a big photo decodes.
+    await new Promise((resolve) => setTimeout(resolve, 30));
     const url = URL.createObjectURL(file);
+    const startedAt = performance.now();
     try {
+      const image = await loadImage(url);
+      const canvas = downscaleToCanvas(image, MAX_PHOTO_DIMENSION);
       const reader = new BrowserMultiFormatReader(SCAN_HINTS);
-      const result = await reader.decodeFromImageUrl(url);
+      const result = reader.decodeFromCanvas(canvas);
+      setPhotoDiagnostic(
+        `${image.naturalWidth}×${image.naturalHeight} → ${canvas.width}×${canvas.height}, decoded in ${Math.round(performance.now() - startedAt)}ms`
+      );
       handleBarcodeDetected(result.getText());
-    } catch {
+    } catch (err) {
+      const dims =
+        err instanceof Error && err.message.includes("load")
+          ? "photo failed to load"
+          : `scanned in ${Math.round(performance.now() - startedAt)}ms`;
+      setPhotoDiagnostic(dims);
       setPhotoError(
         "Couldn't find a barcode in that photo. Try filling more of the frame with the barcode, more light, or holding steadier, then retake."
       );
@@ -468,6 +517,9 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
         live scanning above won&apos;t lock onto the barcode.
       </p>
       {photoError && <p className="mt-2 text-xs text-accent-low">{photoError}</p>}
+      {photoDiagnostic && (
+        <p className="mt-1 font-mono text-[10px] text-neutral-400">last photo: {photoDiagnostic}</p>
+      )}
 
       <div className="mt-5 space-y-3 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <Field label="Barcode">
