@@ -131,15 +131,26 @@ function focusTrackAt(stream: MediaStream, x: number, y: number): () => void {
   };
 }
 
-// A native camera app photo is commonly 8-48 megapixels. ZXing's decode()
-// call is fully synchronous (it's not a Worker), so handing it a full-res
-// photo blocks the main thread - with no way to cancel or time out - until
-// it finishes, which on a mid/low-end phone can take many seconds, made
-// worse by TRY_HARDER doing extra passes on top. That reads to the user as
-// the "take a photo" button silently freezing/stopping working, especially
-// on the 2nd+ attempt if the first couple of test photos happened to be
-// smaller. Downscaling to a barcode-appropriate resolution first keeps each
-// decode fast and consistent regardless of the camera's native output size.
+// A native camera app photo is commonly 8-48 megapixels (and higher still
+// on newer flagship phones). ZXing's decode() call is fully synchronous
+// (it's not a Worker), so handing it a full-res photo blocks the main
+// thread for a while - addressed below by downscaling before decode.
+//
+// But downscaling via the classic <img> + <canvas> route (loadImage /
+// downscaleToCanvas below) still requires the browser to fully decode the
+// ORIGINAL full-resolution image into memory first, and that memory isn't
+// released deterministically - it's up to the garbage collector's timing,
+// which lags under memory pressure. Doing that repeatedly in a row (taking
+// "numerous pictures" is this app's core mobile workflow) can accumulate
+// faster than the GC reclaims it, until the tab hits an out-of-memory
+// error - matching reports of it working for the first several photos and
+// then dying. createImageBitmap() with resize options avoids ever
+// materializing the full-resolution bitmap where the browser supports it,
+// and - critically - its result can be closed immediately and
+// deterministically right after we've drawn it via .close(), so peak
+// memory per photo stays small and bounded no matter how many photos get
+// taken in a row. Falls back to the <img>/canvas path on browsers that
+// don't support it.
 const MAX_PHOTO_DIMENSION = 1800;
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -161,6 +172,56 @@ function downscaleToCanvas(image: HTMLImageElement, maxDimension: number): HTMLC
   if (!ctx) throw new Error("2D canvas context unavailable.");
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
   return canvas;
+}
+
+interface DecodedPhoto {
+  canvas: HTMLCanvasElement;
+  originalWidth: number;
+  originalHeight: number;
+}
+
+async function decodePhotoToCanvas(file: File, maxDimension: number): Promise<DecodedPhoto> {
+  if (typeof createImageBitmap === "function") {
+    let probe: ImageBitmap | null = null;
+    try {
+      // First pass just to read real dimensions - closed immediately so it
+      // never lingers alongside the resized pass below.
+      probe = await createImageBitmap(file);
+      const { width: originalWidth, height: originalHeight } = probe;
+      const scale = Math.min(1, maxDimension / Math.max(originalWidth, originalHeight));
+      const targetWidth = Math.max(1, Math.round(originalWidth * scale));
+      const targetHeight = Math.max(1, Math.round(originalHeight * scale));
+      probe.close();
+      probe = null;
+      const bitmap = await createImageBitmap(file, {
+        resizeWidth: targetWidth,
+        resizeHeight: targetHeight,
+        resizeQuality: "medium",
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        bitmap.close();
+        throw new Error("2D canvas context unavailable.");
+      }
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      return { canvas, originalWidth, originalHeight };
+    } catch {
+      if (probe) probe.close();
+      // Fall through to the <img>-based path below.
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(url);
+    const canvas = downscaleToCanvas(image, maxDimension);
+    return { canvas, originalWidth: image.naturalWidth, originalHeight: image.naturalHeight };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 // Temporary on-screen diagnostics for tracking down device-specific scan
@@ -361,28 +422,21 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     // decode below blocks the main thread - otherwise the UI can appear to
     // freeze with no feedback at all while a big photo decodes.
     await new Promise((resolve) => setTimeout(resolve, 30));
-    const url = URL.createObjectURL(file);
     const startedAt = performance.now();
     try {
-      const image = await loadImage(url);
-      const canvas = downscaleToCanvas(image, MAX_PHOTO_DIMENSION);
+      const { canvas, originalWidth, originalHeight } = await decodePhotoToCanvas(file, MAX_PHOTO_DIMENSION);
       const reader = new BrowserMultiFormatReader(SCAN_HINTS);
       const result = reader.decodeFromCanvas(canvas);
       setPhotoDiagnostic(
-        `${image.naturalWidth}×${image.naturalHeight} → ${canvas.width}×${canvas.height}, decoded in ${Math.round(performance.now() - startedAt)}ms`
+        `${originalWidth}×${originalHeight} → ${canvas.width}×${canvas.height}, decoded in ${Math.round(performance.now() - startedAt)}ms`
       );
       handleBarcodeDetected(result.getText());
-    } catch (err) {
-      const dims =
-        err instanceof Error && err.message.includes("load")
-          ? "photo failed to load"
-          : `scanned in ${Math.round(performance.now() - startedAt)}ms`;
-      setPhotoDiagnostic(dims);
+    } catch {
+      setPhotoDiagnostic(`scanned in ${Math.round(performance.now() - startedAt)}ms`);
       setPhotoError(
         "Couldn't find a barcode in that photo. Try filling more of the frame with the barcode, more light, or holding steadier, then retake."
       );
     } finally {
-      URL.revokeObjectURL(url);
       setPhotoDecoding(false);
     }
   };
