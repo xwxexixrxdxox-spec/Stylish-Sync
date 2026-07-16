@@ -268,6 +268,16 @@ interface Props {
   onRemoveStock: (input: { barcode: string; quantity: number }) => void;
 }
 
+// Surfaced next to the Barcode field so a lookup - whether triggered by the
+// scanner, the photo fallback, or someone typing/pasting a barcode by hand -
+// always gives visible feedback instead of silently filling in a name (or
+// silently doing nothing when nothing was found). "existing" and "found"
+// are both successes, kept separate because they mean different things:
+// "existing" matched an item already in this inventory, "found" pulled a
+// product name from the external lookup for a barcode seen for the first
+// time.
+type LookupStatus = "idle" | "checking" | "existing" | "found" | "not-found";
+
 // Fallback for devices whose browser camera stream never reports a usable
 // focus capability at all (confirmed via the diagnostics above: some Android
 // + Chrome combinations only ever expose focusMode: ["manual"], with no
@@ -298,7 +308,11 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const [quantity, setQuantity] = useState(1);
   const [unit, setUnit] = useState<Unit>("ea");
   const [price, setPrice] = useState(0);
-  const [looking, setLooking] = useState(false);
+  const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
+  // Dedupes lookups so blur + Enter on the same unchanged barcode (or a
+  // scan of a barcode someone already typed) doesn't fire a second
+  // network request for a result we already have.
+  const lastLookedUpRef = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -441,20 +455,57 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     }
   };
 
-  const handleBarcodeDetected = async (code: string) => {
-    stopScan();
-    setBarcode(code);
-    const existing = items.find((it) => it.barcode === code);
+  // Shared by the scanner, the photo fallback, and manual entry below - one
+  // lookup path so all three sources give the same "checking / found /
+  // existing / not-found" feedback instead of the scanner silently doing
+  // more than manual typing ever did.
+  const runBarcodeLookup = async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed || trimmed === lastLookedUpRef.current) return;
+    lastLookedUpRef.current = trimmed;
+
+    const existing = items.find((it) => it.barcode === trimmed);
     if (existing) {
+      setLookupStatus("existing");
       setName(existing.name);
       setUnit(existing.unit);
       setPrice(existing.pricePerUnit);
       return;
     }
-    setLooking(true);
-    const found = await lookupBarcode(code);
-    setLooking(false);
-    if (found) setName(found);
+
+    setLookupStatus("checking");
+    const found = await lookupBarcode(trimmed);
+    if (found) {
+      setLookupStatus("found");
+      setName(found);
+    } else {
+      setLookupStatus("not-found");
+    }
+  };
+
+  const handleBarcodeDetected = (code: string) => {
+    stopScan();
+    setBarcode(code);
+    runBarcodeLookup(code);
+  };
+
+  const handleBarcodeChange = (value: string) => {
+    setBarcode(value);
+    // Clear stale feedback the moment the value changes so an old
+    // "not found" or "found: X" doesn't linger while they edit or retype.
+    setLookupStatus("idle");
+  };
+
+  const handleBarcodeBlur = () => {
+    runBarcodeLookup(barcode);
+  };
+
+  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    // Triggers the blur handler above rather than duplicating the lookup
+    // call here, so there's exactly one place this logic lives.
+    e.currentTarget.blur();
   };
 
   const reset = () => {
@@ -463,6 +514,8 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     setQuantity(1);
     setUnit("ea");
     setPrice(0);
+    setLookupStatus("idle");
+    lastLookedUpRef.current = null;
   };
 
   return (
@@ -580,16 +633,32 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
           <input
             className="input"
             value={barcode}
-            onChange={(e) => setBarcode(e.target.value)}
+            onChange={(e) => handleBarcodeChange(e.target.value)}
+            onBlur={handleBarcodeBlur}
+            onKeyDown={handleBarcodeKeyDown}
             placeholder="Scan or type manually"
           />
+          {lookupStatus === "checking" && (
+            <p className="mt-1 text-[11px] text-neutral-400">🔎 Looking up barcode…</p>
+          )}
+          {lookupStatus === "existing" && (
+            <p className="mt-1 text-[11px] text-green-700">✓ Matches an item already in your inventory</p>
+          )}
+          {lookupStatus === "found" && (
+            <p className="mt-1 text-[11px] text-green-700">✓ Product found — details filled in below</p>
+          )}
+          {lookupStatus === "not-found" && (
+            <p className="mt-1 text-[11px] text-amber-700">
+              No product found for this barcode - enter the details below manually.
+            </p>
+          )}
         </Field>
         <Field label="Item Description">
           <input
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={looking ? "Looking up…" : "Auto-fills from lookup, or type your own"}
+            placeholder={lookupStatus === "checking" ? "Looking up…" : "Auto-fills from lookup, or type your own"}
           />
         </Field>
         <div className="grid grid-cols-2 gap-3">
