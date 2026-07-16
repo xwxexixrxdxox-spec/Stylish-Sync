@@ -131,6 +131,39 @@ function focusTrackAt(stream: MediaStream, x: number, y: number): () => void {
   };
 }
 
+// Temporary on-screen diagnostics for tracking down device-specific scan
+// failures (e.g. reports of "works on iOS, not on this Android phone")
+// without needing to see the device's screen directly. Shows the camera
+// settings actually granted plus a live tally of decode attempts, broken
+// down by why each attempt failed - "no barcode-shaped pattern found" vs.
+// "found something but couldn't read it cleanly" are very different
+// problems (framing/distance vs. focus/blur/resolution).
+interface ScanDiagnostics {
+  attempts: number;
+  notFound: number;
+  errorKinds: Record<string, number>;
+  actualWidth: number | null;
+  actualHeight: number | null;
+  facingModeActual: string | null;
+  focusModes: string[] | null;
+  exposureModes: string[] | null;
+  whiteBalanceModes: string[] | null;
+  tuningApplied: boolean;
+}
+
+const EMPTY_DIAGNOSTICS: ScanDiagnostics = {
+  attempts: 0,
+  notFound: 0,
+  errorKinds: {},
+  actualWidth: null,
+  actualHeight: null,
+  facingModeActual: null,
+  focusModes: null,
+  exposureModes: null,
+  whiteBalanceModes: null,
+  tuningApplied: false,
+};
+
 const UNITS: Unit[] = [
   "ea", "box", "case", "pack", "bag", "bottle", "can", "roll", "dozen", "pair",
   "kg", "lb", "oz", "g", "L", "ml", "fl oz",
@@ -149,6 +182,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [canTapFocus, setCanTapFocus] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<ScanDiagnostics>(EMPTY_DIAGNOSTICS);
 
   const [barcode, setBarcode] = useState("");
   const [name, setName] = useState("");
@@ -168,21 +202,65 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const startScan = async () => {
     setCameraError(null);
     setCanTapFocus(false);
+    setDiagnostics(EMPTY_DIAGNOSTICS);
     try {
       const reader = new BrowserMultiFormatReader(SCAN_HINTS);
       setScanning(true);
       controlsRef.current = await reader.decodeFromConstraints(
         { video: SCAN_VIDEO_CONSTRAINTS },
         videoRef.current!,
-        (result) => {
+        (result, error) => {
           if (result) {
             handleBarcodeDetected(result.getText());
+            return;
           }
+          // Every failed attempt reports an error - almost always
+          // NotFoundException ("nothing barcode-shaped in this frame"),
+          // which is normal and not worth tallying individually. Anything
+          // else (ChecksumException, FormatException, ...) means a pattern
+          // WAS found but couldn't be read cleanly, which points at
+          // focus/blur/resolution rather than framing/distance.
+          const kind = error?.getKind() ?? "unknown";
+          setDiagnostics((prev) => ({
+            ...prev,
+            attempts: prev.attempts + 1,
+            notFound: kind === "NotFoundException" ? prev.notFound + 1 : prev.notFound,
+            errorKinds:
+              kind === "NotFoundException"
+                ? prev.errorKinds
+                : { ...prev.errorKinds, [kind]: (prev.errorKinds[kind] ?? 0) + 1 },
+          }));
         }
       );
       const stream = videoRef.current?.srcObject;
       if (stream instanceof MediaStream) {
-        setCanTapFocus(applyCameraTuning(stream));
+        const tuningApplied = applyCameraTuning(stream);
+        setCanTapFocus(tuningApplied);
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          let settings: MediaTrackSettings = {};
+          let caps: ExtendedTrackCapabilities = {};
+          try {
+            settings = track.getSettings();
+          } catch {
+            // Settings inspection isn't supported here; leave defaults.
+          }
+          try {
+            caps = track.getCapabilities() as ExtendedTrackCapabilities;
+          } catch {
+            // Capability inspection isn't supported here; leave defaults.
+          }
+          setDiagnostics((prev) => ({
+            ...prev,
+            actualWidth: settings.width ?? prev.actualWidth,
+            actualHeight: settings.height ?? prev.actualHeight,
+            facingModeActual: settings.facingMode ?? prev.facingModeActual,
+            focusModes: caps.focusMode ?? prev.focusModes,
+            exposureModes: caps.exposureMode ?? prev.exposureModes,
+            whiteBalanceModes: caps.whiteBalanceMode ?? prev.whiteBalanceModes,
+            tuningApplied,
+          }));
+        }
       }
     } catch (e) {
       setScanning(false);
@@ -190,6 +268,12 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
         "Couldn't access the camera. Check that this site has camera permission, or enter the barcode manually below."
       );
     }
+  };
+
+  const handleVideoLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) return;
+    setDiagnostics((prev) => ({ ...prev, actualWidth: video.videoWidth, actualHeight: video.videoHeight }));
   };
 
   const stopScan = () => {
@@ -255,6 +339,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
             playsInline
             autoPlay
             onClick={handleVideoTap}
+            onLoadedMetadata={handleVideoLoadedMetadata}
           />
           {scanning && (
             <div className="scan-overlay pointer-events-none absolute inset-0">
@@ -276,6 +361,40 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
           Cancel scan
         </button>
       </div>
+      {(scanning || diagnostics.attempts > 0) && (
+        <div className="mt-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-3">
+          <p className="mb-1.5 text-xs font-semibold text-neutral-500">Scan diagnostics (temporary)</p>
+          <div className="space-y-0.5 font-mono text-[11px] leading-relaxed text-neutral-600">
+            <p>
+              resolution: {diagnostics.actualWidth ?? "?"}×{diagnostics.actualHeight ?? "?"}
+            </p>
+            <p>facing: {diagnostics.facingModeActual ?? "unknown"}</p>
+            <p>focus modes: {diagnostics.focusModes?.join(", ") || "none reported"}</p>
+            <p>exposure modes: {diagnostics.exposureModes?.join(", ") || "none reported"}</p>
+            <p>white balance modes: {diagnostics.whiteBalanceModes?.join(", ") || "none reported"}</p>
+            <p>auto-tuning applied: {diagnostics.tuningApplied ? "yes" : "no"}</p>
+            <p>frames scanned: {diagnostics.attempts}</p>
+            <p>no barcode found: {diagnostics.notFound}</p>
+            {Object.entries(diagnostics.errorKinds).map(([kind, count]) => (
+              <p key={kind}>
+                {kind}: {count}
+              </p>
+            ))}
+          </div>
+          {diagnostics.attempts > 15 && Object.keys(diagnostics.errorKinds).length === 0 && (
+            <p className="mt-1.5 text-[11px] text-amber-700">
+              Only &quot;no barcode found&quot; so far - the camera isn&apos;t detecting anything
+              barcode-shaped in frame. Try moving the barcode more centered, or closer/farther away.
+            </p>
+          )}
+          {Object.keys(diagnostics.errorKinds).length > 0 && (
+            <p className="mt-1.5 text-[11px] text-amber-700">
+              A barcode-like pattern is being detected but not decoding cleanly - this points at
+              focus, blur, or resolution rather than framing.
+            </p>
+          )}
+        </div>
+      )}
       {!scanning && (
         <button
           onClick={startScan}
