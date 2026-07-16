@@ -2,44 +2,134 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
-import { BarcodeFormat, DecodeHintType } from "@zxing/library";
+import { DecodeHintType } from "@zxing/library";
 import { InventoryItem, Unit } from "@/lib/types";
 import { lookupBarcode } from "@/lib/productLookup";
 
 // Hints for the ZXing decoder: TRY_HARDER spends extra CPU time on each
-// frame to pull a result out of glare, blur, or a skewed angle, and
-// restricting POSSIBLE_FORMATS to the barcode types actually used on
-// retail/inventory labels keeps the decoder from wasting attempts on
-// formats we'll never see (which also speeds up each scan pass).
-const SCAN_HINTS = new Map<DecodeHintType, unknown>([
-  [DecodeHintType.TRY_HARDER, true],
-  [
-    DecodeHintType.POSSIBLE_FORMATS,
-    [
-      BarcodeFormat.EAN_13,
-      BarcodeFormat.EAN_8,
-      BarcodeFormat.UPC_A,
-      BarcodeFormat.UPC_E,
-      BarcodeFormat.CODE_128,
-      BarcodeFormat.CODE_39,
-      BarcodeFormat.CODE_93,
-      BarcodeFormat.ITF,
-      BarcodeFormat.CODABAR,
-      BarcodeFormat.QR_CODE,
-    ],
-  ],
-]);
+// frame to pull a result out of glare, blur, or a skewed angle.
+//
+// NOTE: an earlier version of this file also set POSSIBLE_FORMATS to a
+// fixed list of "typical retail" symbologies (UPC/EAN/Code128/etc.) to
+// speed up each scan pass. That's a likely culprit for barcodes that
+// decode on one device but not another: if a label uses a symbology
+// outside that list (e.g. GS1 DataBar/RSS on variable-weight items,
+// PDF417, Data Matrix, Aztec), it would silently never be recognized no
+// matter how good the focus or lighting is - not an Android bug, just an
+// overly-narrow allowlist. Removed here so every symbology ZXing supports
+// is tried again.
+const SCAN_HINTS = new Map<DecodeHintType, unknown>([[DecodeHintType.TRY_HARDER, true]]);
 
-// Prefer the rear camera at a higher resolution with continuous autofocus.
-// Continuous autofocus in particular helps a lot with motion/hand-shake
-// blur; "ideal" constraints are a soft preference, so this still falls
-// back gracefully on devices/browsers that don't support them.
+// Camera capability keys below (focusMode, exposureMode, whiteBalanceMode,
+// pointsOfInterest) come from the W3C Image Capture spec, which extends
+// the standard MediaTrackConstraints/Capabilities but isn't part of
+// TypeScript's bundled DOM lib - hence the extra types and casts.
+interface ExtendedTrackCapabilities extends MediaTrackCapabilities {
+  focusMode?: string[];
+  exposureMode?: string[];
+  whiteBalanceMode?: string[];
+  pointsOfInterest?: unknown;
+}
+type ExtendedConstraintSet = MediaTrackConstraintSet & {
+  focusMode?: string;
+  exposureMode?: string;
+  whiteBalanceMode?: string;
+  pointsOfInterest?: { x: number; y: number }[];
+};
+
+// Prefer the rear camera at a higher resolution. "ideal" constraints are a
+// soft preference, so this still falls back gracefully on devices/browsers
+// that don't support them. Focus/exposure/white-balance are requested here
+// too, but on a lot of Android + Chrome combinations that initial request
+// is ignored - applyCameraTuning() below re-applies them directly on the
+// live track once the stream exists, which is much more reliably honored.
 const SCAN_VIDEO_CONSTRAINTS: MediaTrackConstraints = {
   facingMode: { ideal: "environment" },
   width: { ideal: 1920 },
   height: { ideal: 1080 },
-  advanced: [{ focusMode: "continuous" } as unknown as MediaTrackConstraintSet],
+  advanced: [
+    {
+      focusMode: "continuous",
+      exposureMode: "continuous",
+      whiteBalanceMode: "continuous",
+    } as ExtendedConstraintSet,
+  ],
 };
+
+// A focusMode value counts as "actionable" only if we'd actually do
+// something with it in focusTrackAt below - keep this in sync with the
+// single-shot/continuous branches there so the tap-to-focus hint is never
+// shown for a capability (e.g. "manual") that tapping wouldn't act on.
+function hasActionableFocusMode(focusMode: string[] | undefined): boolean {
+  return !!focusMode && (focusMode.includes("single-shot") || focusMode.includes("continuous"));
+}
+
+// Re-applies continuous focus/exposure/white-balance directly on the live
+// video track (feature-detected via getCapabilities, so this is a no-op -
+// not an error - on browsers/devices that don't expose camera controls,
+// e.g. iOS Safari). Returns whether the track exposes an actionable focus
+// control, which the caller uses to decide whether to offer tap-to-focus.
+function applyCameraTuning(stream: MediaStream): boolean {
+  const track = stream.getVideoTracks()[0];
+  if (!track || typeof track.getCapabilities !== "function") return false;
+  let caps: ExtendedTrackCapabilities;
+  try {
+    caps = track.getCapabilities() as ExtendedTrackCapabilities;
+  } catch {
+    return false;
+  }
+  const advanced: ExtendedConstraintSet = {};
+  if (caps.focusMode?.includes("continuous")) advanced.focusMode = "continuous";
+  if (caps.exposureMode?.includes("continuous")) advanced.exposureMode = "continuous";
+  if (caps.whiteBalanceMode?.includes("continuous")) advanced.whiteBalanceMode = "continuous";
+  if (Object.keys(advanced).length > 0) {
+    // Best-effort only - a device rejecting this constraint shouldn't be
+    // treated any differently than one that never had the capability.
+    track.applyConstraints({ advanced: [advanced] } as MediaTrackConstraints).catch(() => {});
+  }
+  return hasActionableFocusMode(caps.focusMode);
+}
+
+// Mimics a native camera app's "tap to focus": nudges the lens to refocus
+// at the tapped point (as a normalized 0-1 x/y), then hands focus back to
+// continuous mode shortly after. Entirely feature-detected/best-effort -
+// silently does nothing on devices/browsers that don't support manual
+// focus points (which includes most iOS Safari versions, where continuous
+// autofocus already runs by default and needs no help). Returns a cleanup
+// function that cancels the pending "revert to continuous" timer, if any,
+// so callers can clear it on stop/unmount.
+function focusTrackAt(stream: MediaStream, x: number, y: number): () => void {
+  const track = stream.getVideoTracks()[0];
+  if (!track || typeof track.getCapabilities !== "function") return () => {};
+  let caps: ExtendedTrackCapabilities;
+  try {
+    caps = track.getCapabilities() as ExtendedTrackCapabilities;
+  } catch {
+    return () => {};
+  }
+  if (!hasActionableFocusMode(caps.focusMode)) return () => {};
+  const advanced: ExtendedConstraintSet = {};
+  if (caps.pointsOfInterest) advanced.pointsOfInterest = [{ x, y }];
+  advanced.focusMode = caps.focusMode?.includes("single-shot") ? "single-shot" : "continuous";
+
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  track
+    .applyConstraints({ advanced: [advanced] } as MediaTrackConstraints)
+    .then(() => {
+      if (advanced.focusMode === "single-shot" && caps.focusMode?.includes("continuous")) {
+        timeoutId = setTimeout(() => {
+          track
+            .applyConstraints({ advanced: [{ focusMode: "continuous" } as ExtendedConstraintSet] } as MediaTrackConstraints)
+            .catch(() => {});
+        }, 1500);
+      }
+    })
+    .catch(() => {});
+
+  return () => {
+    if (timeoutId) clearTimeout(timeoutId);
+  };
+}
 
 const UNITS: Unit[] = [
   "ea", "box", "case", "pack", "bag", "bottle", "can", "roll", "dozen", "pair",
@@ -55,8 +145,10 @@ interface Props {
 export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
+  const cancelFocusTimerRef = useRef<() => void>(() => {});
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [canTapFocus, setCanTapFocus] = useState(false);
 
   const [barcode, setBarcode] = useState("");
   const [name, setName] = useState("");
@@ -65,10 +157,17 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const [price, setPrice] = useState(0);
   const [looking, setLooking] = useState(false);
 
-  useEffect(() => () => controlsRef.current?.stop(), []);
+  useEffect(
+    () => () => {
+      controlsRef.current?.stop();
+      cancelFocusTimerRef.current();
+    },
+    []
+  );
 
   const startScan = async () => {
     setCameraError(null);
+    setCanTapFocus(false);
     try {
       const reader = new BrowserMultiFormatReader(SCAN_HINTS);
       setScanning(true);
@@ -81,6 +180,10 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
           }
         }
       );
+      const stream = videoRef.current?.srcObject;
+      if (stream instanceof MediaStream) {
+        setCanTapFocus(applyCameraTuning(stream));
+      }
     } catch (e) {
       setScanning(false);
       setCameraError(
@@ -92,7 +195,21 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const stopScan = () => {
     controlsRef.current?.stop();
     controlsRef.current = null;
+    cancelFocusTimerRef.current();
     setScanning(false);
+    setCanTapFocus(false);
+  };
+
+  const handleVideoTap = (e: React.MouseEvent<HTMLVideoElement>) => {
+    const video = videoRef.current;
+    const stream = video?.srcObject;
+    if (!video || !(stream instanceof MediaStream)) return;
+    const rect = video.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const x = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+    const y = Math.min(Math.max((e.clientY - rect.top) / rect.height, 0), 1);
+    cancelFocusTimerRef.current();
+    cancelFocusTimerRef.current = focusTrackAt(stream, x, y);
   };
 
   const handleBarcodeDetected = async (code: string) => {
@@ -131,10 +248,24 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
         }`}
       >
         <div className="relative">
-          <video ref={videoRef} className="aspect-[4/3] w-full object-cover" muted playsInline autoPlay />
+          <video
+            ref={videoRef}
+            className="aspect-[4/3] w-full object-cover"
+            muted
+            playsInline
+            autoPlay
+            onClick={handleVideoTap}
+          />
           {scanning && (
             <div className="scan-overlay pointer-events-none absolute inset-0">
               <div className="scan-bar" />
+            </div>
+          )}
+          {canTapFocus && (
+            <div className="pointer-events-none absolute bottom-2 left-0 right-0 flex justify-center">
+              <span className="rounded-full bg-black/60 px-2.5 py-1 text-xs text-white/90">
+                Tap the barcode to focus
+              </span>
             </div>
           )}
         </div>
