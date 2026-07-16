@@ -2,8 +2,44 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 import { InventoryItem, Unit } from "@/lib/types";
 import { lookupBarcode } from "@/lib/productLookup";
+
+// Hints for the ZXing decoder: TRY_HARDER spends extra CPU time on each
+// frame to pull a result out of glare, blur, or a skewed angle, and
+// restricting POSSIBLE_FORMATS to the barcode types actually used on
+// retail/inventory labels keeps the decoder from wasting attempts on
+// formats we'll never see (which also speeds up each scan pass).
+const SCAN_HINTS = new Map<DecodeHintType, unknown>([
+  [DecodeHintType.TRY_HARDER, true],
+  [
+    DecodeHintType.POSSIBLE_FORMATS,
+    [
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.UPC_E,
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.CODE_93,
+      BarcodeFormat.ITF,
+      BarcodeFormat.CODABAR,
+      BarcodeFormat.QR_CODE,
+    ],
+  ],
+]);
+
+// Prefer the rear camera at a higher resolution with continuous autofocus.
+// Continuous autofocus in particular helps a lot with motion/hand-shake
+// blur; "ideal" constraints are a soft preference, so this still falls
+// back gracefully on devices/browsers that don't support them.
+const SCAN_VIDEO_CONSTRAINTS: MediaTrackConstraints = {
+  facingMode: { ideal: "environment" },
+  width: { ideal: 1920 },
+  height: { ideal: 1080 },
+  advanced: [{ focusMode: "continuous" } as unknown as MediaTrackConstraintSet],
+};
 
 const UNITS: Unit[] = [
   "ea", "box", "case", "pack", "bag", "bottle", "can", "roll", "dozen", "pair",
@@ -34,10 +70,10 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   const startScan = async () => {
     setCameraError(null);
     try {
-      const reader = new BrowserMultiFormatReader();
+      const reader = new BrowserMultiFormatReader(SCAN_HINTS);
       setScanning(true);
-      controlsRef.current = await reader.decodeFromVideoDevice(
-        undefined,
+      controlsRef.current = await reader.decodeFromConstraints(
+        { video: SCAN_VIDEO_CONSTRAINTS },
         videoRef.current!,
         (result) => {
           if (result) {
@@ -94,7 +130,14 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
           scanning ? "" : "hidden"
         }`}
       >
-        <video ref={videoRef} className="aspect-[4/3] w-full object-cover" muted playsInline autoPlay />
+        <div className="relative">
+          <video ref={videoRef} className="aspect-[4/3] w-full object-cover" muted playsInline autoPlay />
+          {scanning && (
+            <div className="scan-overlay pointer-events-none absolute inset-0">
+              <div className="scan-bar" />
+            </div>
+          )}
+        </div>
         <button
           onClick={stopScan}
           className="w-full bg-white py-3 text-sm font-medium text-neutral-800 hover:bg-surface-muted"
@@ -196,6 +239,30 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
         .input:focus {
           outline: 2px solid #171717;
           outline-offset: 1px;
+        }
+        .scan-overlay {
+          overflow: hidden;
+        }
+        .scan-bar {
+          position: absolute;
+          left: 6%;
+          right: 6%;
+          height: 3px;
+          border-radius: 999px;
+          background: linear-gradient(90deg, transparent, #22c55e 20%, #4ade80, #22c55e 80%, transparent);
+          box-shadow: 0 0 10px 3px rgba(34, 197, 94, 0.85);
+          animation: scan-move 2.2s ease-in-out infinite;
+        }
+        @keyframes scan-move {
+          0% {
+            top: 6%;
+          }
+          50% {
+            top: 92%;
+          }
+          100% {
+            top: 6%;
+          }
         }
       `}</style>
     </div>
