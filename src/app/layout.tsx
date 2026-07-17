@@ -3,6 +3,7 @@ import "./globals.css";
 import CookieConsentBanner from "@/components/CookieConsentBanner";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   applicationName: "InventorySync",
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <CookieConsentBanner />
         <ServiceWorkerRegistrar />
         <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );
