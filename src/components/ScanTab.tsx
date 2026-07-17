@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { DecodeHintType } from "@zxing/library";
-import { InventoryItem, Unit } from "@/lib/types";
+import { InventoryItem, Unit, AccessCheckResponse } from "@/lib/types";
+import ReceiptScanTab from "@/components/ReceiptScanTab";
+import PricingTiers from "@/components/PricingTiers";
 import { lookupBarcode } from "@/lib/productLookup";
 import { contributeCommunityBarcode, lookupCommunityBarcode } from "@/lib/communityLookup";
 
@@ -267,6 +269,7 @@ interface Props {
   items: InventoryItem[];
   onAddStock: (input: { barcode: string; name: string; quantity: number; unit: Unit; pricePerUnit: number }) => void;
   onRemoveStock: (input: { barcode: string; quantity: number }) => void;
+  access: AccessCheckResponse | null;
 }
 
 // Surfaced next to the Barcode field so a lookup - whether triggered by the
@@ -291,7 +294,8 @@ type LookupStatus = "idle" | "checking" | "existing" | "found" | "not-found";
 // via <input type="file" capture>, then decodes that single still photo.
 
 
-export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
+export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Props) {
+  const [mode, setMode] = useState<"barcode" | "receipt">("barcode");
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const cancelFocusTimerRef = useRef<() => void>(() => {});
@@ -555,6 +559,29 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
         <span aria-hidden>📷</span> Scan
       </h1>
 
+      <div className="mb-4 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setMode("barcode")}
+          className={`flex-1 rounded-lg py-2 text-sm font-semibold ${
+            mode === "barcode" ? "bg-neutral-900 text-white" : "border border-surface-border bg-white text-neutral-600"
+          }`}
+        >
+          📷 Barcode
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("receipt")}
+          className={`flex-1 rounded-lg py-2 text-sm font-semibold ${
+            mode === "receipt" ? "bg-neutral-900 text-white" : "border border-surface-border bg-white text-neutral-600"
+          }`}
+        >
+          🧾 Receipt{!access?.access && <span className="ml-1 text-[10px] font-normal opacity-75">(Premium)</span>}
+        </button>
+      </div>
+
+      {mode === "barcode" && (
+        <>
       <div
         className={`overflow-hidden rounded-xl2 border border-surface-border bg-black shadow-card ${
           scanning ? "" : "hidden"
@@ -755,6 +782,22 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
           </button>
         </div>
       </div>
+        </>
+      )}
+
+      {mode === "receipt" && (
+        access?.access ? (
+          <ReceiptScanTab items={items} onAddStock={onAddStock} />
+        ) : (
+          <div className="mt-4 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+            <p className="mb-3 text-sm text-neutral-600">
+              Receipt scanning is a Premium feature — snap a photo of a receipt and bulk-add every line
+              item at once instead of one barcode at a time.
+            </p>
+            <PricingTiers />
+          </div>
+        )
+      )}
 
       <style jsx global>{`
         .input {
