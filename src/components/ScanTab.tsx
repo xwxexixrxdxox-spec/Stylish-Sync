@@ -5,6 +5,7 @@ import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { DecodeHintType } from "@zxing/library";
 import { InventoryItem, Unit } from "@/lib/types";
 import { lookupBarcode } from "@/lib/productLookup";
+import { contributeCommunityBarcode, lookupCommunityBarcode } from "@/lib/communityLookup";
 
 // Hints for the ZXing decoder: TRY_HARDER spends extra CPU time on each
 // frame to pull a result out of glare, blur, or a skewed angle.
@@ -313,6 +314,15 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
   // scan of a barcode someone already typed) doesn't fire a second
   // network request for a result we already have.
   const lastLookedUpRef = useRef<string | null>(null);
+  // Set only when a lookup comes back "not-found" for the barcode
+  // currently in the field - meaning neither the shared community database
+  // nor the external UPC lookup had it. If the customer then fills in a
+  // name/unit by hand and adds it to their inventory, the Add Stock
+  // handler contributes that entry to the shared database so the next
+  // customer to scan this same barcode gets it auto-filled too. Cleared
+  // any time the barcode changes or a lookup finds something, so a stale
+  // barcode never gets contributed under a newer one.
+  const pendingContributionRef = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -463,6 +473,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     const trimmed = code.trim();
     if (!trimmed || trimmed === lastLookedUpRef.current) return;
     lastLookedUpRef.current = trimmed;
+    pendingContributionRef.current = null;
 
     const existing = items.find((it) => it.barcode === trimmed);
     if (existing) {
@@ -474,13 +485,31 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     }
 
     setLookupStatus("checking");
+
+    // Check the shared, crowdsourced database first - it's free (no rate
+    // limit like the external lookup below) and can succeed on barcodes
+    // the external service has never heard of, since it's built entirely
+    // from other InventorySync customers typing in the real answer by hand.
+    const community = await lookupCommunityBarcode(trimmed);
+    if (community) {
+      setLookupStatus("found");
+      setName(community.name);
+      if (community.unit) setUnit(community.unit as Unit);
+      return;
+    }
+
     const found = await lookupBarcode(trimmed);
     if (found) {
       setLookupStatus("found");
       setName(found);
-    } else {
-      setLookupStatus("not-found");
+      return;
     }
+
+    // Neither the shared database nor the external lookup had this
+    // barcode - mark it eligible for contribution so the Add Stock handler
+    // below can share whatever the customer types in next.
+    pendingContributionRef.current = trimmed;
+    setLookupStatus("not-found");
   };
 
   const handleBarcodeDetected = (code: string) => {
@@ -494,6 +523,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     // Clear stale feedback the moment the value changes so an old
     // "not found" or "found: X" doesn't linger while they edit or retype.
     setLookupStatus("idle");
+    pendingContributionRef.current = null;
   };
 
   const handleBarcodeBlur = () => {
@@ -516,6 +546,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
     setPrice(0);
     setLookupStatus("idle");
     lastLookedUpRef.current = null;
+    pendingContributionRef.current = null;
   };
 
   return (
@@ -696,7 +727,15 @@ export default function ScanTab({ items, onAddStock, onRemoveStock }: Props) {
         <div className="flex gap-2 pt-1">
           <button
             onClick={() => {
-              if (!name.trim()) return;
+              const trimmedName = name.trim();
+              if (!trimmedName) return;
+              // Only contribute to the shared database when this exact
+              // barcode just came back "not-found" - never for a match
+              // against an existing item or an external-lookup result,
+              // both of which are already known and don't need sharing.
+              if (pendingContributionRef.current && pendingContributionRef.current === barcode.trim()) {
+                void contributeCommunityBarcode(barcode.trim(), trimmedName, unit);
+              }
               onAddStock({ barcode, name, quantity, unit, pricePerUnit: price });
               reset();
             }}
