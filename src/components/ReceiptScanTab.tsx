@@ -203,16 +203,23 @@ function parseReceiptText(text: string, items: InventoryItem[]): ParsedLine[] {
 }
 
 export default function ReceiptScanTab({ items, onAddStock }: Props) {
-  const photoInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const libraryInputRef = useRef<HTMLInputElement>(null);
   const [ocrRunning, setOcrRunning] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [parsedLines, setParsedLines] = useState<ParsedLine[] | null>(null);
   const [addedCount, setAddedCount] = useState<number | null>(null);
 
-  const openCapture = () => {
+  const openCamera = () => {
     setOcrError(null);
     setAddedCount(null);
-    photoInputRef.current?.click();
+    cameraInputRef.current?.click();
+  };
+
+  const openLibrary = () => {
+    setOcrError(null);
+    setAddedCount(null);
+    libraryInputRef.current?.click();
   };
 
   const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -277,21 +284,41 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
           the results below before adding them, since OCR can misread prices, quantities, or descriptions.
         </p>
         <input
-          ref={photoInputRef}
+          ref={cameraInputRef}
           type="file"
           accept="image/*"
           capture="environment"
           className="hidden"
           onChange={handleCapture}
         />
-        <button
-          type="button"
-          onClick={openCapture}
-          disabled={ocrRunning}
-          className="w-full rounded-xl2 bg-blue-500 py-3 text-center text-sm font-semibold text-white shadow-card hover:opacity-90 disabled:opacity-60"
-        >
-          {ocrRunning ? "Reading receipt… this can take a moment" : "🧾 Take a Photo of a Receipt"}
-        </button>
+        <input
+          ref={libraryInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleCapture}
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={openCamera}
+            disabled={ocrRunning}
+            className="flex-1 rounded-xl2 bg-blue-500 py-3 text-center text-sm font-semibold text-white shadow-card hover:opacity-90 disabled:opacity-60"
+          >
+            {ocrRunning ? "Reading…" : "📷 Take a Photo"}
+          </button>
+          <button
+            type="button"
+            onClick={openLibrary}
+            disabled={ocrRunning}
+            className="flex-1 rounded-xl2 border border-surface-border bg-white py-3 text-center text-sm font-semibold text-neutral-700 shadow-card hover:bg-neutral-50 disabled:opacity-60"
+          >
+            {ocrRunning ? "Reading…" : "🖼️ Choose from Photos"}
+          </button>
+        </div>
+        {ocrRunning && (
+          <p className="mt-2 text-xs text-neutral-500">Reading receipt… this can take a moment.</p>
+        )}
         {ocrError && <p className="mt-2 text-xs text-accent-low">{ocrError}</p>}
         {addedCount !== null && (
           <p className="mt-2 text-xs text-green-700">
