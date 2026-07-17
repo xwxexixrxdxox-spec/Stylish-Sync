@@ -270,10 +270,10 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
   return (
     <div className="mt-4">
       <div className="rounded-xl2 border border-dashed border-surface-border bg-white p-4 shadow-card">
-        <p className="mb-1 text-sm font-semibold text-neutral-900">ð§¾ Scan a Receipt</p>
+        <p className="mb-1 text-sm font-semibold text-neutral-900">🧾 Scan a Receipt</p>
         <p className="mb-3 text-xs text-neutral-500">
           Reads the printed item lines on a receipt photo and drafts a bulk-upload list. Receipts
-          don&apos;t carry a per-item barcode, so this uses text recognition instead â always double-check
+          don&apos;t carry a per-item barcode, so this uses text recognition instead — always double-check
           the results below before adding them, since OCR can misread prices, quantities, or descriptions.
         </p>
         <input
@@ -290,12 +290,12 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
           disabled={ocrRunning}
           className="w-full rounded-xl2 bg-blue-500 py-3 text-center text-sm font-semibold text-white shadow-card hover:opacity-90 disabled:opacity-60"
         >
-          {ocrRunning ? "Reading receiptâ¦ this can take a moment" : "ð§¾ Take a Photo of a Receipt"}
+          {ocrRunning ? "Reading receipt… this can take a moment" : "🧾 Take a Photo of a Receipt"}
         </button>
         {ocrError && <p className="mt-2 text-xs text-accent-low">{ocrError}</p>}
         {addedCount !== null && (
           <p className="mt-2 text-xs text-green-700">
-            â Added {addedCount} item{addedCount === 1 ? "" : "s"} to your inventory.
+            ✓ Added {addedCount} item{addedCount === 1 ? "" : "s"} to your inventory.
           </p>
         )}
       </div>
