@@ -118,7 +118,7 @@ export default function HomePage() {
       {tab === "inventory" && (
         <InventoryTab items={items} onAdjust={adjust} onSave={upsertItem} onDelete={deleteItem} onImport={bulkImport} />
       )}
-      {tab === "scan" && <ScanTab items={items} onAddStock={addStock} onRemoveStock={removeStock} />}
+      {tab === "scan" && <ScanTab items={items} onAddStock={addStock} onRemoveStock={removeStock} access={access} />}
       {tab === "reorder" && <ReorderTab items={items} />}
       {tab === "support" && access?.access && <SupportTab />}
       {tab === "account" && (
