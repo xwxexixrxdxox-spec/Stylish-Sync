@@ -7,7 +7,6 @@ export type TabId = "scan" | "inventory" | "reorder" | "support" | "account";
 interface Props {
   active: TabId;
   onChange: (tab: TabId) => void;
-  supportUnlocked: boolean;
 }
 
 const ITEMS: { id: TabId; label: string; icon: typeof Boxes }[] = [
@@ -18,12 +17,11 @@ const ITEMS: { id: TabId; label: string; icon: typeof Boxes }[] = [
   { id: "account", label: "Account", icon: Settings },
 ];
 
-export default function BottomNav({ active, onChange, supportUnlocked }: Props) {
+export default function BottomNav({ active, onChange }: Props) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-surface-border bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
       <div className="mx-auto flex max-w-2xl justify-around px-2 py-1.5">
         {ITEMS.map(({ id, label, icon: Icon }) => {
-          if (id === "support" && !supportUnlocked) return null;
           const isActive = active === id;
           return (
             <button
