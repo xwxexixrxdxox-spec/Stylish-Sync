@@ -47,6 +47,26 @@ const config: Config = {
           "sans-serif",
         ],
       },
+      keyframes: {
+        "mark-in": {
+          "0%": { opacity: "0", transform: "scale(0.82)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        "label-in": {
+          "0%": { opacity: "0", transform: "translateY(4px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "fill-bar": {
+          "0%": { width: "0%" },
+          "70%": { width: "100%" },
+          "100%": { width: "100%" },
+        },
+      },
+      animation: {
+        "mark-in": "mark-in 0.5s cubic-bezier(0.22,1,0.36,1) both",
+        "label-in": "label-in 0.5s cubic-bezier(0.22,1,0.36,1) 0.15s both",
+        "fill-bar": "fill-bar 1.3s cubic-bezier(0.4,0,0.2,1) 0.2s both",
+      },
     },
   },
   plugins: [],
