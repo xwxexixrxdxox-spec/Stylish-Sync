@@ -3,15 +3,17 @@
 import { useState } from "react";
 import { InventoryItem } from "@/lib/types";
 import { X, Trash2 } from "lucide-react";
+import LocationField from "@/components/LocationField";
 
 interface Props {
   item: InventoryItem;
   onSave: (item: InventoryItem) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
+  locations?: string[];
 }
 
-export default function ItemEditModal({ item, onSave, onDelete, onClose }: Props) {
+export default function ItemEditModal({ item, onSave, onDelete, onClose, locations = [] }: Props) {
   const [draft, setDraft] = useState<InventoryItem>(item);
 
   return (
@@ -40,6 +42,14 @@ export default function ItemEditModal({ item, onSave, onDelete, onClose }: Props
               className="input"
               value={draft.barcode}
               onChange={(e) => setDraft({ ...draft, barcode: e.target.value })}
+            />
+          </Field>
+          <Field label="Location">
+            <LocationField
+              listId="location-options-edit"
+              value={draft.location ?? ""}
+              onChange={(value) => setDraft({ ...draft, location: value })}
+              locations={locations}
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
