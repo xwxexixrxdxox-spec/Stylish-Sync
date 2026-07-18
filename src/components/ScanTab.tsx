@@ -6,7 +6,6 @@ import { DecodeHintType } from "@zxing/library";
 import { InventoryItem, Unit, AccessCheckResponse } from "@/lib/types";
 import { getKnownLocations } from "@/lib/locations";
 import ReceiptScanTab from "@/components/ReceiptScanTab";
-import PricingTiers from "@/components/PricingTiers";
 import LocationField from "@/components/LocationField";
 import { lookupBarcode } from "@/lib/productLookup";
 import { contributeCommunityBarcode, lookupCommunityBarcode } from "@/lib/communityLookup";
@@ -594,7 +593,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
             mode === "receipt" ? "bg-neutral-900 text-white" : "border border-surface-border bg-white text-neutral-600"
           }`}
         >
-          🧾 Receipt{!access?.access && <span className="ml-1 text-[10px] font-normal opacity-75">(Premium)</span>}
+          🧾 Receipt
         </button>
       </div>
 
@@ -849,19 +848,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
         </>
       )}
 
-      {mode === "receipt" && (
-        access?.access ? (
-          <ReceiptScanTab items={items} onAddStock={onAddStock} />
-        ) : (
-          <div className="mt-4 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-            <p className="mb-3 text-sm text-neutral-600">
-              Receipt scanning is a Premium feature — snap a photo of a receipt and bulk-add every line
-              item at once instead of one barcode at a time.
-            </p>
-            <PricingTiers />
-          </div>
-        )
-      )}
+      {mode === "receipt" && <ReceiptScanTab items={items} onAddStock={onAddStock} />}
 
       <style jsx global>{`
         .input {
