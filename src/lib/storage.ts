@@ -12,7 +12,6 @@ import { InventoryItem } from "./types";
 const ITEMS_KEY = "isc_inventory_items_v1";
 const SHEET_LINK_KEY = "isc_google_sheet_id_v1";
 const COOKIE_CONSENT_KEY = "isc_cookie_consent_v1";
-const LIVE_CHAT_SESSION_KEY = "isc_live_chat_session_v1";
 
 const SEED_ITEMS: InventoryItem[] = [
   {
@@ -80,21 +79,6 @@ export function setLinkedSheetId(id: string | null): void {
   else window.localStorage.removeItem(SHEET_LINK_KEY);
 }
 
-// Persists the customer's live-chat session id so a reload (or briefly
-// backgrounding the browser tab) doesn't drop them out of an in-progress
-// conversation with a live agent - the widget resumes polling the same
-// session instead of starting a new one.
-export function getLiveChatSessionId(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(LIVE_CHAT_SESSION_KEY);
-}
-
-export function setLiveChatSessionId(id: string | null): void {
-  if (typeof window === "undefined") return;
-  if (id) window.localStorage.setItem(LIVE_CHAT_SESSION_KEY, id);
-  else window.localStorage.removeItem(LIVE_CHAT_SESSION_KEY);
-}
-
 export type CookieConsent = "accepted" | "declined" | null;
 
 export function getCookieConsent(): CookieConsent {
@@ -118,7 +102,6 @@ export async function clearAppCache(): Promise<void> {
 
   window.localStorage.removeItem(ITEMS_KEY);
   window.localStorage.removeItem(SHEET_LINK_KEY);
-  window.localStorage.removeItem(LIVE_CHAT_SESSION_KEY);
 
   if ("caches" in window) {
     const keys = await caches.keys();
