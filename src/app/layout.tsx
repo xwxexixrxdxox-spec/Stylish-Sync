@@ -6,10 +6,10 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
-  applicationName: "InventorySync",
+  applicationName: "WS Inventory Management",
   title: {
-    default: "InventorySync — Scan, Track, Reorder",
-    template: "%s · InventorySync",
+    default: "WS Inventory Management — Scan, Track, Reorder",
+    template: "%s · WS Inventory Management",
   },
   description:
     "Barcode inventory scanning, low-stock reordering, and Google Sheets sync in one app.",
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "InventorySync",
+    title: "WS Inventory Management",
   },
   formatDetection: {
     telephone: false,
