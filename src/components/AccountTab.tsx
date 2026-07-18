@@ -112,9 +112,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pb-24 pt-5 sm:px-6">
-      <h1 className="mb-4 text-lg font-semibold text-neutral-900">Account</h1>
-
+    <div className="px-4 pb-6 pt-4">
       <DevAccessToggle access={access} />
 
       {access?.access && (
