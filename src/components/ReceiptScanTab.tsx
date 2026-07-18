@@ -1,8 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { recognize } from "tesseract.js";
 import { InventoryItem, Unit } from "@/lib/types";
+import { getKnownLocations } from "@/lib/locations";
+import LocationField from "@/components/LocationField";
 
 // Receipts print at very high DPI and modern phone cameras produce huge
 // photos - OCR accuracy actually benefits from more resolution than the
@@ -90,7 +92,14 @@ interface ParsedLine {
 
 interface Props {
   items: InventoryItem[];
-  onAddStock: (input: { barcode: string; name: string; quantity: number; unit: Unit; pricePerUnit: number }) => void;
+  onAddStock: (input: {
+    barcode: string;
+    name: string;
+    quantity: number;
+    unit: Unit;
+    pricePerUnit: number;
+    location?: string;
+  }) => void;
 }
 
 const UNITS: Unit[] = [
@@ -209,6 +218,8 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [parsedLines, setParsedLines] = useState<ParsedLine[] | null>(null);
   const [addedCount, setAddedCount] = useState<number | null>(null);
+  const [batchLocation, setBatchLocation] = useState("");
+  const knownLocations = useMemo(() => getKnownLocations(items), [items]);
 
   const openCamera = () => {
     setOcrError(null);
@@ -229,6 +240,7 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
     setOcrError(null);
     setAddedCount(null);
     setParsedLines(null);
+    setBatchLocation("");
     setOcrRunning(true);
     try {
       const canvas = await decodeReceiptPhotoToCanvas(file);
@@ -261,6 +273,7 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
   const confirmAdd = () => {
     if (!parsedLines) return;
     const included = parsedLines.filter((l) => l.include && l.name.trim());
+    const location = batchLocation.trim() || undefined;
     included.forEach((l) => {
       onAddStock({
         barcode: l.barcode,
@@ -268,10 +281,12 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
         quantity: l.quantity,
         unit: l.unit,
         pricePerUnit: l.pricePerUnit,
+        location,
       });
     });
     setAddedCount(included.length);
     setParsedLines(null);
+    setBatchLocation("");
   };
 
   return (
@@ -336,6 +351,17 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
             {parsedLines.some((l) => l.matchedExisting) &&
               " Lines marked \"matched\" were linked to an item already in your inventory."}
           </p>
+          <label className="mb-3 block">
+            <span className="mb-1 block text-xs font-medium text-neutral-500">
+              Location for these items (optional, applies to all)
+            </span>
+            <LocationField
+              listId="location-options-receipt"
+              value={batchLocation}
+              onChange={setBatchLocation}
+              locations={knownLocations}
+            />
+          </label>
           <div className="space-y-3">
             {parsedLines.map((line) => (
               <div key={line.id} className="rounded-lg border border-surface-border p-3">
@@ -408,7 +434,10 @@ export default function ReceiptScanTab({ items, onAddStock }: Props) {
               + Add {includedCount} Item{includedCount === 1 ? "" : "s"} to Inventory
             </button>
             <button
-              onClick={() => setParsedLines(null)}
+              onClick={() => {
+                setParsedLines(null);
+                setBatchLocation("");
+              }}
               className="flex-1 rounded-lg border border-surface-border bg-white py-2.5 text-sm font-semibold text-neutral-700 hover:bg-surface-muted"
             >
               Discard
