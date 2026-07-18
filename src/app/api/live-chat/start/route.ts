@@ -19,35 +19,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Too many requests. Try again in a moment." }, { status: 429 });
   }
 
-const devBypass = isTestToolsEnabled() && req.cookies.get(DEV_ACCESS_COOKIE_NAME)?.value === "1";
+  const devBypass = isTestToolsEnabled() && req.cookies.get(DEV_ACCESS_COOKIE_NAME)?.value === "1";
   let customerId = "dev-preview";
   let email: string | null = null;
 
-if (!devBypass) {
-  const cookie = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const session = verifySessionCookieValue(cookie);
-  if (!session) {
-    return NextResponse.json({ error: "Live chat requires an active subscription." }, { status: 403 });
-  }
-
-  try {
-    const { active } = await customerHasActiveSubscription(session.customerId);
-    if (!active) {
-      return NextResponse.json({ error: "Your subscription isn't active." }, { status: 403 });
+  if (!devBypass) {
+    const cookie = req.cookies.get(SESSION_COOKIE_NAME)?.value;
+    const session = verifySessionCookieValue(cookie);
+    if (!session) {
+      return NextResponse.json(
+        { error: "Live human support is a Pro feature — upgrade anytime to connect with a real person." },
+        { status: 403 }
+      );
     }
-  } catch {
-    return NextResponse.json({ error: "Couldn't verify your subscription right now." }, { status: 503 });
+
+    try {
+      const { active } = await customerHasActiveSubscription(session.customerId);
+      if (!active) {
+        return NextResponse.json(
+          { error: "Live human support is a Pro feature — upgrade anytime to connect with a real person." },
+          { status: 403 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "Couldn't verify your subscription right now." }, { status: 503 });
+    }
+
+    customerId = session.customerId;
+    email = session.email;
   }
 
-  customerId = session.customerId;
-  email = session.email;
-}
-
-const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const initialMessage: string | undefined =
     typeof body.message === "string" && body.message.trim() ? body.message.trim().slice(0, 2000) : undefined;
 
-let chatSession;
+  let chatSession;
   try {
     chatSession = await createSession({ customerId, email, initialMessage });
   } catch (e) {
@@ -55,16 +61,16 @@ let chatSession;
     return NextResponse.json({ error: "Live chat isn't available right now." }, { status: 503 });
   }
 
-const available = isLiveAgentAvailable();
+  const available = isLiveAgentAvailable();
   void notifyDiscord(
     `New live chat request${email ? ` from ${email}` : ""} (${
       available ? "during business hours" : "after hours"
     }).\n${initialMessage ? `"${initialMessage}"` : "(no message yet)"}`
-    );
+  );
 
-return NextResponse.json({
-  sessionId: chatSession.id,
-  available,
-  availabilityLabel: available ? null : nextAvailableWindowLabel(),
-});
+  return NextResponse.json({
+    sessionId: chatSession.id,
+    available,
+    availabilityLabel: available ? null : nextAvailableWindowLabel(),
+  });
 }
