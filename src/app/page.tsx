@@ -68,13 +68,29 @@ export default function HomePage() {
     });
   };
 
-  const addStock = (input: { barcode: string; name: string; quantity: number; unit: string; pricePerUnit: number }) => {
+  const addStock = (input: {
+    barcode: string;
+    name: string;
+    quantity: number;
+    unit: string;
+    pricePerUnit: number;
+    location?: string;
+  }) => {
     setItems((prev) => {
       const existing = prev.find((it) => it.barcode === input.barcode && input.barcode);
       if (existing) {
         return prev.map((it) =>
           it.id === existing.id
-            ? { ...it, quantity: it.quantity + input.quantity, pricePerUnit: input.pricePerUnit || it.pricePerUnit, updatedAt: new Date().toISOString() }
+            ? {
+                ...it,
+                quantity: it.quantity + input.quantity,
+                pricePerUnit: input.pricePerUnit || it.pricePerUnit,
+                // Only overwrite the item's known location when this restock
+                // actually specified one - leaving it blank shouldn't erase a
+                // location that was already recorded on an earlier add.
+                location: input.location ? input.location : it.location,
+                updatedAt: new Date().toISOString(),
+              }
             : it
         );
       }
@@ -89,6 +105,7 @@ export default function HomePage() {
           pricePerUnit: input.pricePerUnit,
           reorderAt: Math.max(1, Math.round(input.quantity * 0.25)),
           updatedAt: new Date().toISOString(),
+          location: input.location,
         },
       ];
     });
