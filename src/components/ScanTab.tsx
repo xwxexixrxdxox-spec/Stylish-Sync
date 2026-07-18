@@ -509,7 +509,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     // Check the shared, crowdsourced database first - it's free (no rate
     // limit like the external lookup below) and can succeed on barcodes
     // the external service has never heard of, since it's built entirely
-    // from other InventorySync customers typing in the real answer by hand.
+    // from other WS Inventory Management customers typing in the real answer by hand.
     const community = await lookupCommunityBarcode(trimmed);
     if (community) {
       setLookupStatus("found");
