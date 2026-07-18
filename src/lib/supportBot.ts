@@ -1,10 +1,8 @@
-import { getBusinessHoursConfig, isLiveAgentAvailable, nextAvailableWindowLabel } from "./businessHours";
-
 // A deliberately rule-based (not LLM-backed) troubleshooting assistant.
-// It always tries self-service steps first and only offers a live human
-// when the customer explicitly asks for one — matching the requirement
-// that the AI should *attempt* to guide customers to self-troubleshooting
-// and only refer to a live agent on request.
+// It always tries self-service steps first. There is no live human agent
+// to escalate to anymore — if someone asks for one, Juesika says so
+// plainly and points them at the paid in-store setup service (booked
+// separately) or a direct email, rather than pretending to connect them.
 
 export interface QuickReply {
   id: string;
@@ -62,12 +60,12 @@ const TOPICS: TroubleshootTopic[] = [
     ],
   },
   {
-    id: "billing",
-    label: "Billing / subscription question",
+    id: "install-booking",
+    label: "In-store setup / booking question",
     steps: [
-      "Your receipt and next billing date are emailed by Stripe to the address you paid with — search your inbox for 'receipt'.",
-      "To change or cancel your plan, use the 'Manage billing' link in Account settings, which opens Stripe's secure customer portal.",
-      "Plan changes take effect at your next renewal date — you won't be charged twice for the same period.",
+      "The one-time setup fee books a technician to come scan and enter your inventory on-site — see the Account tab for pricing and booking.",
+      "Once that's paid, you'll get a calendar to pick an available date for the visit.",
+      "The technician's on-site time is billed hourly on top of the booking fee, based on actual time spent — you'll be told the rate before you book.",
     ],
   },
 ];
@@ -86,7 +84,7 @@ export function respond(input: string, topicId?: string): BotTurn {
   const trimmed = input.trim();
 
   if (LIVE_AGENT_PATTERN.test(trimmed)) {
-    return escalationTurn();
+    return noLiveAgentTurn();
   }
 
   const topic = TOPICS.find((t) => t.id === topicId) ?? matchTopic(trimmed);
@@ -94,10 +92,10 @@ export function respond(input: string, topicId?: string): BotTurn {
     return {
       reply: `Here's what usually fixes "${topic.label}":\n\n${topic.steps
         .map((s, i) => `${i + 1}. ${s}`)
-        .join("\n")}\n\nDid that solve it? If not, just tell me and I can connect you with a live agent.`,
+        .join("\n")}\n\nDid that solve it?`,
       quickReplies: [
         { id: "resolved", label: "That fixed it 🎉" },
-        { id: "live-agent", label: "Still stuck — talk to a person" },
+        { id: "still-stuck", label: "Still stuck" },
       ],
     };
   }
@@ -105,6 +103,14 @@ export function respond(input: string, topicId?: string): BotTurn {
   if (/^resolved$/i.test(trimmed)) {
     return {
       reply: "Glad that worked! Anything else I can help with?",
+      quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
+    };
+  }
+
+  if (/^still-stuck$/i.test(trimmed)) {
+    return {
+      reply:
+        "Sorry that didn't do it. I don't have a live chat team behind me, but you can email the details and we'll dig in personally.",
       quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
     };
   }
@@ -122,34 +128,22 @@ function matchTopic(text: string): TroubleshootTopic | undefined {
   if (/sheet|sync|google/.test(lower)) return TOPICS[1];
   if (/low.?stock|reorder/.test(lower)) return TOPICS[2];
   if (/import|export|csv|excel|xlsx/.test(lower)) return TOPICS[3];
-  if (/bill|charge|subscription|refund|cancel|payment/.test(lower)) return TOPICS[4];
+  if (/install|setup|technician|on.?site|schedule|book/.test(lower)) return TOPICS[4];
   return undefined;
 }
 
 // Exposes the "did they ask for a human?" check on its own so other
-// front-ends for this same escalation policy (e.g. an AI-backed assistant)
-// can reuse it without duplicating the regex or the availability logic.
+// front-ends for this same policy (e.g. an AI-backed assistant) can
+// reuse it without duplicating the regex.
 export function checkEscalationRequest(input: string): BotTurn | null {
-  return LIVE_AGENT_PATTERN.test(input.trim()) ? escalationTurn() : null;
+  return LIVE_AGENT_PATTERN.test(input.trim()) ? noLiveAgentTurn() : null;
 }
 
-function escalationTurn(): BotTurn {
-  const config = getBusinessHoursConfig();
-  const available = isLiveAgentAvailable(config);
-  if (available) {
-    return {
-      reply:
-        "Sure thing — connecting you with a live agent now. Please hold on; someone will be with you shortly.",
-      quickReplies: [],
-      escalateOffered: true,
-    };
-  }
+function noLiveAgentTurn(): BotTurn {
   return {
-    reply: `Our live agents aren't online right now. ${nextAvailableWindowLabel(
-      config
-    )} Leave a message below and the team will follow up as soon as they're back, or I can keep helping with self-service steps in the meantime.`,
+    reply:
+      "I don't have a live chat team to connect you to — it's just me! I can usually walk you through most issues, or if you'd rather have someone physically set up your inventory, there's a paid in-store setup option under Account.",
     quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
-    escalateOffered: true,
   };
 }
 
