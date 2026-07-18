@@ -1,6 +1,6 @@
 "use client";
 
-import { InventoryItem } from "./types";
+import { InventoryItem, StockMovement } from "./types";
 
 // Local-first storage: the app works fully offline using localStorage as
 // the always-available cache, with Google Sheets as an optional
@@ -12,6 +12,11 @@ import { InventoryItem } from "./types";
 const ITEMS_KEY = "isc_inventory_items_v1";
 const SHEET_LINK_KEY = "isc_google_sheet_id_v1";
 const COOKIE_CONSENT_KEY = "isc_cookie_consent_v1";
+const MOVEMENTS_KEY = "isc_stock_movements_v1";
+// Caps how much movement history we keep in localStorage. At a few hundred
+// scans a week this covers well over a year of history; older entries roll
+// off the front once the cap is hit.
+const MAX_MOVEMENTS = 2000;
 
 const SEED_ITEMS: InventoryItem[] = [
   {
@@ -79,6 +84,31 @@ export function setLinkedSheetId(id: string | null): void {
   else window.localStorage.removeItem(SHEET_LINK_KEY);
 }
 
+// Stock movement log, used by the Usage tab to chart how fast a product is
+// actually being consumed. Every scan-in, scan-out, manual adjustment, and
+// import that changes an item's quantity appends one entry here. This only
+// starts recording once this feature ships, so existing customers will see
+// an empty chart until they've used the app a bit - there's no way to
+// retroactively reconstruct history that was never logged.
+export function loadMovements(): StockMovement[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOVEMENTS_KEY);
+    return raw ? (JSON.parse(raw) as StockMovement[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function logMovement(entry: Omit<StockMovement, "id">): void {
+  if (typeof window === "undefined") return;
+  if (!entry.delta) return; // no actual quantity change - nothing to log
+  const movements = loadMovements();
+  movements.push({ id: `mv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...entry });
+  const trimmed = movements.length > MAX_MOVEMENTS ? movements.slice(movements.length - MAX_MOVEMENTS) : movements;
+  window.localStorage.setItem(MOVEMENTS_KEY, JSON.stringify(trimmed));
+}
+
 export type CookieConsent = "accepted" | "declined" | null;
 
 export function getCookieConsent(): CookieConsent {
@@ -102,6 +132,7 @@ export async function clearAppCache(): Promise<void> {
 
   window.localStorage.removeItem(ITEMS_KEY);
   window.localStorage.removeItem(SHEET_LINK_KEY);
+  window.localStorage.removeItem(MOVEMENTS_KEY);
 
   if ("caches" in window) {
     const keys = await caches.keys();
