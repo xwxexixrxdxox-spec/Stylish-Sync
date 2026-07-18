@@ -15,7 +15,7 @@ export default function PricingTiers() {
   return (
     <div>
       <div className="mb-4 rounded-xl2 bg-gradient-to-br from-neutral-900 to-neutral-700 p-5 text-white shadow-card">
-        <p className="flex items-center gap-1.5 text-sm font-medium text-white/90">📦 InventorySync</p>
+        <p className="flex items-center gap-1.5 text-sm font-medium text-white/90">📦 WS Inventory Management</p>
         <p className="mt-1 text-sm text-white/70">Free to use, start to finish — no card required.</p>
       </div>
 
