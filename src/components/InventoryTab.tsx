@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
+import { getKnownLocations } from "@/lib/locations";
 import ItemCard from "./ItemCard";
 import ItemEditModal from "./ItemEditModal";
 import ImportExportPanel from "./ImportExportPanel";
@@ -23,9 +24,14 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
     const q = query.trim().toLowerCase();
     if (!q) return items;
     return items.filter(
-      (it) => it.name.toLowerCase().includes(q) || it.barcode.toLowerCase().includes(q)
+      (it) =>
+        it.name.toLowerCase().includes(q) ||
+        it.barcode.toLowerCase().includes(q) ||
+        (it.location || "").toLowerCase().includes(q)
     );
   }, [items, query]);
+
+  const locations = useMemo(() => getKnownLocations(items), [items]);
 
   return (
     <div className="mx-auto max-w-2xl px-4 pb-24 pt-5 sm:px-6">
@@ -63,6 +69,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
       {editing && (
         <ItemEditModal
           item={editing}
+          locations={locations}
           onClose={() => setEditing(null)}
           onSave={(it) => {
             onSave(it);
