@@ -25,7 +25,7 @@ export default function LoadScreen({ exiting = false }: Props) {
           <div className="h-[30px] w-1 rounded-[1px] bg-white" />
         </div>
         <div className="flex animate-label-in flex-col items-center gap-1.5">
-          <div className="text-[19px] font-semibold tracking-[-0.01em] text-ink-900">InventorySync</div>
+          <div className="text-[19px] font-semibold tracking-[-0.01em] text-ink-900">WS Inventory Management</div>
           <div className="text-[13px] font-normal text-[#8a8a8f]">Scan, Track, Reorder</div>
         </div>
         <div className="mt-1.5 h-[3px] w-[120px] overflow-hidden rounded-full bg-surface-border">
