@@ -1,58 +1,64 @@
 "use client";
 
-import { Check } from "lucide-react";
-import { PRICING_TIERS } from "@/lib/stripeTiers";
+import { Check, Wrench } from "lucide-react";
+import { INSTALLATION_OFFER } from "@/lib/stripeTiers";
 
-const FEATURES = [
-  "Unlimited items & barcode scans",
+const FREE_FEATURES = [
+  "Juesika, our AI support assistant",
+  "Google Sheets two-way sync",
+  "Near-unlimited item scans & adds (via Sheets)",
   "Excel / CSV import & export",
   "Low-stock reorder alerts",
-  "Live human support — a real person, not just AI",
 ];
 
 export default function PricingTiers() {
   return (
     <div>
       <div className="mb-4 rounded-xl2 bg-gradient-to-br from-neutral-900 to-neutral-700 p-5 text-white shadow-card">
-        <p className="flex items-center gap-1.5 text-sm font-medium text-white/90">✨ InventorySync Premium</p>
-        <p className="mt-1 text-sm text-white/70">Unlock unlimited items and live human support.</p>
+        <p className="flex items-center gap-1.5 text-sm font-medium text-white/90">📦 InventorySync</p>
+        <p className="mt-1 text-sm text-white/70">Free to use, start to finish — no card required.</p>
       </div>
 
-      <p className="mb-3 text-xs text-neutral-500">
-        🤖 Chatting with Juesika (our AI assistant) and Google Sheets sync are free for everyone — Premium adds:
-      </p>
-
       <ul className="mb-5 space-y-2">
-        {FEATURES.map((f) => (
+        {FREE_FEATURES.map((f) => (
           <li key={f} className="flex items-center gap-2 text-sm text-neutral-700">
             <Check size={15} className="text-accent-ok" /> {f}
           </li>
         ))}
       </ul>
 
-      <div className="grid grid-cols-2 gap-3">
-        {PRICING_TIERS.map((tier) => (
-          <a
-            key={tier.id}
-            href={tier.paymentLinkUrl}
-            className={`rounded-xl2 border p-4 text-center shadow-card transition hover:-translate-y-0.5 hover:shadow-lg ${
-              tier.highlight ? "border-neutral-900 bg-neutral-900 text-white" : "border-surface-border bg-white text-neutral-900"
-            }`}
-          >
-            {tier.highlight && (
-              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/70">Most popular</p>
-            )}
-            <p className="text-base font-semibold">{tier.label}</p>
-            <p className={`mt-1 text-xs ${tier.highlight ? "text-white/60" : "text-neutral-500"}`}>
-              {tier.billingPeriod}
-            </p>
-          </a>
-        ))}
+      <div className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900">
+          <Wrench size={15} /> Live In-Store Inventory Setup
+        </p>
+        <p className="mt-1 text-xs text-neutral-500">
+          Don't want to scan 500–1,000+ items yourself? A technician comes to your store and sets up your
+          whole inventory for you, in person.
+        </p>
+
+        <div className="mt-3 grid grid-cols-2 gap-3 text-center">
+          <div className="rounded-lg border border-surface-border p-3">
+            <p className="text-base font-semibold text-neutral-900">{INSTALLATION_OFFER.bookingFeeLabel}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">{INSTALLATION_OFFER.bookingFeeBlurb}</p>
+          </div>
+          <div className="rounded-lg border border-surface-border p-3">
+            <p className="text-base font-semibold text-neutral-900">{INSTALLATION_OFFER.hourlyRateLabel}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">{INSTALLATION_OFFER.hourlyRateBlurb}</p>
+          </div>
+        </div>
+
+        <a
+          href={INSTALLATION_OFFER.paymentLinkUrl}
+          className="mt-3 block rounded-xl2 border border-neutral-900 bg-neutral-900 py-2.5 text-center text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:opacity-90"
+        >
+          Book Installation
+        </a>
+        <p className="mt-2 text-center text-[11px] text-neutral-400">
+          After booking, you'll pick a date from a calendar for your on-site visit.
+        </p>
       </div>
 
-      <p className="mt-4 text-center text-xs text-neutral-400">
-        Secure checkout via Stripe. Cancel anytime from your account.
-      </p>
+      <p className="mt-4 text-center text-xs text-neutral-400">Secure checkout via Stripe.</p>
     </div>
   );
 }
