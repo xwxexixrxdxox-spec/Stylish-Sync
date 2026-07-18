@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Minus, Plus, Pencil } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
+import { playChime } from "@/lib/chime";
 
 interface Props {
   item: InventoryItem;
@@ -22,6 +23,7 @@ export default function ItemCard({ item, onAdjust, onEdit }: Props) {
 
   const handleAdjust = (delta: 1 | -1) => {
     onAdjust(item.id, delta);
+    playChime(delta > 0 ? "add" : "remove");
     burstKeyRef.current += 1;
     setBurst({ sign: delta, key: burstKeyRef.current });
   };
