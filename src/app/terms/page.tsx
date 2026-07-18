@@ -15,7 +15,7 @@ export default function TermsPage() {
 
         <h2>1. The service</h2>
         <p>
-          InventorySync ("the App") provides barcode inventory scanning, spreadsheet import/export, optional Google
+          WS Inventory Management ("the App") provides barcode inventory scanning, spreadsheet import/export, optional Google
           Sheets sync, and, for paying subscribers, customer support tools. The App is provided by [Your Company /
           Legal Name].
         </p>
