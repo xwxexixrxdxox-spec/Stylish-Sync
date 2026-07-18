@@ -840,7 +840,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
                 onAnimationEnd={() => setBurst(null)}
                 className="pointer-events-none absolute left-1/2 top-0 select-none animate-float-up text-sm font-semibold text-accent-low"
               >
-                √{burst.qty}
+                −{burst.qty}
               </span>
             )}
           </div>
