@@ -19,6 +19,7 @@ export default function ItemCard({ item, onAdjust, onEdit }: Props) {
         </div>
         <p className="mt-0.5 text-xs text-neutral-500">
           {item.barcode || "no barcode"} · {item.unit}
+          {item.location && <> · 📍 {item.location}</>}
         </p>
         <div className="mt-2 flex items-center gap-2">
           <button
