@@ -64,10 +64,10 @@ function PaymentSuccessInner() {
         {state === "ok-install" && (
           <>
             <CheckCircle2 className="mx-auto mb-3 text-accent-ok" size={32} />
-            <p className="text-sm font-medium text-neutral-800">Booking fee confirmed!</p>
+            <p className="text-sm font-medium text-neutral-800">Installation fee confirmed!</p>
             <p className="mt-1 text-xs text-neutral-500">
               Last step — pick a date for your technician's on-site visit
-              {INSTALLATION_OFFER.hourlyRateLabel ? ` (billed at ${INSTALLATION_OFFER.hourlyRateLabel} on top of your booking fee)` : ""}.
+              {INSTALLATION_OFFER.dailyRateLabel ? ` (on-site time is billed at ${INSTALLATION_OFFER.dailyRateLabel}, on top of your flat installation fee)` : ""}.
             </p>
 
             {INSTALLATION_OFFER.schedulingUrl ? (
