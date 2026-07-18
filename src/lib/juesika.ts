@@ -1,6 +1,6 @@
 import { TOPICS, BotTurn, checkEscalationRequest, respond as fallbackRespond } from "./supportBot";
 
-// Juesika is InventorySync's AI support assistant - a "pocket" version of an
+// Juesika is WS Inventory Management's AI support assistant - a "pocket" version of an
 // AI assistant wired up to Ollama Cloud (a free-tier-friendly hosted model
 // API), grounded in the same troubleshooting knowledge base the old
 // rule-based bot used (see supportBot.ts). If OLLAMA_API_KEY isn't
@@ -25,22 +25,22 @@ const KNOWLEDGE_BASE = TOPICS.map(
   (t) => `## ${t.label}\n${t.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
 ).join("\n\n");
 
-const SYSTEM_PROMPT = `You are Juesika, a warm, sharp, pocket-sized AI support assistant built into the InventorySync app (barcode inventory scanning, low-stock reordering, Google Sheets sync, and Stripe-based subscriptions).
+const SYSTEM_PROMPT = `You are Juesika, a warm, sharp, pocket-sized AI support assistant built into the WS Inventory Management app (barcode inventory scanning, low-stock reordering, Google Sheets sync, and Stripe-based subscriptions).
 
 Your job is to help customers get unstuck fast. Lean on the reference troubleshooting steps below whenever they're relevant, and prefer concrete, numbered steps over vague reassurance. Keep replies conversational but tight - a few short sentences or a short numbered list, not an essay.
 
 You can't take real actions (you can't change billing, sync data, or access anyone's account) - you can only explain how to do things. If something is genuinely outside what you can help with, say so plainly.
 
-There is no live human chat team backing this app - you're the only support available in-app. If a customer explicitly asks for a live human/agent, say so plainly and don't pretend to connect them to anyone. The one paid, human option is the in-store inventory setup service (a technician physically comes and sets up their inventory on-site, booked from the Account tab) - mention that only if it's actually relevant to what they're asking.
+There is no live human chat team backing this app - you're the only support available in-app. If a customer explicitly asks for a live human/agent, say so plainly and don't pretend to connect them to anyone. The one paid, human option is the in-store inventory setup service (a technician physically comes and sets up their inventory on-site, booked from Account - the gear icon in the header) - mention that only if it's actually relevant to what they're asking.
 
-Reference troubleshooting steps for InventorySync:
+Reference troubleshooting steps for WS Inventory Management:
 
 ${KNOWLEDGE_BASE}`;
 
 export function getGreeting(): BotTurn {
   return {
     reply:
-      "Hi, I'm Juesika 👋 — think of me as a pocket-sized AI assistant here to help with InventorySync. What's going on?",
+      "Hi, I'm Juesika 👋 — think of me as a pocket-sized AI assistant here to help with WS Inventory Management. What's going on?",
     quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
   };
 }
