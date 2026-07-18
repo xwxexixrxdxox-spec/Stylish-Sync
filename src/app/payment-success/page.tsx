@@ -2,12 +2,15 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, CalendarDays } from "lucide-react";
+import { INSTALLATION_OFFER } from "@/lib/stripeTiers";
+
+type State = "verifying" | "ok-subscription" | "ok-install" | "error";
 
 function PaymentSuccessInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const [state, setState] = useState<"verifying" | "ok" | "error">("verifying");
+  const [state, setState] = useState<State>("verifying");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -21,8 +24,15 @@ function PaymentSuccessInner() {
       .then(async (res) => {
         const body = await res.json();
         if (res.ok && body.ok) {
-          setState("ok");
-          setTimeout(() => router.replace("/"), 1800);
+          if (body.mode === "payment") {
+            // One-time charge - this is the install booking fee, not a
+            // subscription. Stay on this page and show the scheduling
+            // step instead of bouncing back to the app.
+            setState("ok-install");
+          } else {
+            setState("ok-subscription");
+            setTimeout(() => router.replace("/"), 1800);
+          }
         } else {
           setState("error");
           setErrorMsg(body.error ?? "We couldn't verify this payment yet.");
@@ -44,11 +54,44 @@ function PaymentSuccessInner() {
             <p className="mt-1 text-xs text-neutral-500">This only takes a moment.</p>
           </>
         )}
-        {state === "ok" && (
+        {state === "ok-subscription" && (
           <>
             <CheckCircle2 className="mx-auto mb-3 text-accent-ok" size={32} />
             <p className="text-sm font-medium text-neutral-800">Payment confirmed — welcome to Premium!</p>
             <p className="mt-1 text-xs text-neutral-500">Taking you back to the app…</p>
+          </>
+        )}
+        {state === "ok-install" && (
+          <>
+            <CheckCircle2 className="mx-auto mb-3 text-accent-ok" size={32} />
+            <p className="text-sm font-medium text-neutral-800">Booking fee confirmed!</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              Last step — pick a date for your technician's on-site visit
+              {INSTALLATION_OFFER.hourlyRateLabel ? ` (billed at ${INSTALLATION_OFFER.hourlyRateLabel} on top of your booking fee)` : ""}.
+            </p>
+
+            {INSTALLATION_OFFER.schedulingUrl ? (
+              <iframe
+                src={INSTALLATION_OFFER.schedulingUrl}
+                title="Schedule your install visit"
+                className="mt-4 h-[500px] w-full rounded-lg border border-surface-border"
+              />
+            ) : (
+              <div className="mt-4 flex flex-col items-center gap-2 rounded-lg border border-dashed border-surface-border p-4">
+                <CalendarDays className="text-neutral-400" size={24} />
+                <p className="text-xs text-neutral-500">
+                  We don't have online scheduling turned on yet — we'll email you within one business day to
+                  find a date that works.
+                </p>
+              </div>
+            )}
+
+            <a
+              href="/"
+              className="mt-4 inline-block rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted"
+            >
+              Return to app
+            </a>
           </>
         )}
         {state === "error" && (
