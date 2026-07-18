@@ -1,18 +1,23 @@
 import { TOPICS, BotTurn, checkEscalationRequest, respond as fallbackRespond } from "./supportBot";
 
-// Juesika is InventorySync's AI support assistant - a "pocket" version of
-// Claude wired up to the real Anthropic API, grounded in the same
-// troubleshooting knowledge base the old rule-based bot used (see
-// supportBot.ts). If ANTHROPIC_API_KEY isn't configured yet, or a call to
-// the API fails for any reason, this quietly falls back to the free
-// rule-based assistant instead of breaking support chat entirely.
+// Juesika is InventorySync's AI support assistant - a "pocket" version of an
+// AI assistant wired up to Ollama Cloud (a free-tier-friendly hosted model
+// API), grounded in the same troubleshooting knowledge base the old
+// rule-based bot used (see supportBot.ts). If OLLAMA_API_KEY isn't
+// configured yet, or a call to the API fails for any reason, this quietly
+// falls back to the free rule-based assistant instead of breaking support
+// chat entirely.
 
 export interface HistoryTurn {
   role: "user" | "bot";
   text: string;
 }
 
-const MODEL = "claude-haiku-4-5";
+// gpt-oss:20b-cloud is Ollama Cloud's "Low Usage" tier - the best fit for a
+// free-tier account, since a lightweight support chat doesn't need a bigger
+// model and staying in the low-usage bracket helps avoid tripping the free
+// plan's session/weekly caps.
+const MODEL = "gpt-oss:20b-cloud";
 const MAX_HISTORY_TURNS = 20;
 const MAX_REPLY_TOKENS = 500;
 
@@ -44,7 +49,7 @@ export async function respond(message: string, topicId: string | undefined, hist
   const escalation = checkEscalationRequest(message);
   if (escalation) return escalation;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.OLLAMA_API_KEY;
   if (!apiKey) {
     // No key configured yet - fall back to the free rule-based assistant
     // rather than breaking support chat entirely.
@@ -52,7 +57,7 @@ export async function respond(message: string, topicId: string | undefined, hist
   }
 
   try {
-    const reply = await callClaude(apiKey, message, history);
+    const reply = await callOllama(apiKey, message, history);
     return {
       reply,
       quickReplies: [
@@ -65,8 +70,9 @@ export async function respond(message: string, topicId: string | undefined, hist
   }
 }
 
-async function callClaude(apiKey: string, message: string, history: HistoryTurn[]): Promise<string> {
+async function callOllama(apiKey: string, message: string, history: HistoryTurn[]): Promise<string> {
   const messages = [
+    { role: "system" as const, content: SYSTEM_PROMPT },
     ...history.slice(-MAX_HISTORY_TURNS).map((h) => ({
       role: h.role === "user" ? ("user" as const) : ("assistant" as const),
       content: h.text,
@@ -74,24 +80,25 @@ async function callClaude(apiKey: string, message: string, history: HistoryTurn[
     { role: "user" as const, content: message },
   ];
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("https://ollama.com/api/chat", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: MAX_REPLY_TOKENS,
-      system: SYSTEM_PROMPT,
       messages,
+      stream: false,
+      options: {
+        num_predict: MAX_REPLY_TOKENS,
+      },
     }),
   });
 
-  if (!res.ok) throw new Error(`Anthropic API error: ${res.status}`);
+  if (!res.ok) throw new Error(`Ollama API error: ${res.status}`);
   const data = await res.json();
-  const text: string | undefined = data?.content?.[0]?.text;
-  if (!text) throw new Error("Empty response from Anthropic API");
+  const text: string | undefined = data?.message?.content;
+  if (!text) throw new Error("Empty response from Ollama API");
   return text;
 }
