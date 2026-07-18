@@ -101,6 +101,16 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     flash("Signed out of Google.");
   };
 
+  const signOutOfAccount = async () => {
+    setBusy("account-sign-out");
+    try {
+      await fetch("/api/sign-out", { method: "POST" }).catch(() => {});
+      window.location.reload();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-2xl px-4 pb-24 pt-5 sm:px-6">
       <h1 className="mb-4 text-lg font-semibold text-neutral-900">Account</h1>
@@ -121,13 +131,19 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         </div>
       )}
 
+      {access?.access && access.plan !== "Dev Test Mode (not a real subscription)" && (
+        <button
+          disabled={busy === "account-sign-out"}
+          onClick={signOutOfAccount}
+          className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+        >
+          <LogOut size={14} /> {busy === "account-sign-out" ? "Signing out…" : "Sign out"}
+        </button>
+      )}
+
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-3 text-sm font-medium text-neutral-900">Google Sheets</p>
-        {!access?.access ? (
-          <p className="text-xs text-neutral-500">
-            Google Sheets two-way sync is a Premium feature. Subscribe below to connect your spreadsheet.
-          </p>
-        ) : !isGoogleSheetsConfigured() ? (
+        {!isGoogleSheetsConfigured() ? (
           <p className="text-xs text-neutral-500">
             Google Sheets sync isn't configured for this deployment yet — see the README's "Google Sheets setup"
             section.
