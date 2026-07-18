@@ -24,6 +24,7 @@ const SEED_ITEMS: InventoryItem[] = [
     pricePerUnit: 3.5,
     reorderAt: 5,
     updatedAt: new Date().toISOString(),
+    location: "Dry Stock",
   },
   {
     id: "seed-2",
@@ -34,6 +35,7 @@ const SEED_ITEMS: InventoryItem[] = [
     pricePerUnit: 2.0,
     reorderAt: 4,
     updatedAt: new Date().toISOString(),
+    location: "Dry Stock",
   },
   {
     id: "seed-3",
@@ -44,6 +46,7 @@ const SEED_ITEMS: InventoryItem[] = [
     pricePerUnit: 0.75,
     reorderAt: 12,
     updatedAt: new Date().toISOString(),
+    location: "Cooler",
   },
 ];
 
