@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { DecodeHintType } from "@zxing/library";
 import { InventoryItem, Unit, AccessCheckResponse } from "@/lib/types";
+import { getKnownLocations } from "@/lib/locations";
 import ReceiptScanTab from "@/components/ReceiptScanTab";
 import PricingTiers from "@/components/PricingTiers";
+import LocationField from "@/components/LocationField";
 import { lookupBarcode } from "@/lib/productLookup";
 import { contributeCommunityBarcode, lookupCommunityBarcode } from "@/lib/communityLookup";
 
@@ -267,7 +269,14 @@ const UNITS: Unit[] = [
 
 interface Props {
   items: InventoryItem[];
-  onAddStock: (input: { barcode: string; name: string; quantity: number; unit: Unit; pricePerUnit: number }) => void;
+  onAddStock: (input: {
+    barcode: string;
+    name: string;
+    quantity: number;
+    unit: Unit;
+    pricePerUnit: number;
+    location?: string;
+  }) => void;
   onRemoveStock: (input: { barcode: string; quantity: number }) => void;
   access: AccessCheckResponse | null;
 }
@@ -313,7 +322,9 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
   const [quantity, setQuantity] = useState(1);
   const [unit, setUnit] = useState<Unit>("ea");
   const [price, setPrice] = useState(0);
+  const [location, setLocation] = useState("");
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
+  const knownLocations = useMemo(() => getKnownLocations(items), [items]);
   // Dedupes lookups so blur + Enter on the same unchanged barcode (or a
   // scan of a barcode someone already typed) doesn't fire a second
   // network request for a result we already have.
@@ -485,6 +496,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
       setName(existing.name);
       setUnit(existing.unit);
       setPrice(existing.pricePerUnit);
+      setLocation(existing.location || "");
       return;
     }
 
@@ -548,6 +560,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     setQuantity(1);
     setUnit("ea");
     setPrice(0);
+    setLocation("");
     setLookupStatus("idle");
     lastLookedUpRef.current = null;
     pendingContributionRef.current = null;
@@ -719,6 +732,14 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
             placeholder={lookupStatus === "checking" ? "Looking up…" : "Auto-fills from lookup, or type your own"}
           />
         </Field>
+        <Field label="Location">
+          <LocationField
+            listId="location-options-scan"
+            value={location}
+            onChange={setLocation}
+            locations={knownLocations}
+          />
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Quantity">
             <input
@@ -763,7 +784,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
               if (pendingContributionRef.current && pendingContributionRef.current === barcode.trim()) {
                 void contributeCommunityBarcode(barcode.trim(), trimmedName, unit);
               }
-              onAddStock({ barcode, name, quantity, unit, pricePerUnit: price });
+              onAddStock({ barcode, name, quantity, unit, pricePerUnit: price, location: location.trim() || undefined });
               reset();
             }}
             className="flex-1 rounded-lg bg-green-600 py-2.5 text-sm font-semibold text-white hover:opacity-90"
