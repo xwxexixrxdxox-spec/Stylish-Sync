@@ -10,6 +10,7 @@ import PricingTiers from "@/components/PricingTiers";
 import LocationField from "@/components/LocationField";
 import { lookupBarcode } from "@/lib/productLookup";
 import { contributeCommunityBarcode, lookupCommunityBarcode } from "@/lib/communityLookup";
+import { playChime } from "@/lib/chime";
 
 // Hints for the ZXing decoder: TRY_HARDER spends extra CPU time on each
 // frame to pull a result out of glare, blur, or a skewed angle.
@@ -325,6 +326,10 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
   const [location, setLocation] = useState("");
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
   const knownLocations = useMemo(() => getKnownLocations(items), [items]);
+  // Same cute "+qty"/"-qty" pop + button squish used on the inventory list's
+  // stock buttons, shown here on Add Stock / Remove after a successful tap.
+  const [burst, setBurst] = useState<{ sign: 1 | -1; key: number; qty: number } | null>(null);
+  const burstKeyRef = useRef(0);
   // Dedupes lookups so blur + Enter on the same unchanged barcode (or a
   // scan of a barcode someone already typed) doesn't fire a second
   // network request for a result we already have.
@@ -773,34 +778,72 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
         </Field>
 
         <div className="flex gap-2 pt-1">
-          <button
-            onClick={() => {
-              const trimmedName = name.trim();
-              if (!trimmedName) return;
-              // Only contribute to the shared database when this exact
-              // barcode just came back "not-found" - never for a match
-              // against an existing item or an external-lookup result,
-              // both of which are already known and don't need sharing.
-              if (pendingContributionRef.current && pendingContributionRef.current === barcode.trim()) {
-                void contributeCommunityBarcode(barcode.trim(), trimmedName, unit);
-              }
-              onAddStock({ barcode, name, quantity, unit, pricePerUnit: price, location: location.trim() || undefined });
-              reset();
-            }}
-            className="flex-1 rounded-lg bg-green-600 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-          >
-            + Add Stock
-          </button>
-          <button
-            onClick={() => {
-              if (!barcode.trim()) return;
-              onRemoveStock({ barcode, quantity });
-              reset();
-            }}
-            className="flex-1 rounded-lg bg-red-500 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-          >
-            − Remove
-          </button>
+          <div className="relative flex-1">
+            <button
+              onClick={() => {
+                const trimmedName = name.trim();
+                if (!trimmedName) return;
+                // Only contribute to the shared database when this exact
+                // barcode just came back "not-found" - never for a match
+                // against an existing item or an external-lookup result,
+                // both of which are already known and don't need sharing.
+                if (pendingContributionRef.current && pendingContributionRef.current === barcode.trim()) {
+                  void contributeCommunityBarcode(barcode.trim(), trimmedName, unit);
+                }
+                onAddStock({ barcode, name, quantity, unit, pricePerUnit: price, location: location.trim() || undefined });
+                playChime("add");
+                burstKeyRef.current += 1;
+                setBurst({ sign: 1, key: burstKeyRef.current, qty: quantity });
+                reset();
+              }}
+              className="w-full rounded-lg bg-green-600 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+            >
+              <span
+                key={burst?.sign === 1 ? burst.key : "idle-add"}
+                className={`inline-block ${burst?.sign === 1 ? "animate-btn-pop" : ""}`}
+              >
+                + Add Stock
+              </span>
+            </button>
+            {burst?.sign === 1 && (
+              <span
+                key={burst.key}
+                onAnimationEnd={() => setBurst(null)}
+                className="pointer-events-none absolute left-1/2 top-0 select-none animate-float-up text-sm font-semibold text-accent-ok"
+              >
+                +{burst.qty}
+              </span>
+            )}
+          </div>
+          <div className="relative flex-1">
+            <button
+              onClick={() => {
+                if (!barcode.trim()) return;
+                onRemoveStock({ barcode, quantity });
+                playChime("remove");
+                burstKeyRef.current += 1;
+                setBurst({ sign: -1, key: burstKeyRef.current, qty: quantity });
+                reset();
+              }}
+              className="w-full rounded-lg bg-red-500 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+            >
+              <span
+                key={burst?.sign === -1 ? burst.key : "idle-remove"}
+                className={`inline-block ${burst?.sign === -1 ? "animate-btn-pop" : ""}`}
+              >
+                − Remove
+              </span>
+            </button>
+            {burst?.sign === -1 && (
+              <span
+                key={burst.key}
+                onAnimationEnd={() => setBurst(null)}
+                className="pointer-events-none absolute left-1/2 top-0 select-none animate-float-up text-sm font-semibold text-accent-low"
+              >
+                √{burst.qty}
+              </span>
+            )}
+          </div>
         </div>
       </div>
         </>
