@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { respond, getGreeting, HistoryTurn } from "@/lib/juesika";
 import { isRateLimited } from "@/lib/rateLimit";
 
-// Juesika (AI support chat) is free for everyone now - no sign-in or
-// subscription required. Only escalating to a real live human agent (see
-// /api/live-chat/start) stays Pro-only; that route independently
-// re-checks Stripe, so the paywall is still enforced there even though
-// this endpoint no longer checks it.
+// Juesika (AI support chat) is free for everyone - no sign-in or
+// subscription required. There's no live human chat team anymore; the
+// only paid offering left is the one-time in-store install service (see
+// stripeTiers.ts), which isn't gated through this endpoint at all.
 //
-// Since this is now reachable by anyone, including signed-out visitors,
+// Since this is reachable by anyone, including signed-out visitors,
 // it's rate-limited by IP - the old "you already proved you're a paying
 // customer" gate used to double as abuse protection for the (paid,
 // per-token) AI backend, so this replaces that job now that the gate's
