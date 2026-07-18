@@ -211,10 +211,17 @@ export default function SupportChatWidget() {
     setLoading(true);
     setQuickReplies([]);
     try {
+      // Send the transcript so far (excluding the message just added above)
+      // so Juesika has conversational context instead of answering each
+      // message cold. Capped to keep the request payload/token usage bounded.
+      const history = messages
+        .filter((m): m is ChatMessage & { role: "bot" | "user" } => m.role === "bot" || m.role === "user")
+        .slice(-20)
+        .map((m) => ({ role: m.role, text: m.text }));
       const res = await fetch("/api/support-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: isGreeting ? "" : text, topicId }),
+        body: JSON.stringify({ message: isGreeting ? "" : text, topicId, history }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -257,7 +264,7 @@ export default function SupportChatWidget() {
               ? "Connecting..."
               : mode === "closed"
               ? "Support (resolved)"
-              : "Support Assistant"}
+              : "Juesika"}
           </p>
         </div>
         <p className="text-xs text-white/60">
@@ -297,7 +304,7 @@ export default function SupportChatWidget() {
         ))}
         {(loading || mode === "connecting") && (
           <p className="text-xs text-neutral-400">
-            {mode === "connecting" ? "Connecting you with support..." : "Support Assistant is typing..."}
+            {mode === "connecting" ? "Connecting you with support..." : "Juesika is typing..."}
           </p>
         )}
         <div ref={bottomRef} />
