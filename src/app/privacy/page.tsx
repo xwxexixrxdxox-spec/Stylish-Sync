@@ -15,7 +15,7 @@ export default function PrivacyPage() {
 
         <h2>Who we are</h2>
         <p>
-          InventorySync ("we", "us") is operated by [Your Company / Legal Name], [Business Address]. Contact us at{" "}
+          WS Inventory Management ("we", "us") is operated by [Your Company / Legal Name], [Business Address]. Contact us at{" "}
           [support@yourdomain.com] with any privacy questions.
         </p>
 
