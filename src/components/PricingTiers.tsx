@@ -38,12 +38,12 @@ export default function PricingTiers() {
 
         <div className="mt-3 grid grid-cols-2 gap-3 text-center">
           <div className="rounded-lg border border-surface-border p-3">
-            <p className="text-base font-semibold text-neutral-900">{INSTALLATION_OFFER.bookingFeeLabel}</p>
-            <p className="mt-0.5 text-[11px] text-neutral-500">{INSTALLATION_OFFER.bookingFeeBlurb}</p>
+            <p className="text-base font-semibold text-neutral-900">{INSTALLATION_OFFER.flatRateLabel}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">{INSTALLATION_OFFER.flatRateBlurb}</p>
           </div>
           <div className="rounded-lg border border-surface-border p-3">
-            <p className="text-base font-semibold text-neutral-900">{INSTALLATION_OFFER.hourlyRateLabel}</p>
-            <p className="mt-0.5 text-[11px] text-neutral-500">{INSTALLATION_OFFER.hourlyRateBlurb}</p>
+            <p className="text-base font-semibold text-neutral-900">{INSTALLATION_OFFER.dailyRateLabel}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">{INSTALLATION_OFFER.dailyRateBlurb}</p>
           </div>
         </div>
 
