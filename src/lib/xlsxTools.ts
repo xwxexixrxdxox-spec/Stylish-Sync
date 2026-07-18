@@ -8,12 +8,12 @@ import { InventoryItem } from "./types";
 // three from the same code path, so there's one implementation to keep in
 // sync rather than three.
 
-const COLUMNS: string[] = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Reorder At"];
+const COLUMNS: string[] = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Reorder At", "Location"];
 
 export function exportItems(items: InventoryItem[], format: "xlsx" | "ods" | "csv", filename = "inventory"): void {
   const rows: (string | number)[][] = [
     COLUMNS,
-    ...items.map((it) => [it.barcode, it.name, it.quantity, it.unit, it.pricePerUnit, it.reorderAt]),
+    ...items.map((it) => [it.barcode, it.name, it.quantity, it.unit, it.pricePerUnit, it.reorderAt, it.location || ""]),
   ];
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
   const workbook = XLSX.utils.book_new();
@@ -47,6 +47,7 @@ export async function importItemsFromFile(file: File): Promise<ImportResult> {
       skipped += 1;
       return;
     }
+    const location = String(row[idx.location] ?? "").trim();
     items.push({
       id: `import-${Date.now()}-${i}`,
       barcode,
@@ -56,6 +57,7 @@ export async function importItemsFromFile(file: File): Promise<ImportResult> {
       pricePerUnit: Number(row[idx.price] ?? 0) || 0,
       reorderAt: Number(row[idx.reorderAt] ?? 0) || 0,
       updatedAt: new Date().toISOString(),
+      location: location || undefined,
     });
   });
 
@@ -78,5 +80,6 @@ function buildColumnIndex(header: string[]) {
     unit: find("unit"),
     price: find("price per unit", "price", "unit price"),
     reorderAt: find("reorder at", "reorder", "reorder level"),
+    location: find("location", "storage location", "bin", "aisle"),
   };
 }
