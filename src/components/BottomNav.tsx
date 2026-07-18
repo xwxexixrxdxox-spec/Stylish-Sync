@@ -1,8 +1,11 @@
 "use client";
 
-import { Boxes, ScanLine, ListChecks, MessageCircleQuestion, Settings } from "lucide-react";
+import { Boxes, ScanLine, ListChecks, MessageCircleQuestion, BarChart3 } from "lucide-react";
 
-export type TabId = "scan" | "inventory" | "reorder" | "support" | "account";
+// "account" is no longer a bottom-nav tab - Account settings moved into a
+// collapsible sidebar (see AccountSidebar.tsx) opened from the header, to
+// make room for the Usage tab without crowding the bar.
+export type TabId = "scan" | "inventory" | "reorder" | "usage" | "support";
 
 interface Props {
   active: TabId;
@@ -13,8 +16,8 @@ const ITEMS: { id: TabId; label: string; icon: typeof Boxes }[] = [
   { id: "scan", label: "Scan", icon: ScanLine },
   { id: "inventory", label: "Inventory", icon: Boxes },
   { id: "reorder", label: "Reorder", icon: ListChecks },
+  { id: "usage", label: "Usage", icon: BarChart3 },
   { id: "support", label: "Support", icon: MessageCircleQuestion },
-  { id: "account", label: "Account", icon: Settings },
 ];
 
 export default function BottomNav({ active, onChange }: Props) {
