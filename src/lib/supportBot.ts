@@ -63,9 +63,9 @@ const TOPICS: TroubleshootTopic[] = [
     id: "install-booking",
     label: "In-store setup / booking question",
     steps: [
-      "The one-time setup fee books a technician to come scan and enter your inventory on-site — see the Account tab for pricing and booking.",
+      "The flat installation fee books a technician to come scan and enter your inventory on-site — see the Account tab for pricing and booking.",
       "Once that's paid, you'll get a calendar to pick an available date for the visit.",
-      "The technician's on-site time is billed hourly on top of the booking fee, based on actual time spent — you'll be told the rate before you book.",
+      "The technician's on-site time is billed per day on top of the flat installation fee, based on how many days the job actually takes — you'll be told the daily rate before you book.",
     ],
   },
 ];
