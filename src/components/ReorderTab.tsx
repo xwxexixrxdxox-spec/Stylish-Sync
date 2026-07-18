@@ -11,7 +11,12 @@ export default function ReorderTab({ items }: Props) {
   const low = items.filter((it) => it.quantity <= it.reorderAt);
 
   const share = async () => {
-    const text = low.map((it) => `${it.name}: have ${it.quantity} ${it.unit}, reorder at ${it.reorderAt}`).join("\n");
+    const text = low
+      .map(
+        (it) =>
+          `${it.name}${it.location ? ` (${it.location})` : ""}: have ${it.quantity} ${it.unit}, reorder at ${it.reorderAt}`
+      )
+      .join("\n");
     if (navigator.share) {
       await navigator.share({ title: "Items to reorder", text }).catch(() => {});
     } else {
@@ -42,6 +47,7 @@ export default function ReorderTab({ items }: Props) {
               <p className="font-medium text-neutral-900">{it.name}</p>
               <p className="mt-0.5 text-xs text-neutral-500">
                 In stock: {it.quantity} {it.unit} · reorder at {it.reorderAt}
+                {it.location && <> · 📍 {it.location}</>}
               </p>
               <p className="mt-1 text-xs font-medium text-accent-low">
                 Need {Math.max(it.reorderAt - it.quantity + 1, 1)} more
