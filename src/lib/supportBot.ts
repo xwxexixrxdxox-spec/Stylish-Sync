@@ -63,7 +63,7 @@ const TOPICS: TroubleshootTopic[] = [
     id: "install-booking",
     label: "In-store setup / booking question",
     steps: [
-      "The flat installation fee books a technician to come scan and enter your inventory on-site — see the Account tab for pricing and booking.",
+      "The flat installation fee books a technician to come scan and enter your inventory on-site — see Account (the gear icon in the header) for pricing and booking.",
       "Once that's paid, you'll get a calendar to pick an available date for the visit.",
       "The technician's on-site time is billed per day on top of the flat installation fee, based on how many days the job actually takes — you'll be told the daily rate before you book.",
     ],
@@ -75,7 +75,7 @@ const LIVE_AGENT_PATTERN = /\b(human|live agent|real person|representative|talk 
 export function getGreeting(): BotTurn {
   return {
     reply:
-      "Hi! I'm the InventorySync support assistant. I can usually get you unstuck in a couple of steps — what's going on?",
+      "Hi! I'm the WS Inventory Management support assistant. I can usually get you unstuck in a couple of steps — what's going on?",
     quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
   };
 }
