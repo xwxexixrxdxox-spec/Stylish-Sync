@@ -1,4 +1,4 @@
-// InventorySync itself (AI chat, Google Sheets sync, near-unlimited items,
+// WS Inventory Management itself (AI chat, Google Sheets sync, near-unlimited items,
 // import/export, low-stock alerts) is free for everyone. The only paid
 // offering is an optional one-time, in-person inventory setup: a
 // technician physically scans and enters your stock on-site.
