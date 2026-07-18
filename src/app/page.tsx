@@ -46,10 +46,6 @@ export default function HomePage() {
     if (items.length) saveItems(items);
   }, [items]);
 
-  useEffect(() => {
-    if (!access?.access && tab === "support") setTab("inventory");
-  }, [access, tab]);
-
   const setSheetId = (id: string | null) => {
     setSheetIdState(id);
     setLinkedSheetId(id);
@@ -156,12 +152,12 @@ export default function HomePage() {
         )}
         {tab === "scan" && <ScanTab items={items} onAddStock={addStock} onRemoveStock={removeStock} access={access} />}
         {tab === "reorder" && <ReorderTab items={items} />}
-        {tab === "support" && access?.access && <SupportTab />}
+        {tab === "support" && <SupportTab />}
         {tab === "account" && (
           <AccountTab items={items} onImport={bulkImport} sheetId={sheetId} setSheetId={setSheetId} access={access} />
         )}
 
-        <BottomNav active={tab} onChange={setTab} supportUnlocked={Boolean(access?.access)} />
+        <BottomNav active={tab} onChange={setTab} />
       </main>
     </>
   );
