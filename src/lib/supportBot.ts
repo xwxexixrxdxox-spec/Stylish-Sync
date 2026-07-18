@@ -126,6 +126,13 @@ function matchTopic(text: string): TroubleshootTopic | undefined {
   return undefined;
 }
 
+// Exposes the "did they ask for a human?" check on its own so other
+// front-ends for this same escalation policy (e.g. an AI-backed assistant)
+// can reuse it without duplicating the regex or the availability logic.
+export function checkEscalationRequest(input: string): BotTurn | null {
+  return LIVE_AGENT_PATTERN.test(input.trim()) ? escalationTurn() : null;
+}
+
 function escalationTurn(): BotTurn {
   const config = getBusinessHoursConfig();
   const available = isLiveAgentAvailable(config);
