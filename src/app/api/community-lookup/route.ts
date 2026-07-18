@@ -8,9 +8,8 @@ import { isRateLimited } from "@/lib/rateLimit";
 // the entire abuse defense here - this app has no login system, so nothing
 // stops a bad actor from POSTing a wrong name for some barcode, but at
 // least they can only ever plant one bad entry per (as-yet-unclaimed)
-// barcode rather than overwrite whatever's already there. Reuses the same
-// Redis instance the live-chat feature already depends on (REDIS_URL) - see
-// src/lib/redis.ts - so no new infrastructure is required.
+// barcode rather than overwrite whatever's already there. Uses the shared
+// Redis instance (REDIS_URL) - see src/lib/redis.ts.
 
 const KEY_PREFIX = "community:barcode:";
 const MAX_BARCODE_LEN = 64;
