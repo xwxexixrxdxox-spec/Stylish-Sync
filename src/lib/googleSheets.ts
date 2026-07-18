@@ -98,7 +98,7 @@ async function sheetsFetch(path: string, token: string, init?: RequestInit) {
   return res.json();
 }
 
-export async function createInventorySpreadsheet(title = "InventorySync Data"): Promise<string> {
+export async function createInventorySpreadsheet(title = "WS Inventory Management Data"): Promise<string> {
   const token = await requestAccessToken();
   const created = await sheetsFetch("", token, {
     method: "POST",
