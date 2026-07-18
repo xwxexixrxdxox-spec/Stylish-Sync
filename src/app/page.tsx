@@ -9,12 +9,21 @@ import ScanTab from "@/components/ScanTab";
 import ReorderTab from "@/components/ReorderTab";
 import SupportTab from "@/components/SupportTab";
 import AccountTab from "@/components/AccountTab";
+import LoadScreen from "@/components/LoadScreen";
+
+// Minimum time to keep the load screen up, so its entrance animation
+// (logo mark + label + progress fill) always gets to finish playing even
+// when the actual data load (localStorage + access check) is instant.
+const LOAD_SCREEN_MIN_MS = 1500;
+const LOAD_SCREEN_FADE_MS = 300;
 
 export default function HomePage() {
   const [tab, setTab] = useState<TabId>("inventory");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [sheetId, setSheetIdState] = useState<string | null>(null);
   const [access, setAccess] = useState<AccessCheckResponse | null>(null);
+  const [showLoadScreen, setShowLoadScreen] = useState(true);
+  const [loadScreenExiting, setLoadScreenExiting] = useState(false);
 
   useEffect(() => {
     setItems(loadItems());
@@ -23,7 +32,15 @@ export default function HomePage() {
       .then((r) => r.json())
       .then(setAccess)
       .catch(() => setAccess({ access: false }));
+    const timer = setTimeout(() => setLoadScreenExiting(true), LOAD_SCREEN_MIN_MS);
+    return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!loadScreenExiting) return;
+    const timer = setTimeout(() => setShowLoadScreen(false), LOAD_SCREEN_FADE_MS);
+    return () => clearTimeout(timer);
+  }, [loadScreenExiting]);
 
   useEffect(() => {
     if (items.length) saveItems(items);
@@ -122,27 +139,30 @@ export default function HomePage() {
   };
 
   return (
-    <main className="min-h-screen bg-surface-muted">
-      <header className="sticky top-0 z-20 border-b border-surface-border bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
-        <div className="mx-auto flex max-w-2xl items-center gap-2 px-4 py-3 sm:px-6">
-          <span className="text-lg" aria-hidden>
-            📦
-          </span>
-          <span className="text-base font-semibold text-neutral-900">InventorySync</span>
-        </div>
-      </header>
+    <>
+      {showLoadScreen && <LoadScreen exiting={loadScreenExiting} />}
+      <main className="min-h-screen bg-surface-muted">
+        <header className="sticky top-0 z-20 border-b border-surface-border bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+          <div className="mx-auto flex max-w-2xl items-center gap-2 px-4 py-3 sm:px-6">
+            <span className="text-lg" aria-hidden>
+              📦
+            </span>
+            <span className="text-base font-semibold text-neutral-900">InventorySync</span>
+          </div>
+        </header>
 
-      {tab === "inventory" && (
-        <InventoryTab items={items} onAdjust={adjust} onSave={upsertItem} onDelete={deleteItem} onImport={bulkImport} />
-      )}
-      {tab === "scan" && <ScanTab items={items} onAddStock={addStock} onRemoveStock={removeStock} access={access} />}
-      {tab === "reorder" && <ReorderTab items={items} />}
-      {tab === "support" && access?.access && <SupportTab />}
-      {tab === "account" && (
-        <AccountTab items={items} onImport={bulkImport} sheetId={sheetId} setSheetId={setSheetId} access={access} />
-      )}
+        {tab === "inventory" && (
+          <InventoryTab items={items} onAdjust={adjust} onSave={upsertItem} onDelete={deleteItem} onImport={bulkImport} />
+        )}
+        {tab === "scan" && <ScanTab items={items} onAddStock={addStock} onRemoveStock={removeStock} access={access} />}
+        {tab === "reorder" && <ReorderTab items={items} />}
+        {tab === "support" && access?.access && <SupportTab />}
+        {tab === "account" && (
+          <AccountTab items={items} onImport={bulkImport} sheetId={sheetId} setSheetId={setSheetId} access={access} />
+        )}
 
-      <BottomNav active={tab} onChange={setTab} supportUnlocked={Boolean(access?.access)} />
-    </main>
+        <BottomNav active={tab} onChange={setTab} supportUnlocked={Boolean(access?.access)} />
+      </main>
+    </>
   );
 }
