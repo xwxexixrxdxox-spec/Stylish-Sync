@@ -27,6 +27,7 @@ export interface InventoryItem {
   pricePerUnit: number;
   reorderAt: number;
   updatedAt: string;
+  location?: string;
 }
 
 export interface StockMovement {
