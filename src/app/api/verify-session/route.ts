@@ -40,7 +40,11 @@ export async function GET(req: NextRequest) {
       iat: Date.now(),
     });
 
-    const res = NextResponse.json({ ok: true });
+    // "payment" = a one-time charge (e.g. the in-store install booking
+    // fee); "subscription" = one of the legacy recurring plans. The
+    // frontend uses this to decide whether to show the install-scheduling
+    // calendar or the old "welcome to Premium" confirmation.
+    const res = NextResponse.json({ ok: true, mode: checkoutSession.mode });
     res.cookies.set(SESSION_COOKIE_NAME, cookieValue, {
       httpOnly: true,
       secure: true,
