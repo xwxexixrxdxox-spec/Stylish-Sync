@@ -10,6 +10,11 @@ import {
   BREAK_REQUIRED_MINUTES,
   CLOCK_IN_GRACE_MINUTES,
   FORCED_CLOCKOUT_HOURS,
+  BOOKING_WINDOW_START,
+  BOOKING_WINDOW_END,
+  BOOKING_DURATIONS,
+  WEEKLY_HOUR_CAP,
+  BUSINESS_TIMEZONE,
 } from "./types";
 
 // Storage layer for the in-person visit booking flow, backed by the same
@@ -85,6 +90,7 @@ function parseBookingRecord(raw: string): BookingRecord {
     clockInAt: record.clockInAt ?? null,
     breaks: Array.isArray(record.breaks) ? record.breaks : [],
     autoClockedOut: record.autoClockedOut ?? false,
+    archived: record.archived ?? false,
   };
 }
 
@@ -110,21 +116,33 @@ export async function setAvailabilityWindows(windows: AvailabilityWindow[]): Pro
 // out slots that already have a booking. Start times are still offered on
 // the hour — it's just the *duration* a customer picks on top of a start
 // time that's now restricted to BOOKING_DURATIONS.
+//
+// Clamped to [BOOKING_WINDOW_START, BOOKING_WINDOW_END - MIN_DURATION] so
+// every candidate slot can support at least the shortest booking
+// (BOOKING_DURATIONS[0]) without running past the window — this holds
+// regardless of what window the admin actually declared, so a
+// too-wide-by-mistake availability window can't leak an unbookable-by-law
+// start time into the picker. The final start+duration combo is still
+// re-validated server-side at claim time (see claimSlots' caller in the
+// booking API route) since duration isn't chosen until after a start time.
 export async function getOpenSlots(): Promise<OpenSlot[]> {
   const windows = await getAvailabilityWindows();
   const redis = await getRedis();
 
   const now = new Date();
   const cutoff = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
+  const windowStartMin = toMinutes(BOOKING_WINDOW_START);
+  const windowEndMin = toMinutes(BOOKING_WINDOW_END);
+  const minDurationHours = Math.min(...BOOKING_DURATIONS);
 
   const candidates: OpenSlot[] = [];
   for (const w of windows) {
     const windowDate = new Date(`${w.date}T00:00:00`);
     if (Number.isNaN(windowDate.getTime()) || windowDate > cutoff) continue;
 
-    const startMin = toMinutes(w.start);
-    const endMin = toMinutes(w.end);
-    for (let m = startMin; m + SLOT_MINUTES <= endMin; m += SLOT_MINUTES) {
+    const startMin = Math.max(toMinutes(w.start), windowStartMin);
+    const latestStartMin = Math.min(toMinutes(w.end), windowEndMin - minDurationHours * 60);
+    for (let m = startMin; m + SLOT_MINUTES <= toMinutes(w.end) && m <= latestStartMin; m += SLOT_MINUTES) {
       const slotStart = toHHMM(m);
       const slotEnd = toHHMM(m + SLOT_MINUTES);
       const slotDateTime = new Date(`${w.date}T${slotStart}:00`);
@@ -158,7 +176,18 @@ export async function claimSlots(
   hours: BookingDuration,
   details: Omit<
     BookingRecord,
-    "id" | "date" | "start" | "hours" | "bookedAt" | "cancelToken" | "visitStatus" | "statusUpdatedAt" | "clockInAt" | "breaks" | "autoClockedOut"
+    | "id"
+    | "date"
+    | "start"
+    | "hours"
+    | "bookedAt"
+    | "cancelToken"
+    | "visitStatus"
+    | "statusUpdatedAt"
+    | "clockInAt"
+    | "breaks"
+    | "autoClockedOut"
+    | "archived"
   >
 ): Promise<ClaimResult> {
   const redis = await getRedis();
@@ -182,6 +211,7 @@ export async function claimSlots(
     clockInAt: null,
     breaks: [],
     autoClockedOut: false,
+    archived: false,
     ...details,
   };
   const payload = JSON.stringify(record);
@@ -258,6 +288,41 @@ function closeOpenBreak(breaks: BreakRecord[], now: Date): BreakRecord[] {
 
 function totalBreakMinutes(breaks: BreakRecord[]): number {
   return breaks.reduce((sum, b) => sum + b.minutes, 0);
+}
+
+// Real minutes worked on a visit so far: elapsed time since clock-in
+// (through statusUpdatedAt if it's finished, otherwise through now for one
+// that's still in progress) minus any break time. Used both by the weekly
+// 40-hour cap below and could be reused anywhere else "how much has
+// actually been worked" matters — deliberately based on real timestamps,
+// not the visit's scheduled `hours`, since that's what an hours cap should
+// actually be measuring.
+function actualOrInProgressMinutes(record: BookingRecord): number {
+  if (!record.clockInAt) return 0;
+  const startMs = new Date(record.clockInAt).getTime();
+  const endMs = record.visitStatus === "finished" ? new Date(record.statusUpdatedAt).getTime() : Date.now();
+  const rawMinutes = Math.max(0, (endMs - startMs) / 60_000);
+  return Math.max(0, rawMinutes - totalBreakMinutes(record.breaks));
+}
+
+// Sunday 00:00 through the following Sunday 00:00, in BUSINESS_TIMEZONE,
+// for whichever week contains `dateStr`. Used only for the 40-hour weekly
+// cap — a payroll concept that needs one consistent week boundary across
+// every booking, unlike the per-booking customer timezone used elsewhere.
+function weekBoundsFor(dateStr: string): { weekStartMs: number; weekEndMs: number } {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  // Noon UTC anchor avoids any midnight/DST edge case when asking "what
+  // weekday is this calendar date in BUSINESS_TIMEZONE".
+  const noonUtc = new Date(Date.UTC(y, m - 1, d, 12));
+  const weekdayName = new Intl.DateTimeFormat("en-US", { timeZone: BUSINESS_TIMEZONE, weekday: "short" }).format(noonUtc);
+  const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const dayOfWeek = WEEKDAY_INDEX[weekdayName] ?? 0;
+
+  const sundayUtcNoon = new Date(noonUtc.getTime() - dayOfWeek * 24 * 60 * 60 * 1000);
+  const sundayDateStr = sundayUtcNoon.toISOString().slice(0, 10);
+  const weekStart = zonedDateTime(sundayDateStr, "00:00", BUSINESS_TIMEZONE);
+  const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return { weekStartMs: weekStart.getTime(), weekEndMs: weekEnd.getTime() };
 }
 
 // Defensively force-finishes a visit that's been clocked in for
@@ -400,7 +465,7 @@ export interface BookingMutationResult {
 
 // Admin-only (route enforces the cookie check) — moves a visit through
 // not_started -> clocked_in -> on_break/clocked_in -> finished, enforcing
-// three legal guardrails along the way:
+// four legal guardrails along the way:
 //
 //  1. Clock-in grace window: the first clock-in for a visit can't happen
 //     more than CLOCK_IN_GRACE_MINUTES before its scheduled start (judged
@@ -415,6 +480,10 @@ export interface BookingMutationResult {
 //     $300/day visit.
 //  3. Forced clock-out: a visit clocked in for FORCED_CLOCKOUT_HOURS or
 //     more is force-finished before any other transition is considered.
+//  4. Weekly hour cap: a clock-in is refused if it would push the
+//     technician's total worked hours for their Sunday-Saturday work week
+//     (see BUSINESS_TIMEZONE/WEEKLY_HOUR_CAP) over 40 — no overtime here,
+//     so this is a hard stop rather than a warning.
 //
 // Beyond that, no validation of *which* transitions are legal — the admin
 // UI only exposes the sensible next steps, and a technician correcting a
@@ -450,6 +519,32 @@ export async function updateVisitStatus(id: string, status: VisitStatus): Promis
     if (now < earliestAllowed) {
       return { ok: false, error: "Sorry, it's too early to clock in. Come back closer to the scheduled time slot." };
     }
+
+    // Kentucky: no overtime means the technician simply can't be clocked in
+    // past WEEKLY_HOUR_CAP hours in their Sunday-Saturday work week. Sums
+    // real worked minutes (finished visits + anything currently in
+    // progress elsewhere, minus breaks) from every other booking that
+    // falls in this same week, then adds this visit's scheduled hours as
+    // the best available projection since it hasn't happened yet.
+    const { weekStartMs, weekEndMs } = weekBoundsFor(record.date);
+    const allBookings = await listBookings();
+    const alreadyWorkedMinutes = allBookings
+      .filter((b) => b.id !== record.id)
+      .filter((b) => {
+        const anchor = zonedDateTime(b.date, "12:00", BUSINESS_TIMEZONE).getTime();
+        return anchor >= weekStartMs && anchor < weekEndMs;
+      })
+      .reduce((sum, b) => sum + actualOrInProgressMinutes(b), 0);
+    const projectedMinutes = alreadyWorkedMinutes + record.hours * 60;
+    if (projectedMinutes > WEEKLY_HOUR_CAP * 60) {
+      const alreadyWorkedHours = Math.round((alreadyWorkedMinutes / 60) * 10) / 10;
+      const remainingHours = Math.max(0, Math.round(((WEEKLY_HOUR_CAP * 60 - alreadyWorkedMinutes) / 60) * 10) / 10);
+      return {
+        ok: false,
+        error: `This would put the technician over the ${WEEKLY_HOUR_CAP}-hour weekly cap (Kentucky law, no overtime) — about ${alreadyWorkedHours}h already worked this week, ${remainingHours}h left. Reschedule or shorten this visit.`,
+      };
+    }
+
     record.clockInAt = record.clockInAt ?? now.toISOString();
   }
 
@@ -505,5 +600,43 @@ export async function cancelBooking(
   await redis.del(bookingKey(id));
   await redis.lRem(BOOKING_INDEX_KEY, 0, id);
 
+  return { ok: true, record };
+}
+
+// Admin-only, hard delete of a mistaken/duplicate booking — any status,
+// including "finished". Deliberately does NOT send the customer a
+// cancellation email the way cancelBooking does: that email says "your
+// visit request was cancelled," which is the wrong message for a job that
+// may have actually happened and is just being purged as a data-entry
+// mistake, or for a finished job being tidied up. Frees the slot(s) the
+// same way cancelBooking does so a deleted mistaken entry doesn't leave
+// stale hours permanently unbookable.
+export async function deleteBooking(id: string): Promise<BookingMutationResult> {
+  const redis = await getRedis();
+  const raw = await redis.get(bookingKey(id));
+  if (!raw) return { ok: false, error: "That booking no longer exists." };
+
+  const record = parseBookingRecord(raw);
+  const startMin = toMinutes(record.start);
+  const slotKeys = Array.from({ length: record.hours }, (_, i) => bookedKey(record.date, toHHMM(startMin + i * SLOT_MINUTES)));
+  await Promise.all(slotKeys.map((k) => redis.del(k)));
+  await redis.del(bookingKey(id));
+  await redis.lRem(BOOKING_INDEX_KEY, 0, id);
+
+  return { ok: true, record };
+}
+
+// Admin-only — tucks a legitimately completed job out of the default
+// /admin/visits list (or brings it back) without deleting it. Doesn't free
+// the booked slot(s): an archived visit already happened, so there's
+// nothing to release.
+export async function setBookingArchived(id: string, archived: boolean): Promise<BookingMutationResult> {
+  const redis = await getRedis();
+  const raw = await redis.get(bookingKey(id));
+  if (!raw) return { ok: false, error: "That booking no longer exists." };
+
+  const record = parseBookingRecord(raw);
+  record.archived = archived;
+  await redis.set(bookingKey(id), JSON.stringify(record));
   return { ok: true, record };
 }

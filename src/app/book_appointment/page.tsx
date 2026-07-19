@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, Clock } from "lucide-react";
-import { OpenSlot, ContactMethod, BOOKING_DURATIONS, BookingDuration } from "@/lib/types";
+import { OpenSlot, ContactMethod, BOOKING_DURATIONS, BookingDuration, BOOKING_WINDOW_END } from "@/lib/types";
 import { VISIT_OFFER } from "@/lib/stripeTiers";
+
+function toMinutesLocal(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+const WINDOW_END_MIN = toMinutesLocal(BOOKING_WINDOW_END);
 
 function formatTime(hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number);
@@ -135,7 +141,15 @@ export default function BookAppointmentPage() {
                 {daySlots.map((s) => (
                   <button
                     key={s.start}
-                    onClick={() => setSelected(s)}
+                    onClick={() => {
+                      setSelected(s);
+                      // getOpenSlots only ever offers a start time that can
+                      // fit at least the shortest duration, so this is
+                      // always safe as the default — but a previously
+                      // chosen longer duration might not fit this new
+                      // start, so reset rather than carry it over.
+                      setHours(BOOKING_DURATIONS[0]);
+                    }}
                     className="rounded-lg border border-surface-border px-3 py-1.5 text-xs font-medium text-neutral-700 hover:border-neutral-900 hover:bg-surface-muted"
                   >
                     {formatTime(s.start)}
@@ -163,20 +177,25 @@ export default function BookAppointmentPage() {
               Visit length <span className="font-normal text-neutral-400">Fixed blocks, capped at 12h/day.</span>
             </label>
             <div className="flex flex-wrap gap-2">
-              {BOOKING_DURATIONS.map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setHours(d)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                    hours === d
-                      ? "border-neutral-900 bg-neutral-900 text-white"
-                      : "border-surface-border text-neutral-700 hover:border-neutral-900 hover:bg-surface-muted"
-                  }`}
-                >
-                  {d}h
-                </button>
-              ))}
+              {BOOKING_DURATIONS.map((d) => {
+                const fits = toMinutesLocal(selected.start) + d * 60 <= WINDOW_END_MIN;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    disabled={!fits}
+                    title={fits ? undefined : `Would run past ${BOOKING_WINDOW_END} — pick an earlier start or a shorter visit.`}
+                    onClick={() => setHours(d)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                      hours === d
+                        ? "border-neutral-900 bg-neutral-900 text-white"
+                        : "border-surface-border text-neutral-700 hover:border-neutral-900 hover:bg-surface-muted"
+                    }`}
+                  >
+                    {d}h
+                  </button>
+                );
+              })}
             </div>
           </div>
 

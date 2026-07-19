@@ -2,13 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOpenSlots, claimSlots, isValidTimeZone } from "@/lib/booking";
 import { sendOwnerNotification, sendCustomerConfirmation } from "@/lib/email";
 import { isRateLimited } from "@/lib/rateLimit";
-import { ContactMethod, isBookingDuration } from "@/lib/types";
+import { ContactMethod, isBookingDuration, BOOKING_WINDOW_START, BOOKING_WINDOW_END } from "@/lib/types";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^\d{2}:\d{2}$/;
 const CONTACT_METHODS: ContactMethod[] = ["email", "phone", "text"];
 const MAX_TEXT_LEN = 2000;
+
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+const WINDOW_START_MIN = toMinutes(BOOKING_WINDOW_START);
+const WINDOW_END_MIN = toMinutes(BOOKING_WINDOW_END);
 // Fallback only for the rare case a browser doesn't report a usable
 // Intl timezone — real submissions always send one (see book_appointment
 // page.tsx), this just keeps a booking from being rejected outright over it.
@@ -53,6 +60,13 @@ export async function POST(req: NextRequest) {
   }
   if (!isBookingDuration(hours)) {
     return NextResponse.json({ ok: false, error: "Invalid duration." }, { status: 400 });
+  }
+  const startMin = toMinutes(start);
+  if (startMin < WINDOW_START_MIN || startMin + hours * 60 > WINDOW_END_MIN) {
+    return NextResponse.json(
+      { ok: false, error: `Visits can only be scheduled between ${BOOKING_WINDOW_START} and ${BOOKING_WINDOW_END}.` },
+      { status: 400 }
+    );
   }
   if (!name) {
     return NextResponse.json({ ok: false, error: "Name is required." }, { status: 400 });

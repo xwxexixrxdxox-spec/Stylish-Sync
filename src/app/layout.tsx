@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import CookieConsentBanner from "@/components/CookieConsentBanner";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
+import InstallPromptListener from "@/components/InstallPromptListener";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <CookieConsentBanner />
         <ServiceWorkerRegistrar />
+        <InstallPromptListener />
         <SpeedInsights />
         <Analytics />
       </body>

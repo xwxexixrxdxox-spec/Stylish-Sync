@@ -13,6 +13,7 @@ import SupportTab from "@/components/SupportTab";
 import VisitStatusTab from "@/components/VisitStatusTab";
 import AccountSidebar from "@/components/AccountSidebar";
 import LoadScreen from "@/components/LoadScreen";
+import ClearCacheButton from "@/components/ClearCacheButton";
 
 // Minimum time to keep the load screen up, so its entrance animation
 // (logo mark + label + progress fill) always gets to finish playing even
@@ -187,13 +188,16 @@ export default function HomePage() {
               </span>
               <span className="text-base font-semibold text-neutral-900">WS Inventory Management</span>
             </div>
-            <button
-              onClick={() => setAccountOpen(true)}
-              aria-label="Open account settings"
-              className="rounded-lg p-1.5 text-neutral-500 hover:bg-surface-muted"
-            >
-              <Settings size={20} />
-            </button>
+            <div className="flex items-center gap-1">
+              <ClearCacheButton />
+              <button
+                onClick={() => setAccountOpen(true)}
+                aria-label="Open account settings"
+                className="rounded-lg p-1.5 text-neutral-500 hover:bg-surface-muted"
+              >
+                <Settings size={20} />
+              </button>
+            </div>
           </div>
         </header>
 

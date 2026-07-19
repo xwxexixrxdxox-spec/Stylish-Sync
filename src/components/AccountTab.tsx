@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ExternalLink, RefreshCw, LogOut, FilePlus2, ShieldCheck, Search } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ExternalLink, RefreshCw, LogOut, FilePlus2, ShieldCheck, Search, Download, Share } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
   createInventorySpreadsheet,
@@ -16,6 +16,13 @@ import {
   signOutGoogle,
 } from "@/lib/googleSheets";
 import { setLinkedSheetId } from "@/lib/storage";
+import {
+  getDeferredInstallPrompt,
+  isIosSafari,
+  isStandalone,
+  subscribeInstallPrompt,
+  triggerInstallPrompt,
+} from "@/lib/installPrompt";
 import PricingTiers from "./PricingTiers";
 import DevAccessToggle from "./DevAccessToggle";
 
@@ -38,6 +45,34 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   const [trackEmail, setTrackEmail] = useState("");
   const [trackBusy, setTrackBusy] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
+  const [installable, setInstallable] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [alreadyInstalled, setAlreadyInstalled] = useState(false);
+  const [showIosInstructions, setShowIosInstructions] = useState(false);
+
+  // Re-render whenever a native install prompt becomes available (or gets
+  // used up) — see installPrompt.ts. Checked once on mount too, in case the
+  // event already fired before this panel mounted.
+  useEffect(() => {
+    const sync = () => setInstallable(!!getDeferredInstallPrompt());
+    sync();
+    setAlreadyInstalled(isStandalone());
+    return subscribeInstallPrompt(sync);
+  }, []);
+
+  const installApp = async () => {
+    if (isIosSafari()) {
+      setShowIosInstructions((v) => !v);
+      return;
+    }
+    setInstalling(true);
+    try {
+      const accepted = await triggerInstallPrompt();
+      flash(accepted ? "Installed! Look for it on your home screen." : "No worries — you can install it later too.");
+    } finally {
+      setInstalling(false);
+    }
+  };
 
   const flash = (msg: string) => {
     setMessage(msg);
@@ -320,6 +355,25 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
           </div>
         )}
       </section>
+
+      {!alreadyInstalled && (installable || isIosSafari()) && (
+        <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+          <p className="mb-3 text-sm font-medium text-neutral-900">Install app</p>
+          <button
+            disabled={installing}
+            onClick={installApp}
+            className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+          >
+            <Download size={14} /> {installing ? "Installing…" : "Install app on this device"}
+          </button>
+          {showIosInstructions && (
+            <p className="mt-2 flex items-start gap-1.5 text-xs text-neutral-500">
+              <Share size={13} className="mt-0.5 shrink-0" /> Tap the Share icon in Safari, then "Add to Home
+              Screen."
+            </p>
+          )}
+        </section>
+      )}
 
       {access?.access && process.env.NEXT_PUBLIC_STRIPE_PORTAL_URL && (
         <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Play, Coffee, CheckCircle2, XCircle, Clock, AlertTriangle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Play, Coffee, CheckCircle2, XCircle, Clock, AlertTriangle, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { BookingRecord, VisitStatus, BREAK_REQUIRED_MINUTES, BookingDuration } from "@/lib/types";
 
 const CONTACT_LABEL: Record<string, string> = { email: "Email", phone: "Phone call", text: "Text message" };
@@ -37,6 +37,8 @@ export default function AdminVisits() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -51,6 +53,9 @@ export default function AdminVisits() {
   };
 
   useEffect(load, []);
+
+  const archivedCount = useMemo(() => bookings.filter((b) => b.archived).length, [bookings]);
+  const visible = useMemo(() => bookings.filter((b) => showArchived || !b.archived), [bookings, showArchived]);
 
   const setStatus = async (id: string, status: VisitStatus) => {
     setBusyId(id);
@@ -96,15 +101,69 @@ export default function AdminVisits() {
     }
   };
 
+  const setArchived = async (id: string, archived: boolean) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/bookings/${encodeURIComponent(id)}/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+      const body = await res.json();
+      if (body.ok && body.record) {
+        setBookings((prev) => prev.map((b) => (b.id === id ? body.record : b)));
+      } else {
+        setError(body.error ?? "Couldn't update.");
+      }
+    } catch {
+      setError("Couldn't update — check your connection and try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const deleteEntry = async (id: string) => {
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      return;
+    }
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/bookings/${encodeURIComponent(id)}/delete`, { method: "POST" });
+      const body = await res.json();
+      if (body.ok) {
+        setBookings((prev) => prev.filter((b) => b.id !== id));
+      } else {
+        setError(body.error ?? "Couldn't delete.");
+      }
+    } catch {
+      setError("Couldn't delete — check your connection and try again.");
+    } finally {
+      setBusyId(null);
+      setConfirmDeleteId(null);
+    }
+  };
+
   if (loading) return <p className="text-sm text-neutral-500">Loading…</p>;
 
   return (
     <div className="space-y-3">
       {error && <p className="text-xs font-medium text-accent-low">{error}</p>}
 
-      {bookings.length === 0 && <p className="text-sm text-neutral-400">No visits yet.</p>}
+      {archivedCount > 0 && (
+        <button
+          onClick={() => setShowArchived((v) => !v)}
+          className="text-xs font-medium text-blue-600 hover:underline"
+        >
+          {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+        </button>
+      )}
 
-      {bookings.map((b) => {
+      {visible.length === 0 && <p className="text-sm text-neutral-400">No visits yet.</p>}
+
+      {visible.map((b) => {
         const busy = busyId === b.id;
         const required = breakMinutesRequired(b);
         const taken = breakMinutesTaken(b);
@@ -112,8 +171,12 @@ export default function AdminVisits() {
         const finishBlockedReason = !breakMet
           ? `Kentucky law requires ${required} min of break for a ${b.hours}h visit — only ${taken} min logged so far.`
           : undefined;
+        const confirmingDelete = confirmDeleteId === b.id;
         return (
-          <section key={b.id} className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+          <section
+            key={b.id}
+            className={`rounded-xl2 border border-surface-border bg-white p-4 shadow-card ${b.archived ? "opacity-60" : ""}`}
+          >
             <div className="mb-2 flex items-start justify-between">
               <div>
                 <p className="text-sm font-medium text-neutral-900">
@@ -135,11 +198,11 @@ export default function AdminVisits() {
                 )}
               </div>
               <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${STATUS_BADGE[b.visitStatus]}`}>
-                {STATUS_LABEL[b.visitStatus]}
+                {b.archived ? "Archived" : STATUS_LABEL[b.visitStatus]}
               </span>
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               {b.visitStatus === "not_started" && (
                 <button
                   disabled={busy}
@@ -191,11 +254,41 @@ export default function AdminVisits() {
                 <button
                   disabled={busy}
                   onClick={() => cancel(b.id)}
-                  className="ml-auto flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-accent-low hover:bg-red-50 disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-accent-low hover:bg-red-50 disabled:opacity-50"
                 >
                   <XCircle size={13} /> Cancel
                 </button>
               )}
+              {b.visitStatus === "finished" &&
+                (b.archived ? (
+                  <button
+                    disabled={busy}
+                    onClick={() => setArchived(b.id, false)}
+                    className="flex items-center gap-1.5 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+                  >
+                    <ArchiveRestore size={13} /> Unarchive
+                  </button>
+                ) : (
+                  <button
+                    disabled={busy}
+                    onClick={() => setArchived(b.id, true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+                  >
+                    <Archive size={13} /> Archive
+                  </button>
+                ))}
+              <button
+                disabled={busy}
+                onClick={() => deleteEntry(b.id)}
+                title={confirmingDelete ? "Tap again to permanently delete" : "Delete this entry (e.g. a mistaken booking)"}
+                className={`ml-auto flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+                  confirmingDelete
+                    ? "border-accent-low bg-red-50 text-accent-low"
+                    : "border-surface-border text-neutral-500 hover:bg-surface-muted"
+                }`}
+              >
+                <Trash2 size={13} /> {confirmingDelete ? "Confirm delete" : "Delete"}
+              </button>
             </div>
           </section>
         );

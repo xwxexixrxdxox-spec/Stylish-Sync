@@ -1,6 +1,6 @@
 {
-  "name": "InventorySync — Scan, Track, Reorder",
-  "short_name": "InventorySync",
+  "name": "WS Inventory Management — Scan, Track, Reorder",
+  "short_name": "WS Inventory",
   "description": "Barcode inventory scanning, low-stock reordering, and Google Sheets sync in one app.",
   "start_url": "/",
   "scope": "/",

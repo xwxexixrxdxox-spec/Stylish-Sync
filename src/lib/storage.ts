@@ -13,10 +13,15 @@ const ITEMS_KEY = "isc_inventory_items_v1";
 const SHEET_LINK_KEY = "isc_google_sheet_id_v1";
 const COOKIE_CONSENT_KEY = "isc_cookie_consent_v1";
 const MOVEMENTS_KEY = "isc_stock_movements_v1";
-// Caps how much movement history we keep in localStorage. At a few hundred
-// scans a week this covers well over a year of history; older entries roll
-// off the front once the cap is hit.
-const MAX_MOVEMENTS = 2000;
+// Caps how much movement history we keep in localStorage. The Usage tab's
+// date filter now goes up to "All time," so this needs to comfortably
+// cover several years of realistic activity rather than "well over a
+// year" — bumped from 2000 to 20000 (roughly 2MB of JSON at typical entry
+// size), which stays safely under the ~5-10MB per-origin quota most
+// browsers give localStorage. An extremely high-volume, many-years-active
+// customer could still eventually roll off the oldest entries; there's no
+// way around that without moving history off localStorage entirely.
+const MAX_MOVEMENTS = 20000;
 
 const SEED_ITEMS: InventoryItem[] = [
   {
@@ -139,7 +144,7 @@ export function setCookieConsent(value: Exclude<CookieConsent, null>): void {
 
 // Clears everything this app has cached locally: the Cache Storage API
 // (service worker assets), and app-namespaced localStorage keys. This is
-// what the Settings > "Clear Cache & Reload" button calls. It intentionally
+// what the trash-can icon in the header (ClearCacheButton.tsx) calls. It intentionally
 // does NOT touch the customer's Google Sheet data (that lives on Google's
 // servers, not in this browser) or their signed-in Stripe access - clearing
 // cache should never accidentally sign a paying customer out of support.

@@ -116,6 +116,27 @@ export const CLOCK_IN_GRACE_MINUTES = 7;
 // regardless of the booking's scheduled length or how it's going.
 export const FORCED_CLOCKOUT_HOURS = 12;
 
+// No visit may start before, or run past, these clock times — bookings
+// outside this window simply aren't offered/allowed, regardless of what
+// availability window the admin declares.
+export const BOOKING_WINDOW_START = "07:00";
+export const BOOKING_WINDOW_END = "21:00";
+
+// Kentucky law: a work week can't exceed 40 hours without overtime, and
+// since this business doesn't pay overtime, the technician simply can't be
+// clocked in for more than this in a single week. A work week runs
+// Sunday through Saturday (the business owner's own stated definition).
+export const WEEKLY_HOUR_CAP = 40;
+
+// Timezone used only to compute the Sunday-Saturday work-week boundary for
+// the 40-hour cap above — a business-level payroll concept, so it uses one
+// fixed zone for every booking regardless of where each individual
+// customer is, unlike CLOCK_IN_GRACE_MINUTES (which judges each visit
+// against its own customer's timezone). This is a placeholder pointed at
+// the business's actual home timezone; flagged for the owner to confirm
+// since Kentucky itself spans Eastern and Central time.
+export const BUSINESS_TIMEZONE = "America/New_York";
+
 // Lifecycle of the on-site visit itself, separate from the booking
 // request lifecycle above. Driven entirely by the admin (the technician
 // doing the visit); the customer-facing status page just reflects it.
@@ -164,6 +185,12 @@ export interface BookingRecord {
   // True once the 12-hour cap has force-finished this visit rather than an
   // explicit "Finished" click.
   autoClockedOut: boolean;
+  // Tucked out of the default admin list without being deleted — for
+  // legitimately completed jobs the owner wants off the active list but
+  // still wants a record of. Distinct from actually deleting a booking
+  // (see deleteBooking in booking.ts), which is for mistaken/duplicate
+  // entries that shouldn't exist at all.
+  archived: boolean;
 }
 
 // What the public status page (linked from the confirmation email, keyed
