@@ -89,7 +89,7 @@ export default function ItemCard({ item, onAdjust, onEdit }: Props) {
           <Pencil size={14} />
         </button>
         <div className="text-right">
-          <p className="text-sm font-medium text-neutral-800">${item.pricePerUnit.toFixed(2)} ea</p>
+          <p className="text-sm font-medium text-neutral-800">${(item.pricePerUnit ?? 0).toFixed(2)} ea</p>
           {low && <p className="text-xs font-medium text-accent-low">Low stock</p>}
         </div>
       </div>

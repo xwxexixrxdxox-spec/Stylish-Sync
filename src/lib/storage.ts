@@ -54,6 +54,21 @@ const SEED_ITEMS: InventoryItem[] = [
   },
 ];
 
+// Guards against a null/undefined/NaN numeric field crashing a render
+// somewhere downstream (e.g. ItemCard's pricePerUnit.toFixed(2)) — seen in
+// practice on a real device where an item had ended up with a null price,
+// which blanked the entire app since nothing here was ever validated on
+// the way out of localStorage. Every read path funnels through loadItems,
+// so this is the one place that needs to normalize.
+function normalizeItem(item: InventoryItem): InventoryItem {
+  return {
+    ...item,
+    quantity: Number.isFinite(item.quantity) ? item.quantity : 0,
+    pricePerUnit: Number.isFinite(item.pricePerUnit) ? item.pricePerUnit : 0,
+    reorderAt: Number.isFinite(item.reorderAt) ? item.reorderAt : 0,
+  };
+}
+
 export function loadItems(): InventoryItem[] {
   if (typeof window === "undefined") return [];
   try {
@@ -62,7 +77,8 @@ export function loadItems(): InventoryItem[] {
       window.localStorage.setItem(ITEMS_KEY, JSON.stringify(SEED_ITEMS));
       return SEED_ITEMS;
     }
-    return JSON.parse(raw) as InventoryItem[];
+    const parsed = JSON.parse(raw) as InventoryItem[];
+    return Array.isArray(parsed) ? parsed.map(normalizeItem) : [];
   } catch {
     return [];
   }
