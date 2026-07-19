@@ -184,6 +184,24 @@ Each customer connects their *own* Google account and *their own*
 spreadsheet — nothing routes through your server, matching how the
 original ISC app worked.
 
+### Optional: let customers pick an existing sheet
+
+Without the steps below, "Sign in with Google" always creates a brand-new
+spreadsheet, and "Import from sheet" only re-pulls from that same one —
+there's no way to browse and choose one of the customer's *existing*
+spreadsheets. To enable that (a real Google file-picker popup):
+
+1. In the same Google Cloud project as above, go to Credentials > Create
+   Credentials > **API key**. Restrict it to your deployed domain(s) if you
+   want (optional but recommended).
+2. APIs & Services > Library > search **Google Picker API** > Enable it.
+3. Copy the API key into `NEXT_PUBLIC_GOOGLE_API_KEY`. Also public/safe to
+   ship to the browser — it only grants Picker access, not account access.
+
+Until this is set, the app works fine and just skips the picker (falls back
+to the original single-sheet behavior) — this is an enhancement, not a
+requirement.
+
 ## Deploying
 
 The app is a standard Next.js 14 project and deploys cleanly to

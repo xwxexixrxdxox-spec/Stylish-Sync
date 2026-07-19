@@ -6,6 +6,8 @@ import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
   createInventorySpreadsheet,
   isGoogleSheetsConfigured,
+  isPickerConfigured,
+  openSpreadsheetPicker,
   pullItemsFromSheet,
   pushItemsToSheet,
   requestAccessToken,
@@ -36,14 +38,31 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   const connectGoogle = async () => {
     setBusy("connect");
     try {
-      await requestAccessToken(true);
-      let id = sheetId;
-      if (!id) {
-        id = await createInventorySpreadsheet();
+      const token = await requestAccessToken(true);
+
+      // First-time connect (no sheet linked yet): offer to pick one of the
+      // customer's existing spreadsheets before falling back to creating a
+      // fresh one. Re-authenticating an already-linked sheet skips this —
+      // that button just needs a fresh token, not a new sheet choice.
+      if (!sheetId) {
+        const picked = isPickerConfigured() ? await openSpreadsheetPicker(token) : null;
+        if (picked) {
+          setSheetId(picked);
+          setLinkedSheetId(picked);
+          const remote = await pullItemsFromSheet(picked);
+          onImport(remote);
+          flash(`Connected — imported ${remote.length} items from your sheet.`);
+          return;
+        }
+        const id = await createInventorySpreadsheet();
         setSheetId(id);
         setLinkedSheetId(id);
+        await pushItemsToSheet(id, items);
+        flash("Connected and synced to a new Google Sheet.");
+        return;
       }
-      await pushItemsToSheet(id, items);
+
+      await pushItemsToSheet(sheetId, items);
       flash("Connected and synced to Google Sheets.");
     } catch (e: any) {
       flash(e.message ?? "Couldn't connect to Google.");
@@ -66,9 +85,24 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   };
 
   const importFromSheet = async () => {
-    if (!sheetId) return;
     setBusy("import");
     try {
+      // Always let the customer browse and pick which sheet to import from
+      // — not just re-pull whatever's currently linked — so switching to a
+      // different existing spreadsheet is possible at any time.
+      if (isPickerConfigured()) {
+        const token = await requestAccessToken();
+        const picked = await openSpreadsheetPicker(token);
+        if (!picked) return; // picker closed without a selection — not an error
+        setSheetId(picked);
+        setLinkedSheetId(picked);
+        const remote = await pullItemsFromSheet(picked);
+        onImport(remote);
+        flash(`Imported ${remote.length} items from your Google Sheet.`);
+        return;
+      }
+
+      if (!sheetId) return;
       const remote = await pullItemsFromSheet(sheetId);
       onImport(remote);
       flash(`Imported ${remote.length} items from your Google Sheet.`);

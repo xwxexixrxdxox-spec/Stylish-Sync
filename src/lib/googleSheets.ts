@@ -2,28 +2,51 @@
 
 import { InventoryItem } from "./types";
 
-// Client-side Google Sheets sync using Google Identity Services (GIS).
+// Client-side Google Sheets sync using Google Identity Services (GIS) for
+// auth, plus the Google Picker API for letting the customer browse and pick
+// one of their *existing* spreadsheets (rather than the app only ever being
+// able to create/read a sheet it made itself).
 // Mirrors the ISC app's model: each customer connects *their own* Google
 // account and *their own* spreadsheet — we never see or store their
 // spreadsheet data on our server, it round-trips straight from their
-// browser to Google's API using a token scoped only to Sheets.
+// browser to Google's API using a token scoped only to Sheets + the files
+// they explicitly pick (see the drive.file scope note below).
 //
 // Requires NEXT_PUBLIC_GOOGLE_CLIENT_ID to be set (see README). That
 // client ID is a public identifier (safe to ship to the browser), but it
 // must have this app's deployed origin listed under "Authorized JavaScript
 // origins" in Google Cloud Console > Credentials, or Google will refuse
 // the sign-in popup.
+//
+// The "browse my Drive and pick a sheet" picker additionally requires
+// NEXT_PUBLIC_GOOGLE_API_KEY (a separate Google API key, with the "Google
+// Picker API" enabled on the same Cloud project — see README). Without it,
+// the picker is skipped and the app falls back to its original
+// create-a-new-sheet-on-connect / re-import-from-the-linked-sheet behavior,
+// so this degrades gracefully rather than breaking for deployments that
+// haven't set it up yet.
 
 const SHEET_RANGE = "Inventory!A1:F";
 const HEADER_ROW = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Reorder At"];
 
+// drive.file (not the broader drive.readonly) is deliberate: it only grants
+// this app access to files the customer explicitly selects through the
+// Picker UI, not blanket read access to their whole Drive. The Picker's own
+// browsing view can still show all of the customer's spreadsheets to choose
+// from — that browsing happens under Google's own picker permission, not
+// this app's OAuth scope — so drive.file is both the more private option
+// and enough to fulfill "let me pick from my existing sheets."
+const OAUTH_SCOPE = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file";
+
 declare global {
   interface Window {
     google?: any;
+    gapi?: any;
   }
 }
 
 let gisLoaded: Promise<void> | null = null;
+let pickerApiLoaded: Promise<void> | null = null;
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
 function loadGis(): Promise<void> {
@@ -42,8 +65,37 @@ function loadGis(): Promise<void> {
   return gisLoaded;
 }
 
+// Loads the classic Google API loader (gapi) and its "picker" module. This
+// is a separate script/library from GIS above — GIS handles sign-in/tokens,
+// gapi.picker renders the actual file-browser popup.
+function loadPickerApi(): Promise<void> {
+  if (pickerApiLoaded) return pickerApiLoaded;
+  pickerApiLoaded = new Promise((resolve, reject) => {
+    if (typeof window === "undefined") return resolve();
+    const onGapiReady = () => {
+      window.gapi.load("picker", { callback: () => resolve(), onerror: () => reject(new Error("Failed to load Google Picker")) });
+    };
+    if (window.gapi?.load) return onGapiReady();
+    const script = document.createElement("script");
+    script.src = "https://apis.google.com/js/api.js";
+    script.async = true;
+    script.defer = true;
+    script.onload = onGapiReady;
+    script.onerror = () => reject(new Error("Failed to load Google API loader"));
+    document.head.appendChild(script);
+  });
+  return pickerApiLoaded;
+}
+
 export function isGoogleSheetsConfigured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
+}
+
+// Separate from isGoogleSheetsConfigured — sign-in works without this, it
+// just means the "pick an existing sheet" picker isn't available yet and
+// callers should fall back to the original single-sheet behavior.
+export function isPickerConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_GOOGLE_API_KEY);
 }
 
 export async function requestAccessToken(forcePrompt = false): Promise<string> {
@@ -61,7 +113,7 @@ export async function requestAccessToken(forcePrompt = false): Promise<string> {
   return new Promise((resolve, reject) => {
     const tokenClient = window.google.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: "https://www.googleapis.com/auth/spreadsheets",
+      scope: OAUTH_SCOPE,
       callback: (resp: any) => {
         if (resp.error) {
           reject(new Error(resp.error));
@@ -80,6 +132,45 @@ export async function requestAccessToken(forcePrompt = false): Promise<string> {
 
 export function signOutGoogle(): void {
   cachedToken = null;
+}
+
+// Opens Google's own "pick a file from your Drive" popup, scoped to
+// spreadsheets. Resolves with the picked spreadsheet's ID, or null if the
+// customer closes the picker without choosing anything (a normal, expected
+// outcome — callers should treat null as "cancelled," not an error).
+export async function openSpreadsheetPicker(token: string): Promise<string | null> {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "Picking an existing sheet isn't configured yet. Set NEXT_PUBLIC_GOOGLE_API_KEY in your environment (see README)."
+    );
+  }
+  await loadPickerApi();
+
+  return new Promise((resolve, reject) => {
+    try {
+      const view = new window.google.picker.DocsView(window.google.picker.ViewId.SPREADSHEETS)
+        .setIncludeFolders(true)
+        .setSelectFolderEnabled(false);
+
+      const picker = new window.google.picker.PickerBuilder()
+        .setOAuthToken(token)
+        .setDeveloperKey(apiKey)
+        .setTitle("Choose your inventory spreadsheet")
+        .addView(view)
+        .setCallback((data: any) => {
+          if (data.action === window.google.picker.Action.PICKED) {
+            resolve(data.docs?.[0]?.id ?? null);
+          } else if (data.action === window.google.picker.Action.CANCEL) {
+            resolve(null);
+          }
+        })
+        .build();
+      picker.setVisible(true);
+    } catch (e) {
+      reject(e as Error);
+    }
+  });
 }
 
 async function sheetsFetch(path: string, token: string, init?: RequestInit) {
