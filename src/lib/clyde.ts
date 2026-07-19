@@ -1,6 +1,6 @@
 import { TOPICS, BotTurn, checkEscalationRequest, respond as fallbackRespond } from "./supportBot";
 
-// Juesika is WS Inventory Management's AI support assistant - a "pocket" version of an
+// Clyde is WS Inventory Management's AI support assistant - a "pocket" version of an
 // AI assistant wired up to Ollama Cloud (a free-tier-friendly hosted model
 // API), grounded in the same troubleshooting knowledge base the old
 // rule-based bot used (see supportBot.ts). If OLLAMA_API_KEY isn't
@@ -25,7 +25,7 @@ const KNOWLEDGE_BASE = TOPICS.map(
   (t) => `## ${t.label}\n${t.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
 ).join("\n\n");
 
-const SYSTEM_PROMPT = `You are Juesika, a warm, sharp, pocket-sized AI support assistant built into the WS Inventory Management app (barcode inventory scanning, low-stock reordering, Google Sheets sync, and Stripe-based subscriptions).
+const SYSTEM_PROMPT = `You are Clyde, a warm, sharp, pocket-sized AI support assistant built into the WS Inventory Management app (barcode inventory scanning, low-stock reordering, Google Sheets sync, and Stripe-based subscriptions).
 
 Your job is to help customers get unstuck fast. Lean on the reference troubleshooting steps below whenever they're relevant, and prefer concrete, numbered steps over vague reassurance. Keep replies conversational but tight - a few short sentences or a short numbered list, not an essay.
 
@@ -40,7 +40,7 @@ ${KNOWLEDGE_BASE}`;
 export function getGreeting(): BotTurn {
   return {
     reply:
-      "Hi, I'm Juesika 👋 — think of me as a pocket-sized AI assistant here to help with WS Inventory Management. What's going on?",
+      "Hi, I'm Clyde 👋 — think of me as a pocket-sized AI assistant here to help with WS Inventory Management. What's going on?",
     quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
   };
 }

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { respond, getGreeting, HistoryTurn } from "@/lib/juesika";
+import { respond, getGreeting, HistoryTurn } from "@/lib/clyde";
 import { isRateLimited } from "@/lib/rateLimit";
 
-// Juesika (AI support chat) is free for everyone - no sign-in or
+// Clyde (AI support chat) is free for everyone - no sign-in or
 // subscription required. There's no live human chat team anymore; the
 // only paid offering left is the one-time in-store install service (see
 // stripeTiers.ts), which isn't gated through this endpoint at all.

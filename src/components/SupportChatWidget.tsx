@@ -9,7 +9,7 @@ interface ChatMessage {
   text: string;
 }
 
-// Juesika-only support widget. There used to be a "live agent" escalation
+// Clyde-only support widget. There used to be a "live agent" escalation
 // path here (a whole second mode that polled a Redis-backed chat session
 // and an owner inbox) - that's gone. This is now just a chat window
 // talking to the free AI assistant.
@@ -39,7 +39,7 @@ export default function SupportChatWidget() {
     setQuickReplies([]);
     try {
       // Send the transcript so far (excluding the message just added above)
-      // so Juesika has conversational context instead of answering each
+      // so Clyde has conversational context instead of answering each
       // message cold. Capped to keep the request payload/token usage bounded.
       const history = messages.slice(-20).map((m) => ({ role: m.role, text: m.text }));
       const res = await fetch("/api/support-chat", {
@@ -68,7 +68,7 @@ export default function SupportChatWidget() {
   return (
     <div className="flex h-[70vh] max-h-[560px] flex-col overflow-hidden rounded-xl2 border border-surface-border bg-white shadow-card">
       <div className="border-b border-surface-border bg-neutral-900 px-4 py-3 text-white">
-        <p className="text-sm font-semibold">Juesika</p>
+        <p className="text-sm font-semibold">Clyde</p>
         <p className="text-xs text-white/60">Usually replies instantly</p>
       </div>
 
@@ -86,7 +86,7 @@ export default function SupportChatWidget() {
             </div>
           </div>
         ))}
-        {loading && <p className="text-xs text-neutral-400">Juesika is typing...</p>}
+        {loading && <p className="text-xs text-neutral-400">Clyde is typing...</p>}
         <div ref={bottomRef} />
       </div>
 

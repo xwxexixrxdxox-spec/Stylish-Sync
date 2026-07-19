@@ -1,6 +1,6 @@
 // A deliberately rule-based (not LLM-backed) troubleshooting assistant.
 // It always tries self-service steps first. There is no live human agent
-// to escalate to anymore — if someone asks for one, Juesika says so
+// to escalate to anymore — if someone asks for one, Clyde says so
 // plainly and points them at the paid in-store setup service (booked
 // separately) or a direct email, rather than pretending to connect them.
 

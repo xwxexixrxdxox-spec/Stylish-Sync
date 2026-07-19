@@ -4,7 +4,7 @@ import { Check, Wrench } from "lucide-react";
 import { VISIT_OFFER } from "@/lib/stripeTiers";
 
 const FREE_FEATURES = [
-  "Juesika, our AI support assistant",
+  "Clyde, our AI support assistant",
   "Google Sheets two-way sync",
   "Near-unlimited item scans & adds (via Sheets)",
   "Excel / CSV import & export",
