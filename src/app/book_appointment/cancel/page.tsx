@@ -38,6 +38,9 @@ function CancelInner() {
       <div className="flex flex-col items-center gap-2 rounded-xl2 border border-dashed border-surface-border p-6 text-center">
         <XCircle className="text-neutral-400" size={24} />
         <p className="text-sm text-neutral-500">This cancel link is missing some details — use the link from your confirmation email.</p>
+        <a href="/" className="mt-2 text-xs font-medium text-blue-600 hover:underline">
+          Back to app →
+        </a>
       </div>
     );
   }
@@ -49,6 +52,9 @@ function CancelInner() {
         <p className="text-sm font-medium text-neutral-900">Your visit request has been cancelled.</p>
         <a href="/book_appointment" className="mt-2 text-xs font-medium text-blue-600 hover:underline">
           Book a different time →
+        </a>
+        <a href="/" className="text-xs font-medium text-blue-600 hover:underline">
+          Back to app →
         </a>
       </div>
     );
@@ -65,6 +71,9 @@ function CancelInner() {
         {state === "cancelling" ? "Cancelling…" : "Yes, cancel this request"}
       </button>
       {error && <p className="mt-2 text-xs font-medium text-accent-low">{error}</p>}
+      <a href="/" className="mt-3 block text-xs font-medium text-blue-600 hover:underline">
+        Back to app →
+      </a>
     </div>
   );
 }

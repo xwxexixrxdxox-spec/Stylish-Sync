@@ -57,6 +57,9 @@ function StatusInner() {
       <div className="flex flex-col items-center gap-2 rounded-xl2 border border-dashed border-surface-border p-6 text-center">
         <AlertCircle className="text-neutral-400" size={24} />
         <p className="text-sm text-neutral-500">{error ?? "Couldn't find that visit."}</p>
+        <a href="/" className="mt-1 text-xs font-medium text-blue-600 hover:underline">
+          Back to app →
+        </a>
       </div>
     );
   }
@@ -83,6 +86,10 @@ function StatusInner() {
           Pay now
         </a>
       )}
+
+      <a href="/" className="block text-center text-xs font-medium text-blue-600 hover:underline">
+        Back to app →
+      </a>
     </div>
   );
 }
