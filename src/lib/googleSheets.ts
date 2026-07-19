@@ -309,6 +309,17 @@ export async function pushUsageToSheet(
   ]);
   const weekly = weeklyUsageTotals(movements);
 
+  // values:batchUpdate only overwrites the cells within the exact
+  // dimensions of what's written — it does NOT clear rows beyond that,
+  // which the ranges above are open-ended on. Without this clear first, a
+  // sync that has *fewer* rows than the previous one (an item got deleted,
+  // usage got backed out, etc.) would leave stale rows from the last sync
+  // sitting below the new data forever.
+  await sheetsFetch(`/${spreadsheetId}/values:batchClear`, token, {
+    method: "POST",
+    body: JSON.stringify({ ranges: [USAGE_DETAIL_RANGE, USAGE_SUMMARY_RANGE] }),
+  });
+
   await sheetsFetch(`/${spreadsheetId}/values:batchUpdate`, token, {
     method: "POST",
     body: JSON.stringify({
@@ -320,10 +331,20 @@ export async function pushUsageToSheet(
     }),
   });
 
-  // Nothing to chart yet (a brand-new customer with no logged usage) —
-  // leave the tab as just the (empty) tables rather than sending a chart
-  // request over a zero-row source range, which the API rejects.
-  if (!weekly.length) return;
+  // Nothing to chart (either a brand-new customer with no logged usage
+  // yet, or usage that's since been backed out). A zero-row source range
+  // isn't a valid chart request, so there's nothing to add/update — but if
+  // an old chart from a *previous* sync is still sitting there, it would
+  // otherwise keep showing stale numbers forever, so remove it.
+  if (!weekly.length) {
+    if (existingChartId) {
+      await sheetsFetch(`/${spreadsheetId}:batchUpdate`, token, {
+        method: "POST",
+        body: JSON.stringify({ requests: [{ deleteEmbeddedObject: { objectId: existingChartId } }] }),
+      });
+    }
+    return;
+  }
 
   const chartSpec = {
     title: "Weekly usage (all items)",
