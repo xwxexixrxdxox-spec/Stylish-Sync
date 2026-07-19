@@ -51,6 +51,21 @@ function toHHMM(totalMinutes: number): string {
   return `${h}:${m}`;
 }
 
+// Bookings created before visitStatus/statusUpdatedAt/cancelToken existed
+// are still sitting in Redis without them — always parse through this
+// rather than a bare JSON.parse, so an old record doesn't silently break
+// the admin UI (missing status badge, no clock-in button, etc.) or the
+// cancel flow (missing cancelToken).
+function parseBookingRecord(raw: string): BookingRecord {
+  const record = JSON.parse(raw) as BookingRecord;
+  return {
+    ...record,
+    cancelToken: record.cancelToken ?? "",
+    visitStatus: record.visitStatus ?? "not_started",
+    statusUpdatedAt: record.statusUpdatedAt ?? record.bookedAt,
+  };
+}
+
 export async function getAvailabilityWindows(): Promise<AvailabilityWindow[]> {
   const redis = await getRedis();
   const raw = await redis.get(AVAILABILITY_KEY);
@@ -169,14 +184,14 @@ export async function listBookings(limit = 100): Promise<BookingRecord[]> {
   const ids = await redis.lRange(BOOKING_INDEX_KEY, -limit, -1);
   if (!ids.length) return [];
   const raw = await Promise.all(ids.map((id) => redis.get(bookingKey(id))));
-  const records = raw.filter((r): r is string => !!r).map((r) => JSON.parse(r) as BookingRecord);
+  const records = raw.filter((r): r is string => !!r).map((r) => parseBookingRecord(r));
   return records.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
 }
 
 export async function getBooking(id: string): Promise<BookingRecord | null> {
   const redis = await getRedis();
   const raw = await redis.get(bookingKey(id));
-  return raw ? (JSON.parse(raw) as BookingRecord) : null;
+  return raw ? parseBookingRecord(raw) : null;
 }
 
 // Stripped-down view for the public, token-less status page — see
@@ -196,7 +211,7 @@ export async function updateVisitStatus(id: string, status: VisitStatus): Promis
   const raw = await redis.get(bookingKey(id));
   if (!raw) return { ok: false, error: "That booking no longer exists." };
 
-  const record = JSON.parse(raw) as BookingRecord;
+  const record = parseBookingRecord(raw);
   record.visitStatus = status;
   record.statusUpdatedAt = new Date().toISOString();
   await redis.set(bookingKey(id), JSON.stringify(record));
@@ -224,7 +239,7 @@ export async function cancelBooking(
   const raw = await redis.get(bookingKey(id));
   if (!raw) return { ok: false, error: "That request no longer exists — it may already be cancelled." };
 
-  const record = JSON.parse(raw) as BookingRecord;
+  const record = parseBookingRecord(raw);
   if (!opts?.skipTokenCheck && record.cancelToken !== token) {
     return { ok: false, error: "That cancel link isn't valid." };
   }
