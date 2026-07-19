@@ -12,14 +12,18 @@
 // links sent manually after a visit, not for on-site checkout) are:
 //   Product: prod_UuY0UKJDIyMbUb ("In-Person Inventory Setup Visit")
 //   Hourly price:  price_1TuiuHRs7xq2Oh7UjPEKngj6  ($30.00, per hour)
-//   Daily price:   price_1TuiuJRs7xq2Oh7U79AclUD9  ($200.00, per day)
-// Neither has an active Stripe Tax registration behind it yet - no sales
-// tax is currently being calculated/collected on these. See the sales-tax
-// discussion in chat before turning that on.
+//   Daily price:   price_1Tuk9HRs7xq2Oh7UZG6RNfqW  ($300.00, per day, capped
+//                  at 12hrs — see dailyRateBlurb below)
+// The old $200/day price (price_1TuiuJRs7xq2Oh7U79AclUD9) was deactivated
+// in Stripe rather than deleted, so past invoices/records referencing it
+// still resolve correctly.
+// Neither active price has a Stripe Tax registration behind it yet - no
+// sales tax is currently being calculated/collected on these. See the
+// sales-tax discussion in chat before turning that on.
 export const VISIT_OFFER = {
   hourlyRateLabel: "$30/hr",
   hourlyRateBlurb: "billed for time actually spent on-site",
-  dailyRateLabel: "$200/day",
-  dailyRateBlurb: "alternate flat rate for a full day on-site",
+  dailyRateLabel: "$300/day",
+  dailyRateBlurb: "flat rate, capped at a total of 12hrs/day as required by law",
   bookingUrl: "/book_appointment",
 };

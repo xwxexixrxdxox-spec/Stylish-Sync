@@ -8,7 +8,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^\d{2}:\d{2}$/;
 const CONTACT_METHODS: ContactMethod[] = ["email", "phone", "text"];
-const MAX_HOURS = 10;
+const MAX_HOURS = 12; // matches the stated 12hrs/day cap on the flat day rate
 const MAX_TEXT_LEN = 2000;
 
 // Public — no auth. Returns the currently-open 1-hour slots (owner's

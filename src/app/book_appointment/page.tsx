@@ -138,11 +138,13 @@ export default function BookAppointmentPage() {
           </div>
 
           <div className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-            <label className="mb-1 block text-xs font-medium text-neutral-700">How many hours (roughly)?</label>
+            <label className="mb-1 block text-xs font-medium text-neutral-700">
+              How many hours (roughly)? <span className="font-normal text-neutral-400">Capped at 12/day.</span>
+            </label>
             <input
               type="number"
               min={1}
-              max={10}
+              max={12}
               value={hours}
               onChange={(e) => setHours(Number(e.target.value))}
               className="w-24 rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
