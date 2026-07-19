@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { InventoryItem, StockMovement } from "@/lib/types";
 import { loadMovements } from "@/lib/storage";
+import UsageImportPanel from "./UsageImportPanel";
 
 interface Props {
   items: InventoryItem[];
@@ -181,6 +182,8 @@ export default function UsageTab({ items }: Props) {
         </p>
       ) : (
         <>
+          <UsageImportPanel items={items} onImported={() => setMovements(loadMovements())} />
+
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <select
               value={selectedId}

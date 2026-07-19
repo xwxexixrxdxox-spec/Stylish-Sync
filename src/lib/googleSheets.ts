@@ -1,6 +1,7 @@
 "use client";
 
-import { InventoryItem } from "./types";
+import { InventoryItem, StockMovement } from "./types";
+import { movementsToUsageRows, weeklyUsageTotals } from "./usageReport";
 
 // Client-side Google Sheets sync using Google Identity Services (GIS) for
 // auth, plus the Google Picker API for letting the customer browse and pick
@@ -28,6 +29,19 @@ import { InventoryItem } from "./types";
 
 const SHEET_RANGE = "Inventory!A1:F";
 const HEADER_ROW = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Reorder At"];
+
+// The Usage tab lives in the same spreadsheet, laid out as two side-by-side
+// blocks on one sheet (rather than two separate tabs) so the chart's source
+// range and the detail table can be written in a single values.batchUpdate
+// call: A:F is the re-importable detail table (same shape as
+// downloadUsageTemplate's format, plus Item Name/Type/Note for context),
+// H:I is a compact weekly-total table that exists purely to feed the chart.
+const USAGE_SHEET_TITLE = "Usage";
+const USAGE_DETAIL_RANGE = `${USAGE_SHEET_TITLE}!A1:F`;
+const USAGE_DETAIL_HEADER = ["Barcode", "Item Name", "Date", "Quantity Used", "Type", "Note"];
+const USAGE_SUMMARY_RANGE = `${USAGE_SHEET_TITLE}!H1:I`;
+const USAGE_SUMMARY_HEADER = ["Week Starting", "Total Units Used"];
+const USAGE_SUMMARY_COLUMN_INDEX = { start: 7, end: 9 }; // H, I (0-based, end exclusive)
 
 // drive.file (not the broader drive.readonly) is deliberate: it only grants
 // this app access to files the customer explicitly selects through the
@@ -242,6 +256,141 @@ export async function pushItemsToSheet(spreadsheetId: string, items: InventoryIt
   await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(SHEET_RANGE)}?valueInputOption=RAW`, token, {
     method: "PUT",
     body: JSON.stringify({ values: rows }),
+  });
+}
+
+// Finds the Usage tab if it already exists (returning its numeric grid
+// sheetId and, if present, the chartId of the chart already on it — so a
+// repeat sync updates that chart in place instead of stacking a new one on
+// top every time), or creates the tab if this is the first sync to ever
+// include usage data.
+async function ensureUsageSheet(
+  spreadsheetId: string,
+  token: string
+): Promise<{ sheetId: number; existingChartId: number | null }> {
+  const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets(properties,charts)`, token, { method: "GET" });
+  const existing = (meta.sheets ?? []).find((s: any) => s.properties?.title === USAGE_SHEET_TITLE);
+  if (existing) {
+    const chart = (existing.charts ?? [])[0];
+    return { sheetId: existing.properties.sheetId, existingChartId: chart?.chartId ?? null };
+  }
+  const created = await sheetsFetch(`/${spreadsheetId}:batchUpdate`, token, {
+    method: "POST",
+    body: JSON.stringify({ requests: [{ addSheet: { properties: { title: USAGE_SHEET_TITLE } } }] }),
+  });
+  return { sheetId: created.replies[0].addSheet.properties.sheetId, existingChartId: null };
+}
+
+// Writes the Usage tab (detail table + weekly-total table) and keeps a
+// native embedded chart in sync with it. Runs on every sync alongside
+// pushItemsToSheet, same as the Inventory tab — so "Sync now" always
+// reflects current usage, not just current stock levels.
+//
+// This is deliberately a plain REST call against the Sheets API rather
+// than a charting library — unlike the xlsx export (see xlsxTools.ts's
+// note on the free SheetJS build not supporting chart writes), the Sheets
+// API's batchUpdate/addChart request lets us insert a real, interactive
+// chart with no extra dependency at all.
+export async function pushUsageToSheet(
+  spreadsheetId: string,
+  movements: StockMovement[],
+  items: InventoryItem[]
+): Promise<void> {
+  const token = await requestAccessToken();
+  const { sheetId, existingChartId } = await ensureUsageSheet(spreadsheetId, token);
+
+  const detailRows = movementsToUsageRows(movements, items).map((r) => [
+    r.barcode,
+    r.itemName,
+    r.date,
+    r.quantityUsed,
+    r.type,
+    r.note,
+  ]);
+  const weekly = weeklyUsageTotals(movements);
+
+  await sheetsFetch(`/${spreadsheetId}/values:batchUpdate`, token, {
+    method: "POST",
+    body: JSON.stringify({
+      valueInputOption: "RAW",
+      data: [
+        { range: USAGE_DETAIL_RANGE, values: [USAGE_DETAIL_HEADER, ...detailRows] },
+        { range: USAGE_SUMMARY_RANGE, values: [USAGE_SUMMARY_HEADER, ...weekly.map((w) => [w.weekStart, w.total])] },
+      ],
+    }),
+  });
+
+  // Nothing to chart yet (a brand-new customer with no logged usage) —
+  // leave the tab as just the (empty) tables rather than sending a chart
+  // request over a zero-row source range, which the API rejects.
+  if (!weekly.length) return;
+
+  const chartSpec = {
+    title: "Weekly usage (all items)",
+    basicChart: {
+      chartType: "COLUMN",
+      legendPosition: "NO_LEGEND",
+      axis: [
+        { position: "BOTTOM_AXIS", title: "Week starting" },
+        { position: "LEFT_AXIS", title: "Units used" },
+      ],
+      domains: [
+        {
+          domain: {
+            sourceRange: {
+              sources: [
+                {
+                  sheetId,
+                  startRowIndex: 1,
+                  endRowIndex: 1 + weekly.length,
+                  startColumnIndex: USAGE_SUMMARY_COLUMN_INDEX.start,
+                  endColumnIndex: USAGE_SUMMARY_COLUMN_INDEX.start + 1,
+                },
+              ],
+            },
+          },
+        },
+      ],
+      series: [
+        {
+          series: {
+            sourceRange: {
+              sources: [
+                {
+                  sheetId,
+                  startRowIndex: 1,
+                  endRowIndex: 1 + weekly.length,
+                  startColumnIndex: USAGE_SUMMARY_COLUMN_INDEX.start + 1,
+                  endColumnIndex: USAGE_SUMMARY_COLUMN_INDEX.end,
+                },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  };
+
+  const chartRequest = existingChartId
+    ? { updateChartSpec: { chartId: existingChartId, spec: chartSpec } }
+    : {
+        addChart: {
+          chart: {
+            spec: chartSpec,
+            position: {
+              overlayPosition: {
+                anchorCell: { sheetId, rowIndex: 0, columnIndex: 10 },
+                widthPixels: 600,
+                heightPixels: 340,
+              },
+            },
+          },
+        },
+      };
+
+  await sheetsFetch(`/${spreadsheetId}:batchUpdate`, token, {
+    method: "POST",
+    body: JSON.stringify({ requests: [chartRequest] }),
   });
 }
 

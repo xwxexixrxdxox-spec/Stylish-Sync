@@ -11,11 +11,12 @@ import {
   openSpreadsheetPicker,
   pullItemsFromSheet,
   pushItemsToSheet,
+  pushUsageToSheet,
   requestAccessToken,
   sheetUrl,
   signOutGoogle,
 } from "@/lib/googleSheets";
-import { setLinkedSheetId } from "@/lib/storage";
+import { loadMovements, setLinkedSheetId } from "@/lib/storage";
 import {
   getDeferredInstallPrompt,
   isIosSafari,
@@ -123,11 +124,13 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         setSheetId(id);
         setLinkedSheetId(id);
         await pushItemsToSheet(id, items);
+        await pushUsageToSheet(id, loadMovements(), items);
         flash("Connected and synced to a new Google Sheet.");
         return;
       }
 
       await pushItemsToSheet(sheetId, items);
+      await pushUsageToSheet(sheetId, loadMovements(), items);
       flash("Connected and synced to Google Sheets.");
     } catch (e: any) {
       flash(e.message ?? "Couldn't connect to Google.");
@@ -164,7 +167,8 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     setBusy("sync");
     try {
       await pushItemsToSheet(sheetId, items);
-      flash("Synced current inventory to your Google Sheet.");
+      await pushUsageToSheet(sheetId, loadMovements(), items);
+      flash("Synced current inventory and usage to your Google Sheet.");
     } catch (e: any) {
       flash(e.message ?? "Sync failed.");
     } finally {

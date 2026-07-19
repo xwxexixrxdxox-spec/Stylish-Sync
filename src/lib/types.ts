@@ -34,7 +34,11 @@ export interface StockMovement {
   id: string;
   itemId: string;
   delta: number;
-  reason: "scan-add" | "scan-remove" | "manual-adjust" | "import";
+  // "usage-import" is distinct from "import" (which means the customer
+  // bulk-overwrote inventory quantities) — this one specifically means
+  // "the customer told us about usage that happened before/outside this
+  // app," so the two never get conflated when reviewing usage history.
+  reason: "scan-add" | "scan-remove" | "manual-adjust" | "import" | "usage-import";
   at: string;
 }
 

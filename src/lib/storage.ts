@@ -130,6 +130,22 @@ export function logMovement(entry: Omit<StockMovement, "id">): void {
   window.localStorage.setItem(MOVEMENTS_KEY, JSON.stringify(trimmed));
 }
 
+// Bulk version of logMovement, for usage-history imports that can add
+// hundreds of rows at once — appending one at a time would mean one
+// localStorage read+write per row, which gets slow (and racy, since each
+// call reads-then-writes independently) fast at that volume. Does one read
+// and one write for the whole batch instead.
+export function logMovements(entries: Omit<StockMovement, "id">[]): void {
+  if (typeof window === "undefined" || !entries.length) return;
+  const movements = loadMovements();
+  const withIds = entries
+    .filter((e) => e.delta) // no actual quantity change - nothing to log
+    .map((e, i) => ({ id: `mv-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`, ...e }));
+  const combined = [...movements, ...withIds];
+  const trimmed = combined.length > MAX_MOVEMENTS ? combined.slice(combined.length - MAX_MOVEMENTS) : combined;
+  window.localStorage.setItem(MOVEMENTS_KEY, JSON.stringify(trimmed));
+}
+
 export type CookieConsent = "accepted" | "declined" | null;
 
 export function getCookieConsent(): CookieConsent {

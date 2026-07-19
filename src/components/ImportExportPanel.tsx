@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Upload, Download, ChevronDown } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { exportItems, importItemsFromFile } from "@/lib/xlsxTools";
+import { loadMovements } from "@/lib/storage";
 
 interface Props {
   items: InventoryItem[];
@@ -65,7 +66,7 @@ export default function ImportExportPanel({ items, onImport }: Props) {
                 <button
                   key={fmt}
                   onClick={() => {
-                    exportItems(items, fmt);
+                    exportItems(items, loadMovements(), fmt);
                     setExportMenuOpen(false);
                   }}
                   className="block w-full px-3 py-2 text-left text-sm hover:bg-surface-muted"
@@ -77,7 +78,10 @@ export default function ImportExportPanel({ items, onImport }: Props) {
           )}
         </div>
       </div>
-      <p className="mt-2 text-xs text-neutral-500">Supports Excel (.xlsx), LibreOffice (.ods), and CSV.</p>
+      <p className="mt-2 text-xs text-neutral-500">
+        Supports Excel (.xlsx), LibreOffice (.ods), and CSV. Excel/LibreOffice exports also include a Usage sheet
+        (history + summary chart); CSV is Inventory-only.
+      </p>
       {status && <p className="mt-2 text-xs font-medium text-neutral-700">{status}</p>}
     </div>
   );
