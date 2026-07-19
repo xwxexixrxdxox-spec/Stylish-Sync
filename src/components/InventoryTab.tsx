@@ -7,6 +7,7 @@ import { getKnownLocations } from "@/lib/locations";
 import ItemCard from "./ItemCard";
 import ItemEditModal from "./ItemEditModal";
 import ImportExportPanel from "./ImportExportPanel";
+import ShareBarcodeDatabase from "./ShareBarcodeDatabase";
 
 interface Props {
   items: InventoryItem[];
@@ -40,6 +41,10 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
       </h1>
 
       <ImportExportPanel items={items} onImport={onImport} />
+
+      <div className="mt-3">
+        <ShareBarcodeDatabase />
+      </div>
 
       <div className="mb-3 mt-4 flex items-center gap-2 rounded-xl2 border border-surface-border bg-white px-3 py-2 shadow-card">
         <Search size={16} className="text-neutral-400" />

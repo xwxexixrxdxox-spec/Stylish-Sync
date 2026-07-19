@@ -27,8 +27,8 @@ import { movementsToUsageRows, weeklyUsageTotals, UsageSheetRow } from "./usageR
 // so this degrades gracefully rather than breaking for deployments that
 // haven't set it up yet.
 
-const SHEET_RANGE = "Inventory!A1:F";
-const HEADER_ROW = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Reorder At"];
+const SHEET_RANGE = "Inventory!A1:G";
+const HEADER_ROW = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Reorder At", "Location"];
 
 // The Usage tab lives in the same spreadsheet, laid out as two side-by-side
 // blocks on one sheet (rather than two separate tabs) so the chart's source
@@ -269,7 +269,7 @@ export async function pushItemsToSheet(spreadsheetId: string, items: InventoryIt
   const token = await requestAccessToken();
   const rows = [
     HEADER_ROW,
-    ...items.map((it) => [it.barcode, it.name, it.quantity, it.unit, it.pricePerUnit, it.reorderAt]),
+    ...items.map((it) => [it.barcode, it.name, it.quantity, it.unit, it.pricePerUnit, it.reorderAt, it.location || ""]),
   ];
   await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(SHEET_RANGE)}?valueInputOption=RAW`, token, {
     method: "PUT",
@@ -452,6 +452,7 @@ export async function pullItemsFromSheet(spreadsheetId: string): Promise<Invento
       pricePerUnit: Number(r[4] ?? 0),
       reorderAt: Number(r[5] ?? 0),
       updatedAt: new Date().toISOString(),
+      location: r[6] || undefined,
     }));
 }
 
