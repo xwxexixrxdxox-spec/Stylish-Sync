@@ -1,7 +1,7 @@
 "use client";
 
 import { InventoryItem, StockMovement } from "./types";
-import { movementsToUsageRows, weeklyUsageTotals } from "./usageReport";
+import { movementsToUsageRows, weeklyUsageTotals, UsageSheetRow } from "./usageReport";
 
 // Client-side Google Sheets sync using Google Identity Services (GIS) for
 // auth, plus the Google Picker API for letting the customer browse and pick
@@ -33,15 +33,33 @@ const HEADER_ROW = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Re
 // The Usage tab lives in the same spreadsheet, laid out as two side-by-side
 // blocks on one sheet (rather than two separate tabs) so the chart's source
 // range and the detail table can be written in a single values.batchUpdate
-// call: A:F is the re-importable detail table (same shape as
-// downloadUsageTemplate's format, plus Item Name/Type/Note for context),
-// H:I is a compact weekly-total table that exists purely to feed the chart.
+// call: A:G is the re-importable detail table (same shape as
+// downloadUsageTemplate's format, plus Item Name/Type/Note for context,
+// plus a Sync ID column), H:I is a compact weekly-total table that exists
+// purely to feed the chart.
+//
+// Sync ID (column G) is what makes pullUsageFromSheet below possible: it's
+// each row's source StockMovement id, written on every push. A customer
+// can edit or delete a row in their sheet and have that edit or deletion
+// reconciled back to the exact movement it came from on the next pull,
+// rather than a pull only ever being able to append new rows blindly. It's
+// plain, visible text rather than a hidden column — deliberately, so nothing
+// about the sheet looks broken if a customer notices it, though editing it
+// by hand isn't part of the documented workflow.
 const USAGE_SHEET_TITLE = "Usage";
-const USAGE_DETAIL_RANGE = `${USAGE_SHEET_TITLE}!A1:F`;
-const USAGE_DETAIL_HEADER = ["Barcode", "Item Name", "Date", "Quantity Used", "Type", "Note"];
+const USAGE_DETAIL_RANGE = `${USAGE_SHEET_TITLE}!A1:G`;
+const USAGE_DETAIL_HEADER = ["Barcode", "Item Name", "Date", "Quantity Used", "Type", "Note", "Sync ID"];
 const USAGE_SUMMARY_RANGE = `${USAGE_SHEET_TITLE}!H1:I`;
 const USAGE_SUMMARY_HEADER = ["Week Starting", "Total Units Used"];
 const USAGE_SUMMARY_COLUMN_INDEX = { start: 7, end: 9 }; // H, I (0-based, end exclusive)
+
+// A hidden utility sheet holding nothing but a sync token (see
+// getRemoteSyncToken/setRemoteSyncToken) — kept off the visible Usage/
+// Inventory tabs entirely rather than tucked in a spare cell on one of
+// them, so it can never collide with either tab's real columns or the
+// Usage chart's anchor position.
+const SYNC_META_SHEET_TITLE = "_sync";
+const SYNC_TOKEN_RANGE = `${SYNC_META_SHEET_TITLE}!A1`;
 
 // drive.file (not the broader drive.readonly) is deliberate: it only grants
 // this app access to files the customer explicitly selects through the
@@ -306,6 +324,7 @@ export async function pushUsageToSheet(
     r.quantityUsed,
     r.type,
     r.note,
+    r.id,
   ]);
   const weekly = weeklyUsageTotals(movements);
 
@@ -434,6 +453,90 @@ export async function pullItemsFromSheet(spreadsheetId: string): Promise<Invento
       reorderAt: Number(r[5] ?? 0),
       updatedAt: new Date().toISOString(),
     }));
+}
+
+// Reads the Usage tab's detail table back out as raw rows — see
+// usageReport.ts's reconcileUsageFromSheetRows for what turns this into
+// actual local movement changes. Deliberately does no reconciliation
+// itself, same division of labor as pullItemsFromSheet above: this
+// function's job is "get the sheet's current data," not "decide what to
+// do with it."
+export async function pullUsageFromSheet(spreadsheetId: string): Promise<UsageSheetRow[]> {
+  const token = await requestAccessToken();
+  const data = await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(USAGE_DETAIL_RANGE)}`, token, {
+    method: "GET",
+  });
+  const rows: string[][] = data.values ?? [];
+  const [, ...dataRows] = rows; // drop header
+  return dataRows
+    .filter((r) => r.length && r[0]) // must at least have a barcode
+    .map((r) => ({
+      barcode: r[0] ?? "",
+      itemName: r[1] ?? "",
+      date: r[2] ?? "",
+      quantityUsed: Number(r[3] ?? 0),
+      type: r[4] ?? "",
+      note: r[5] ?? "",
+      syncId: r[6] ?? "",
+    }));
+}
+
+// Finds (or lazily creates) the hidden _sync sheet that holds the sync
+// token. Failures here are swallowed and treated as "no token sheet yet" —
+// a spreadsheet from before this feature shipped, or a transient API
+// error, should degrade to "no conflict detected" rather than blocking
+// every push/pull with an error about a sheet the customer never asked
+// for.
+async function ensureSyncMetaSheet(spreadsheetId: string, token: string): Promise<void> {
+  const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets(properties)`, token, { method: "GET" });
+  const existing = (meta.sheets ?? []).find((s: any) => s.properties?.title === SYNC_META_SHEET_TITLE);
+  if (existing) return;
+  await sheetsFetch(`/${spreadsheetId}:batchUpdate`, token, {
+    method: "POST",
+    body: JSON.stringify({
+      requests: [{ addSheet: { properties: { title: SYNC_META_SHEET_TITLE, hidden: true } } }],
+    }),
+  });
+}
+
+// The current sync token written to the spreadsheet, or null if none has
+// ever been written — either a brand-new spreadsheet, or one that's only
+// ever been touched by a version of this app from before conflict
+// detection existed. Both cases are treated as "nothing to conflict with
+// yet" by callers (see AccountTab's pushAll), never as an error.
+export async function getRemoteSyncToken(spreadsheetId: string): Promise<string | null> {
+  const token = await requestAccessToken();
+  try {
+    const data = await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(SYNC_TOKEN_RANGE)}`, token, {
+      method: "GET",
+    });
+    const value = data.values?.[0]?.[0];
+    return typeof value === "string" && value ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+// Stamps the spreadsheet with a fresh token — called once per push, after
+// both Inventory and Usage have been written. A device compares this
+// against the token it remembers from its own last sync (see
+// storage.ts's getLastSyncToken) before its *next* push: a mismatch means
+// some other device pushed in between, which is the actual signal behind
+// the "this sheet has changes from another device" warning.
+export async function setRemoteSyncToken(spreadsheetId: string, newToken: string): Promise<void> {
+  const token = await requestAccessToken();
+  await ensureSyncMetaSheet(spreadsheetId, token);
+  await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(SYNC_TOKEN_RANGE)}?valueInputOption=RAW`, token, {
+    method: "PUT",
+    body: JSON.stringify({ values: [[newToken]] }),
+  });
+}
+
+// Not a cryptographic identifier — just needs to be different from the
+// last one and unique enough that two devices never coincidentally
+// generate the same value in the same millisecond.
+export function newSyncToken(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function sheetUrl(spreadsheetId: string): string {

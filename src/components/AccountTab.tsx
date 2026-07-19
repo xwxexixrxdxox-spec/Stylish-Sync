@@ -1,22 +1,47 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, RefreshCw, LogOut, FilePlus2, ShieldCheck, Search, Download, Share } from "lucide-react";
+import {
+  ExternalLink,
+  RefreshCw,
+  LogOut,
+  ShieldCheck,
+  Search,
+  Download,
+  Share,
+  UploadCloud,
+  DownloadCloud,
+  AlertTriangle,
+  HelpCircle,
+} from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
   createInventorySpreadsheet,
   getGoogleEmail,
+  getRemoteSyncToken,
   isGoogleSheetsConfigured,
   isPickerConfigured,
+  newSyncToken,
   openSpreadsheetPicker,
   pullItemsFromSheet,
+  pullUsageFromSheet,
   pushItemsToSheet,
   pushUsageToSheet,
   requestAccessToken,
+  setRemoteSyncToken,
   sheetUrl,
   signOutGoogle,
 } from "@/lib/googleSheets";
-import { loadMovements, setLinkedSheetId } from "@/lib/storage";
+import { reconcileUsageFromSheetRows } from "@/lib/usageReport";
+import {
+  getLastSyncToken,
+  getSyncedUsageIds,
+  loadMovements,
+  replaceMovements,
+  setLastSyncToken,
+  setLinkedSheetId,
+  setSyncedUsageIds,
+} from "@/lib/storage";
 import {
   getDeferredInstallPrompt,
   isIosSafari,
@@ -50,6 +75,14 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   const [installing, setInstalling] = useState(false);
   const [alreadyInstalled, setAlreadyInstalled] = useState(false);
   const [showIosInstructions, setShowIosInstructions] = useState(false);
+  // Set when a push is about to overwrite changes another device made to
+  // the sheet since this device last synced — see pushToSheetId below for
+  // the actual detection. Holds the spreadsheet id so the modal's
+  // "pull first" / "overwrite anyway" buttons know what to act on without
+  // relying on the sheetId prop still matching (it will, in practice, but
+  // being explicit here avoids a subtle bug if that ever changes).
+  const [conflict, setConflict] = useState<{ targetId: string } | null>(null);
+  const [showSyncHelp, setShowSyncHelp] = useState(false);
 
   // Re-render whenever a native install prompt becomes available (or gets
   // used up) — see installPrompt.ts. Checked once on mount too, in case the
@@ -100,6 +133,81 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     }
   };
 
+  // Pushes both Inventory and Usage to `targetId` and stamps a fresh sync
+  // token afterward — the one place all "send my local state to the
+  // sheet" flows funnel through, so the conflict check can't accidentally
+  // be skipped by a call site that forgot it. Returns "conflict" instead
+  // of pushing when the sheet has a token this device hasn't seen (i.e.
+  // some other device pushed since this device last synced here) — unless
+  // `force` is set, which is what "overwrite anyway" uses to push past
+  // that warning on purpose.
+  const pushToSheetId = async (targetId: string, opts?: { force?: boolean }): Promise<"done" | "conflict"> => {
+    if (!opts?.force) {
+      const remoteToken = await getRemoteSyncToken(targetId);
+      const localToken = getLastSyncToken(targetId);
+      // Only a real mismatch against a token this device previously saw
+      // counts as a conflict — a brand-new link (no local token yet) or a
+      // spreadsheet with no token yet (never pushed by this feature
+      // before) both mean "nothing to conflict with."
+      if (localToken && remoteToken && remoteToken !== localToken) {
+        return "conflict";
+      }
+    }
+    await pushItemsToSheet(targetId, items);
+    await pushUsageToSheet(targetId, loadMovements(), items);
+    const token = newSyncToken();
+    await setRemoteSyncToken(targetId, token);
+    setLastSyncToken(targetId, token);
+    return "done";
+  };
+
+  // Pulls both Inventory and Usage from `targetId` into local storage and
+  // records the sheet's current token as "seen," so this device won't get
+  // a false conflict warning on its next push for changes it just pulled
+  // itself. The Usage side goes through reconcileUsageFromSheetRows rather
+  // than a blind overwrite, so edits/deletions made directly in the sheet
+  // are respected (see that function's comment for the exact rules).
+  const pullFromSheetId = async (
+    targetId: string
+  ): Promise<{ itemCount: number; added: number; updated: number; deleted: number; unmatchedBarcodes: string[] }> => {
+    const remoteItems = await pullItemsFromSheet(targetId);
+    onImport(remoteItems);
+
+    const sheetRows = await pullUsageFromSheet(targetId);
+    const previouslySynced = getSyncedUsageIds(targetId);
+    // Matched against remoteItems (this pull's fresh item list), not the
+    // items prop — bulkImport's merge (see page.tsx) gives a matched
+    // barcode the *imported* item's id, so remoteItems already has the
+    // ids usage rows need to resolve against post-merge.
+    const result = reconcileUsageFromSheetRows(sheetRows, loadMovements(), remoteItems, previouslySynced);
+    replaceMovements(result.movements);
+    setSyncedUsageIds(targetId, result.syncedIds);
+
+    const remoteToken = await getRemoteSyncToken(targetId);
+    if (remoteToken) setLastSyncToken(targetId, remoteToken);
+
+    return {
+      itemCount: remoteItems.length,
+      added: result.added,
+      updated: result.updated,
+      deleted: result.deleted,
+      unmatchedBarcodes: result.unmatchedBarcodes,
+    };
+  };
+
+  const summarizePull = (r: { itemCount: number; added: number; updated: number; deleted: number; unmatchedBarcodes: string[] }) => {
+    const usageBits: string[] = [];
+    if (r.added) usageBits.push(`${r.added} new`);
+    if (r.updated) usageBits.push(`${r.updated} updated`);
+    if (r.deleted) usageBits.push(`${r.deleted} removed`);
+    const usagePart = usageBits.length ? `${usageBits.join(", ")} usage row(s)` : "no usage changes";
+    let msg = `Pulled ${r.itemCount} item(s) — ${usagePart}.`;
+    if (r.unmatchedBarcodes.length) {
+      msg += ` ${r.unmatchedBarcodes.length} usage row barcode(s) in the sheet didn't match an item in your inventory.`;
+    }
+    return msg;
+  };
+
   const connectGoogle = async () => {
     setBusy("connect");
     try {
@@ -115,22 +223,25 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         if (picked) {
           setSheetId(picked);
           setLinkedSheetId(picked);
-          const remote = await pullItemsFromSheet(picked);
-          onImport(remote);
-          flash(`Connected — imported ${remote.length} items from your sheet.`);
+          const result = await pullFromSheetId(picked);
+          flash(`Connected — ${summarizePull(result)}`);
           return;
         }
         const id = await createInventorySpreadsheet();
         setSheetId(id);
         setLinkedSheetId(id);
-        await pushItemsToSheet(id, items);
-        await pushUsageToSheet(id, loadMovements(), items);
+        // Nothing to conflict with on a spreadsheet this device just
+        // created — force the first push through.
+        await pushToSheetId(id, { force: true });
         flash("Connected and synced to a new Google Sheet.");
         return;
       }
 
-      await pushItemsToSheet(sheetId, items);
-      await pushUsageToSheet(sheetId, loadMovements(), items);
+      const result = await pushToSheetId(sheetId);
+      if (result === "conflict") {
+        setConflict({ targetId: sheetId });
+        return;
+      }
       flash("Connected and synced to Google Sheets.");
     } catch (e: any) {
       flash(e.message ?? "Couldn't connect to Google.");
@@ -162,45 +273,80 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     }
   };
 
-  const syncNow = async () => {
+  // "Push to Sheet" — sends this device's current inventory and usage to
+  // the linked sheet, overwriting what's there. Named (and warned) as a
+  // push specifically because that's the direction that can lose data:
+  // see pushToSheetId for the conflict check this goes through first.
+  const pushNow = async () => {
     if (!sheetId) return;
-    setBusy("sync");
+    setBusy("push");
     try {
-      await pushItemsToSheet(sheetId, items);
-      await pushUsageToSheet(sheetId, loadMovements(), items);
-      flash("Synced current inventory and usage to your Google Sheet.");
+      const result = await pushToSheetId(sheetId);
+      if (result === "conflict") {
+        setConflict({ targetId: sheetId });
+        return;
+      }
+      flash("Pushed your current inventory and usage to your Google Sheet.");
     } catch (e: any) {
-      flash(e.message ?? "Sync failed.");
+      flash(e.message ?? "Push failed.");
     } finally {
       setBusy(null);
     }
   };
 
-  const importFromSheet = async () => {
-    setBusy("import");
+  // "Pull from Sheet" — brings the sheet's current inventory and usage
+  // into this device, including reconciling any edits/deletions made
+  // directly in the Usage tab. Never overwrites the *sheet*, so there's
+  // nothing to warn about here the way there is for a push.
+  const pullNow = async () => {
+    setBusy("pull");
     try {
-      // Always let the customer browse and pick which sheet to import from
+      // Always let the customer browse and pick which sheet to pull from
       // — not just re-pull whatever's currently linked — so switching to a
       // different existing spreadsheet is possible at any time.
+      let targetId = sheetId;
       if (isPickerConfigured()) {
         const token = await requestAccessToken();
         const picked = await openSpreadsheetPicker(token);
         if (!picked) return; // picker closed without a selection — not an error
+        targetId = picked;
         setSheetId(picked);
         setLinkedSheetId(picked);
-        const remote = await pullItemsFromSheet(picked);
-        onImport(remote);
-        flash(`Imported ${remote.length} items from your Google Sheet.`);
-        return;
       }
-
-      if (!sheetId) return;
-      const remote = await pullItemsFromSheet(sheetId);
-      onImport(remote);
-      flash(`Imported ${remote.length} items from your Google Sheet.`);
+      if (!targetId) return;
+      const result = await pullFromSheetId(targetId);
+      flash(summarizePull(result));
     } catch (e: any) {
-      flash(e.message ?? "Import failed.");
+      flash(e.message ?? "Pull failed.");
     } finally {
+      setBusy(null);
+    }
+  };
+
+  const resolveConflictByPulling = async () => {
+    if (!conflict) return;
+    setBusy("pull");
+    try {
+      const result = await pullFromSheetId(conflict.targetId);
+      flash(`${summarizePull(result)} Push again if you still want to send your own changes too.`);
+    } catch (e: any) {
+      flash(e.message ?? "Pull failed.");
+    } finally {
+      setConflict(null);
+      setBusy(null);
+    }
+  };
+
+  const resolveConflictByOverwriting = async () => {
+    if (!conflict) return;
+    setBusy("push");
+    try {
+      await pushToSheetId(conflict.targetId, { force: true });
+      flash("Overwrote the sheet with this device's inventory and usage.");
+    } catch (e: any) {
+      flash(e.message ?? "Push failed.");
+    } finally {
+      setConflict(null);
       setBusy(null);
     }
   };
@@ -266,7 +412,37 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
       )}
 
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-        <p className="mb-3 text-sm font-medium text-neutral-900">Google Sheets</p>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-sm font-medium text-neutral-900">Google Sheets</p>
+          {isGoogleSheetsConfigured() && sheetId && (
+            <button
+              onClick={() => setShowSyncHelp((v) => !v)}
+              aria-label="What's the difference between Push and Pull?"
+              className="text-neutral-400 hover:text-neutral-600"
+            >
+              <HelpCircle size={16} />
+            </button>
+          )}
+        </div>
+
+        {showSyncHelp && (
+          <div className="mb-3 space-y-2 rounded-lg bg-surface-muted p-3 text-xs text-neutral-600">
+            <p>
+              <span className="font-medium text-neutral-800">Push to Sheet</span> sends this device's inventory and
+              usage to the sheet, replacing what's there.
+            </p>
+            <p>
+              <span className="font-medium text-neutral-800">Pull from Sheet</span> brings the sheet's inventory and
+              usage into this device — including any rows you edited or deleted directly in the sheet's Usage tab.
+            </p>
+            <p>
+              Signed in on more than one device? Always Pull before you Push if you're not sure the sheet has your
+              latest changes — Push will warn you first if another device has synced more recently, but Pull is the
+              safe way to check.
+            </p>
+          </div>
+        )}
+
         {!isGoogleSheetsConfigured() ? (
           <p className="text-xs text-neutral-500">
             Google Sheets sync isn't configured for this deployment yet — see the README's "Google Sheets setup"
@@ -292,18 +468,18 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
               <ExternalLink size={14} />
             </a>
             <button
-              disabled={busy === "sync"}
-              onClick={syncNow}
+              disabled={busy === "push"}
+              onClick={pushNow}
               className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
             >
-              <RefreshCw size={14} /> {busy === "sync" ? "Syncing…" : "Sync now"}
+              <UploadCloud size={14} /> {busy === "push" ? "Pushing…" : "Push to Sheet"}
             </button>
             <button
-              disabled={busy === "import"}
-              onClick={importFromSheet}
+              disabled={busy === "pull"}
+              onClick={pullNow}
               className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
             >
-              <FilePlus2 size={14} /> {busy === "import" ? "Importing…" : "Import from sheet"}
+              <DownloadCloud size={14} /> {busy === "pull" ? "Pulling…" : "Pull from Sheet"}
             </button>
             <button
               onClick={connectGoogle}
@@ -327,6 +503,44 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
           </div>
         )}
       </section>
+
+      {conflict && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-sm rounded-xl2 bg-white p-5 shadow-card">
+            <div className="mb-2 flex items-center gap-2 text-amber-700">
+              <AlertTriangle size={18} />
+              <p className="text-sm font-semibold">This sheet has newer changes</p>
+            </div>
+            <p className="mb-4 text-sm text-neutral-600">
+              Another device has synced to this Google Sheet since this device last did. Pushing now would overwrite
+              those changes. Pull them in first, or push your own changes anyway?
+            </p>
+            <div className="space-y-2">
+              <button
+                disabled={busy === "pull" || busy === "push"}
+                onClick={resolveConflictByPulling}
+                className="w-full rounded-lg bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {busy === "pull" ? "Pulling…" : "Pull first (recommended)"}
+              </button>
+              <button
+                disabled={busy === "pull" || busy === "push"}
+                onClick={resolveConflictByOverwriting}
+                className="w-full rounded-lg border border-red-200 py-2 text-sm font-medium text-accent-low hover:bg-red-50 disabled:opacity-50"
+              >
+                {busy === "push" ? "Overwriting…" : "Overwrite anyway"}
+              </button>
+              <button
+                disabled={busy === "pull" || busy === "push"}
+                onClick={() => setConflict(null)}
+                className="w-full rounded-lg py-2 text-sm text-neutral-500 hover:bg-surface-muted disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-3 text-sm font-medium text-neutral-900">Booked a visit?</p>

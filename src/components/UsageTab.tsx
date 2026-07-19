@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { HelpCircle } from "lucide-react";
 import { InventoryItem, StockMovement } from "@/lib/types";
 import { loadMovements } from "@/lib/storage";
 import UsageImportPanel from "./UsageImportPanel";
@@ -113,6 +114,7 @@ export default function UsageTab({ items }: Props) {
   const [selectedId, setSelectedId] = useState<string>("");
   const [rangeValue, setRangeValue] = useState<RangeValue>(30);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     setMovements(loadMovements());
@@ -174,7 +176,44 @@ export default function UsageTab({ items }: Props) {
 
   return (
     <div className="mx-auto max-w-2xl px-4 pb-24 pt-5 sm:px-6">
-      <h1 className="mb-4 text-lg font-semibold text-neutral-900">Usage</h1>
+      <div className="mb-4 flex items-center gap-2">
+        <h1 className="text-lg font-semibold text-neutral-900">Usage</h1>
+        <button
+          onClick={() => setShowHelp((v) => !v)}
+          aria-label="How is usage calculated?"
+          className="text-neutral-400 hover:text-neutral-600"
+        >
+          <HelpCircle size={16} />
+        </button>
+      </div>
+
+      {showHelp && (
+        <div className="mb-4 space-y-2 rounded-xl2 border border-surface-border bg-white p-4 text-xs leading-relaxed text-neutral-600 shadow-card">
+          <p>
+            <span className="font-medium text-neutral-800">What counts as usage:</span> anything that removes stock —
+            a scanned Remove, a manual quantity decrease, or an imported/pulled usage entry. Restocks (Add Stock,
+            imports that increase quantity) never count toward usage.
+          </p>
+          <p>
+            <span className="font-medium text-neutral-800">The numbers above the chart:</span> total used and avg/day
+            are summed over whichever date range is selected below. "Stock left at this rate" divides the item's
+            current quantity by that avg/day — it's a rough projection, not an alert or a guarantee.
+          </p>
+          <p>
+            <span className="font-medium text-neutral-800">The chart's bars:</span> daily for ranges up to ~2 months,
+            weekly up to about a year, monthly beyond that — so a bar never gets so thin it stops being readable.
+          </p>
+          <p>
+            <span className="font-medium text-neutral-800">Editing usage in your Google Sheet:</span> if you've
+            connected Google Sheets (see Settings → Google Sheets), every sync writes a "Usage" tab with one row per
+            usage entry. You can fix a typo, correct a quantity or date, or delete a row you don't want tracked,
+            directly in that sheet. Those changes only reach the app after you tap{" "}
+            <span className="font-medium text-neutral-800">Pull from Sheet</span> — nothing you edit there takes
+            effect until you pull. Adding a brand-new row (leave the "Sync ID" column blank) works too — it's picked
+            up as a new usage entry on the next pull, matched to an item by its Barcode column.
+          </p>
+        </div>
+      )}
 
       {items.length === 0 ? (
         <p className="rounded-xl2 border border-dashed border-surface-border bg-white p-6 text-center text-sm text-neutral-400">

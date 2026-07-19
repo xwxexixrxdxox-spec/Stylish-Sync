@@ -146,6 +146,72 @@ export function logMovements(entries: Omit<StockMovement, "id">[]): void {
   window.localStorage.setItem(MOVEMENTS_KEY, JSON.stringify(trimmed));
 }
 
+// Full-replacement write for the movement log — used by Google Sheets
+// Usage-pull reconciliation (see googleSheets.ts's pullUsageFromSheet and
+// usageReport.ts's reconcileUsageFromSheetRows), which can update, add, or
+// remove individual entries based on what's now in the customer's sheet.
+// Applies the same MAX_MOVEMENTS trim as the other write paths so a huge
+// reconciled history can't blow past the storage cap.
+export function replaceMovements(movements: StockMovement[]): void {
+  if (typeof window === "undefined") return;
+  const trimmed =
+    movements.length > MAX_MOVEMENTS ? movements.slice(movements.length - MAX_MOVEMENTS) : movements;
+  window.localStorage.setItem(MOVEMENTS_KEY, JSON.stringify(trimmed));
+}
+
+// --- Google Sheets sync state (per linked spreadsheet) ------------------
+// Both of these are namespaced by spreadsheetId (rather than one global
+// value) so switching which sheet is linked, or a customer using more than
+// one spreadsheet across different devices, can't cross-contaminate sync
+// state between them.
+
+function syncTokenKey(spreadsheetId: string): string {
+  return `isc_sync_token_v1:${spreadsheetId}`;
+}
+function syncedUsageIdsKey(spreadsheetId: string): string {
+  return `isc_synced_usage_ids_v1:${spreadsheetId}`;
+}
+
+// The last sync token this device has seen written to the spreadsheet —
+// either one it wrote itself (after a push) or one it read while pulling.
+// Compared against the sheet's *current* token before every push to catch
+// "another device pushed since I last synced here" (see
+// googleSheets.ts's getRemoteSyncToken/setRemoteSyncToken and AccountTab's
+// pushAll) — this is the actual mechanism behind the conflict warning.
+export function getLastSyncToken(spreadsheetId: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(syncTokenKey(spreadsheetId));
+}
+
+export function setLastSyncToken(spreadsheetId: string, tokenValue: string | null): void {
+  if (typeof window === "undefined") return;
+  if (tokenValue) window.localStorage.setItem(syncTokenKey(spreadsheetId), tokenValue);
+  else window.localStorage.removeItem(syncTokenKey(spreadsheetId));
+}
+
+// The set of usage-movement ids this device believes are currently
+// represented as rows in the sheet's Usage tab, as of the last push or
+// pull. Needed so a pull can tell "this row was deleted from the sheet"
+// (id is in this set but missing from the sheet now) apart from "this
+// movement was never synced in the first place" (never in this set) — see
+// reconcileUsageFromSheetRows in usageReport.ts for how that distinction
+// drives whether a local movement gets deleted.
+export function getSyncedUsageIds(spreadsheetId: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(syncedUsageIdsKey(spreadsheetId));
+    const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function setSyncedUsageIds(spreadsheetId: string, ids: string[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(syncedUsageIdsKey(spreadsheetId), JSON.stringify(ids));
+}
+
 export type CookieConsent = "accepted" | "declined" | null;
 
 export function getCookieConsent(): CookieConsent {
@@ -170,6 +236,14 @@ export async function clearAppCache(): Promise<void> {
   window.localStorage.removeItem(ITEMS_KEY);
   window.localStorage.removeItem(SHEET_LINK_KEY);
   window.localStorage.removeItem(MOVEMENTS_KEY);
+  // Sync tokens/synced-id sets are namespaced per spreadsheetId (see
+  // above) rather than one fixed key, so they need an explicit scan
+  // rather than a single removeItem — this is also the way a customer
+  // can force-reset a stuck conflict warning if sync state ever gets
+  // wedged.
+  Object.keys(window.localStorage)
+    .filter((k) => k.startsWith("isc_sync_token_v1:") || k.startsWith("isc_synced_usage_ids_v1:"))
+    .forEach((k) => window.localStorage.removeItem(k));
 
   if ("caches" in window) {
     const keys = await caches.keys();
