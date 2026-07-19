@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, XCircle, Loader2, CalendarDays } from "lucide-react";
-import { INSTALLATION_OFFER } from "@/lib/stripeTiers";
+import { VISIT_OFFER } from "@/lib/stripeTiers";
 
 type State = "verifying" | "ok-subscription" | "ok-install" | "error";
 
@@ -64,27 +64,21 @@ function PaymentSuccessInner() {
         {state === "ok-install" && (
           <>
             <CheckCircle2 className="mx-auto mb-3 text-accent-ok" size={32} />
-            <p className="text-sm font-medium text-neutral-800">Installation fee confirmed!</p>
+            <p className="text-sm font-medium text-neutral-800">Payment confirmed!</p>
             <p className="mt-1 text-xs text-neutral-500">
-              Last step — pick a date for your technician's on-site visit
-              {INSTALLATION_OFFER.dailyRateLabel ? ` (on-site time is billed at ${INSTALLATION_OFFER.dailyRateLabel}, on top of your flat installation fee)` : ""}.
+              Last step — pick a time for your on-site visit ({VISIT_OFFER.hourlyRateLabel}, or {VISIT_OFFER.dailyRateLabel} as
+              an alternate flat day rate).
             </p>
 
-            {INSTALLATION_OFFER.schedulingUrl ? (
-              <iframe
-                src={INSTALLATION_OFFER.schedulingUrl}
-                title="Schedule your install visit"
-                className="mt-4 h-[500px] w-full rounded-lg border border-surface-border"
-              />
-            ) : (
-              <div className="mt-4 flex flex-col items-center gap-2 rounded-lg border border-dashed border-surface-border p-4">
-                <CalendarDays className="text-neutral-400" size={24} />
-                <p className="text-xs text-neutral-500">
-                  We don't have online scheduling turned on yet — we'll email you within one business day to
-                  find a date that works.
-                </p>
-              </div>
-            )}
+            <div className="mt-4 flex flex-col items-center gap-2 rounded-lg border border-dashed border-surface-border p-4">
+              <CalendarDays className="text-neutral-400" size={24} />
+              <a
+                href={VISIT_OFFER.bookingUrl}
+                className="text-xs font-medium text-blue-600 hover:underline"
+              >
+                Request a visit time →
+              </a>
+            </div>
 
             <a
               href="/"

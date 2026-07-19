@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Wrench } from "lucide-react";
-import { INSTALLATION_OFFER } from "@/lib/stripeTiers";
+import { VISIT_OFFER } from "@/lib/stripeTiers";
 
 const FREE_FEATURES = [
   "Juesika, our AI support assistant",
@@ -32,33 +32,31 @@ export default function PricingTiers() {
           <Wrench size={15} /> Live In-Store Inventory Setup
         </p>
         <p className="mt-1 text-xs text-neutral-500">
-          Don't want to scan 500–1,000+ items yourself? A technician comes to your store and sets up your
+          Don't want to scan 500–1,000+ items yourself? A technician comes to your store and scans/catalogs your
           whole inventory for you, in person.
         </p>
 
         <div className="mt-3 grid grid-cols-2 gap-3 text-center">
           <div className="rounded-lg border border-surface-border p-3">
-            <p className="text-base font-semibold text-neutral-900">{INSTALLATION_OFFER.flatRateLabel}</p>
-            <p className="mt-0.5 text-[11px] text-neutral-500">{INSTALLATION_OFFER.flatRateBlurb}</p>
+            <p className="text-base font-semibold text-neutral-900">{VISIT_OFFER.hourlyRateLabel}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">{VISIT_OFFER.hourlyRateBlurb}</p>
           </div>
           <div className="rounded-lg border border-surface-border p-3">
-            <p className="text-base font-semibold text-neutral-900">{INSTALLATION_OFFER.dailyRateLabel}</p>
-            <p className="mt-0.5 text-[11px] text-neutral-500">{INSTALLATION_OFFER.dailyRateBlurb}</p>
+            <p className="text-base font-semibold text-neutral-900">{VISIT_OFFER.dailyRateLabel}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">{VISIT_OFFER.dailyRateBlurb}</p>
           </div>
         </div>
 
         <a
-          href={INSTALLATION_OFFER.paymentLinkUrl}
+          href={VISIT_OFFER.bookingUrl}
           className="mt-3 block rounded-xl2 border border-neutral-900 bg-neutral-900 py-2.5 text-center text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:opacity-90"
         >
-          Book Installation
+          Request a Visit
         </a>
         <p className="mt-2 text-center text-[11px] text-neutral-400">
-          After booking, you'll pick a date from a calendar for your on-site visit.
+          No payment now — pick a time that works and we'll bill you after the visit based on actual time spent.
         </p>
       </div>
-
-      <p className="mt-4 text-center text-xs text-neutral-400">Secure checkout via Stripe.</p>
     </div>
   );
 }

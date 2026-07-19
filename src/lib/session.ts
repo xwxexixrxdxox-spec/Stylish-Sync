@@ -64,3 +64,35 @@ export const SESSION_MAX_AGE = MAX_AGE_SECONDS;
 // /api/dev/toggle-access). Keeping it distinct means the real,
 // Stripe-verified session mechanism is never touched by the bypass.
 export const DEV_ACCESS_COOKIE_NAME = "isc_dev_bypass";
+
+// Admin session for the /admin visit-availability screen. Same
+// sign-with-a-server-secret pattern as the customer session above (so a
+// visitor can't forge one), reusing SESSION_SECRET rather than adding yet
+// another required env var — this cookie just carries a boolean, not
+// customer data, so there's no reason to isolate the secret further.
+export const ADMIN_SESSION_COOKIE_NAME = "isc_admin_session";
+const ADMIN_MAX_AGE_SECONDS = 60 * 60 * 24 * 14; // 14 days
+
+export function createAdminCookieValue(): string {
+  const data = Buffer.from(JSON.stringify({ admin: true, iat: Date.now() })).toString("base64url");
+  const sig = sign(data);
+  return `${data}.${sig}`;
+}
+
+export function verifyAdminCookieValue(value: string | undefined | null): boolean {
+  if (!value) return false;
+  const [data, sig] = value.split(".");
+  if (!data || !sig) return false;
+  const expected = sign(data);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
+  try {
+    const payload = JSON.parse(Buffer.from(data, "base64url").toString("utf8"));
+    return payload?.admin === true;
+  } catch {
+    return false;
+  }
+}
+
+export const ADMIN_SESSION_MAX_AGE = ADMIN_MAX_AGE_SECONDS;

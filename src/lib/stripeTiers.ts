@@ -1,34 +1,25 @@
 // WS Inventory Management itself (AI chat, Google Sheets sync, near-unlimited items,
 // import/export, low-stock alerts) is free for everyone. The only paid
-// offering is an optional one-time, in-person inventory setup: a
-// technician physically scans and enters your stock on-site.
+// offering is optional in-person labor: physically going to a customer's
+// site and scanning/cataloging their inventory for them. Nothing is
+// "installed" - the app is already free and available online, so there's
+// no software setup fee here, just time on-site.
 //
-// Pricing is a flat installation fee (mobilization + setup) plus a
-// per-day rate for however many days the on-site work actually takes.
-// Both are real, live Stripe Payment Links (one-time prices, not
-// subscriptions) - not placeholders.
-//
-// paymentLinkUrl (the flat fee) is the checkout button shown in the app;
-// paying it reserves the install date. Its "After payment" redirect must
-// be configured in the Stripe Dashboard to point at
-// /payment-success?session_id={CHECKOUT_SESSION_ID} - see README
-// "Configure Stripe redirect" section.
-//
-// dailyRatePaymentLinkUrl isn't wired into the checkout flow below - it's
-// what gets sent to the customer after the technician's done and knows
-// how many days the job actually took, same "billed after the visit"
-// posture as the earlier hourly-rate design, just in day-sized units.
-//
-// TODO: schedulingUrl is a Calendly (or similar) event booking link shown
-// after a successful install payment, so the customer can pick a visit
-// date. Leave it empty until that's set up - the post-payment page falls
-// back to a plain "we'll email you to schedule" message when it's unset.
-export const INSTALLATION_OFFER = {
-  paymentLinkUrl: "https://buy.stripe.com/4gM28tdwkavJeWk8TP48006",
-  flatRateLabel: "$4,428.63",
-  flatRateBlurb: "flat rate, reserves your install date",
-  dailyRateLabel: "$125/day",
-  dailyRateBlurb: "billed per day on-site, after the visit",
-  dailyRatePaymentLinkUrl: "https://buy.stripe.com/fZueVf63SavJ5lK8TP48007",
-  schedulingUrl: "",
+// There's no in-app checkout for this anymore - customers request a visit
+// via the booking page (bookingUrl) and are billed afterward based on
+// actual time worked, same "billed after the visit" posture as before.
+// The corresponding Stripe Product/Prices (used for invoicing/payment
+// links sent manually after a visit, not for on-site checkout) are:
+//   Product: prod_UuY0UKJDIyMbUb ("In-Person Inventory Setup Visit")
+//   Hourly price:  price_1TuiuHRs7xq2Oh7UjPEKngj6  ($30.00, per hour)
+//   Daily price:   price_1TuiuJRs7xq2Oh7U79AclUD9  ($200.00, per day)
+// Neither has an active Stripe Tax registration behind it yet - no sales
+// tax is currently being calculated/collected on these. See the sales-tax
+// discussion in chat before turning that on.
+export const VISIT_OFFER = {
+  hourlyRateLabel: "$30/hr",
+  hourlyRateBlurb: "billed for time actually spent on-site",
+  dailyRateLabel: "$200/day",
+  dailyRateBlurb: "alternate flat rate for a full day on-site",
+  bookingUrl: "/book_appointment",
 };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, RefreshCw, LogOut, FilePlus2, ShieldCheck, Trash2 } from "lucide-react";
+import { ExternalLink, RefreshCw, LogOut, FilePlus2, ShieldCheck } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
   createInventorySpreadsheet,
@@ -12,10 +12,9 @@ import {
   sheetUrl,
   signOutGoogle,
 } from "@/lib/googleSheets";
-import { clearAppCache, setLinkedSheetId } from "@/lib/storage";
+import { setLinkedSheetId } from "@/lib/storage";
 import PricingTiers from "./PricingTiers";
 import DevAccessToggle from "./DevAccessToggle";
-import RestoreAccess from "./RestoreAccess";
 
 interface Props {
   items: InventoryItem[];
@@ -202,48 +201,34 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         )}
       </section>
 
-      <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-        <p className="mb-3 text-sm font-medium text-neutral-900">App</p>
-        <a
-          href="/privacy"
-          className="block rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
-        >
-          🔒 Privacy Policy
-        </a>
-        <a
-          href="/terms"
-          className="mt-2 block rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
-        >
-          📄 Terms of Service
-        </a>
-        <button
-          onClick={async () => {
-            await clearAppCache();
-            flash("Cache cleared. Reloading…");
-            setTimeout(() => window.location.reload(), 800);
-          }}
-          className="mt-2 flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
-        >
-          <Trash2 size={14} /> Clear Cache & Reload
-        </button>
-        {access?.access && process.env.NEXT_PUBLIC_STRIPE_PORTAL_URL && (
+      {access?.access && process.env.NEXT_PUBLIC_STRIPE_PORTAL_URL && (
+        <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+          <p className="mb-3 text-sm font-medium text-neutral-900">App</p>
           <a
             href={process.env.NEXT_PUBLIC_STRIPE_PORTAL_URL}
-            className="mt-2 block rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
+            className="block rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
           >
             💳 Manage billing
           </a>
-        )}
-      </section>
+        </section>
+      )}
 
       {!access?.access && (
         <section>
-          <RestoreAccess />
           <PricingTiers />
         </section>
       )}
 
       {message && <p className="mt-3 text-center text-xs font-medium text-neutral-600">{message}</p>}
+
+      <div className="mt-6 flex items-center justify-center gap-4 pb-2 text-xs">
+        <a href="/privacy" className="text-blue-600 hover:underline">
+          Privacy Policy
+        </a>
+        <a href="/terms" className="text-blue-600 hover:underline">
+          Terms of Service
+        </a>
+      </div>
     </div>
   );
 }
