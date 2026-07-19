@@ -36,7 +36,16 @@ const HEADER_ROW = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Re
 // from — that browsing happens under Google's own picker permission, not
 // this app's OAuth scope — so drive.file is both the more private option
 // and enough to fulfill "let me pick from my existing sheets."
-const OAUTH_SCOPE = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file";
+//
+// userinfo.email is the newest addition: it's what lets the app silently
+// check "does the email on this Google account match an email you booked a
+// visit with" right after connect, so a matching customer gets the
+// minimal status tab without having to type their email a second time. It
+// only ever reveals the address of the account the customer is already
+// signing into — nothing about their Drive/Sheets access changes because
+// of it.
+const OAUTH_SCOPE =
+  "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email";
 
 declare global {
   interface Window {
@@ -132,6 +141,24 @@ export async function requestAccessToken(forcePrompt = false): Promise<string> {
 
 export function signOutGoogle(): void {
   cachedToken = null;
+}
+
+// Best-effort lookup of the signed-in Google account's email, used only to
+// silently check for a matching booking (see AccountTab's connectGoogle).
+// Returns null rather than throwing on any failure — this is a nice-to-have
+// side check, never something that should block or error out the sign-in
+// flow itself.
+export async function getGoogleEmail(token: string): Promise<string | null> {
+  try {
+    const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.email === "string" ? data.email : null;
+  } catch {
+    return null;
+  }
 }
 
 // Opens Google's own "pick a file from your Drive" popup, scoped to

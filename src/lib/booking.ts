@@ -188,6 +188,39 @@ export async function listBookings(limit = 100): Promise<BookingRecord[]> {
   return records.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
 }
 
+// Lets a customer find their own booking by the email they booked with,
+// instead of needing the id/link from their confirmation email — used by
+// the "Track your booking status" flow. Only ever returns the single most
+// relevant booking (not a list), and callers should only expose the id from
+// it, never the full record: an email address is guessable/known in a way
+// an unguessable booking id isn't, so this is intentionally a narrower
+// trust boundary than the id-based public status page.
+//
+// "Most relevant" = whatever the customer would actually want to see: a
+// visit currently in progress first, else the soonest upcoming one, else
+// the most recently finished one.
+export async function findActiveBookingForEmail(email: string): Promise<BookingRecord | null> {
+  const target = email.trim().toLowerCase();
+  if (!target) return null;
+
+  const all = await listBookings();
+  const matches = all.filter((b) => b.email.trim().toLowerCase() === target);
+  if (!matches.length) return null;
+
+  const inProgress = matches.find((b) => b.visitStatus === "clocked_in" || b.visitStatus === "on_break");
+  if (inProgress) return inProgress;
+
+  const upcoming = matches
+    .filter((b) => b.visitStatus === "not_started")
+    .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0];
+  if (upcoming) return upcoming;
+
+  const finished = matches
+    .filter((b) => b.visitStatus === "finished")
+    .sort((a, b) => b.statusUpdatedAt.localeCompare(a.statusUpdatedAt))[0];
+  return finished ?? null;
+}
+
 export async function getBooking(id: string): Promise<BookingRecord | null> {
   const redis = await getRedis();
   const raw = await redis.get(bookingKey(id));

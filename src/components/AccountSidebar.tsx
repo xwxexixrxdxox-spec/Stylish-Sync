@@ -12,6 +12,7 @@ interface Props {
   sheetId: string | null;
   setSheetId: (id: string | null) => void;
   access: AccessCheckResponse | null;
+  onBookingMatch?: (bookingId: string | null) => void;
 }
 
 // Account settings live in a collapsible sidebar rather than a slot in the
@@ -19,7 +20,16 @@ interface Props {
 // / Reorder / Usage / Support. Standard slide-in drawer: dimmed backdrop
 // (click to close) plus a panel that slides in from the right. AccountTab
 // itself is unchanged content-wise - this just gives it a new home.
-export default function AccountSidebar({ open, onClose, items, onImport, sheetId, setSheetId, access }: Props) {
+export default function AccountSidebar({
+  open,
+  onClose,
+  items,
+  onImport,
+  sheetId,
+  setSheetId,
+  access,
+  onBookingMatch,
+}: Props) {
   return (
     <>
       <div
@@ -48,7 +58,14 @@ export default function AccountSidebar({ open, onClose, items, onImport, sheetId
           </button>
         </div>
         <div className="h-[calc(100%-49px)] overflow-y-auto">
-          <AccountTab items={items} onImport={onImport} sheetId={sheetId} setSheetId={setSheetId} access={access} />
+          <AccountTab
+            items={items}
+            onImport={onImport}
+            sheetId={sheetId}
+            setSheetId={setSheetId}
+            access={access}
+            onBookingMatch={onBookingMatch}
+          />
         </div>
       </div>
     </>

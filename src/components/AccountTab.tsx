@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, RefreshCw, LogOut, FilePlus2, ShieldCheck } from "lucide-react";
+import { ExternalLink, RefreshCw, LogOut, FilePlus2, ShieldCheck, Search } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
   createInventorySpreadsheet,
+  getGoogleEmail,
   isGoogleSheetsConfigured,
   isPickerConfigured,
   openSpreadsheetPicker,
@@ -24,21 +25,50 @@ interface Props {
   sheetId: string | null;
   setSheetId: (id: string | null) => void;
   access: AccessCheckResponse | null;
+  // Called with a booking id when the signed-in Google account's email
+  // matches an active visit booking, so the app shell can surface the
+  // minimal "Status" tab — or with null on sign-out, to hide it again.
+  onBookingMatch?: (bookingId: string | null) => void;
 }
 
-export default function AccountTab({ items, onImport, sheetId, setSheetId, access }: Props) {
+export default function AccountTab({ items, onImport, sheetId, setSheetId, access, onBookingMatch }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [trackOpen, setTrackOpen] = useState(false);
+  const [trackEmail, setTrackEmail] = useState("");
+  const [trackBusy, setTrackBusy] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
 
   const flash = (msg: string) => {
     setMessage(msg);
     setTimeout(() => setMessage(null), 4000);
   };
 
+  // Best-effort, silent check: if the Google account the customer just
+  // signed into also booked a visit, surface the minimal status tab
+  // without making them type their email again. Never throws — a failure
+  // here just means the tab doesn't appear, not a broken sign-in.
+  const checkForMatchingBooking = async (token: string) => {
+    try {
+      const email = await getGoogleEmail(token);
+      if (!email) return;
+      const res = await fetch("/api/book-appointment/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const body = await res.json();
+      if (res.ok && body.ok) onBookingMatch?.(body.id);
+    } catch {
+      // silent — this is a nice-to-have, not core to sign-in
+    }
+  };
+
   const connectGoogle = async () => {
     setBusy("connect");
     try {
       const token = await requestAccessToken(true);
+      checkForMatchingBooking(token);
 
       // First-time connect (no sheet linked yet): offer to pick one of the
       // customer's existing spreadsheets before falling back to creating a
@@ -68,6 +98,29 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
       flash(e.message ?? "Couldn't connect to Google.");
     } finally {
       setBusy(null);
+    }
+  };
+
+  const findBooking = async () => {
+    if (!trackEmail.trim()) return;
+    setTrackBusy(true);
+    setTrackError(null);
+    try {
+      const res = await fetch("/api/book-appointment/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trackEmail.trim() }),
+      });
+      const body = await res.json();
+      if (res.ok && body.ok) {
+        window.location.href = `/book_appointment/status?id=${encodeURIComponent(body.id)}`;
+      } else {
+        setTrackError(body.error ?? "No active booking found for that email.");
+      }
+    } catch {
+      setTrackError("Something went wrong. Try again.");
+    } finally {
+      setTrackBusy(false);
     }
   };
 
@@ -131,6 +184,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     signOutGoogle();
     setSheetId(null);
     setLinkedSheetId(null);
+    onBookingMatch?.(null);
     flash("Signed out of Google.");
   };
 
@@ -231,6 +285,38 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
             >
               {busy === "fresh" ? "Creating…" : "Start Fresh (new sheet)"}
             </button>
+          </div>
+        )}
+      </section>
+
+      <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+        <p className="mb-3 text-sm font-medium text-neutral-900">Booked a visit?</p>
+        {!trackOpen ? (
+          <button
+            onClick={() => setTrackOpen(true)}
+            className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
+          >
+            <Search size={14} /> Track your booking status
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <input
+              type="email"
+              autoFocus
+              placeholder="Email you booked with"
+              value={trackEmail}
+              onChange={(e) => setTrackEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && findBooking()}
+              className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+            />
+            <button
+              disabled={trackBusy}
+              onClick={findBooking}
+              className="w-full rounded-lg border border-neutral-900 bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {trackBusy ? "Looking up…" : "Find my booking"}
+            </button>
+            {trackError && <p className="text-xs font-medium text-accent-low">{trackError}</p>}
           </div>
         )}
       </section>

@@ -10,6 +10,7 @@ import ScanTab from "@/components/ScanTab";
 import ReorderTab from "@/components/ReorderTab";
 import UsageTab from "@/components/UsageTab";
 import SupportTab from "@/components/SupportTab";
+import VisitStatusTab from "@/components/VisitStatusTab";
 import AccountSidebar from "@/components/AccountSidebar";
 import LoadScreen from "@/components/LoadScreen";
 
@@ -27,6 +28,14 @@ export default function HomePage() {
   const [showLoadScreen, setShowLoadScreen] = useState(true);
   const [loadScreenExiting, setLoadScreenExiting] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [trackedBookingId, setTrackedBookingId] = useState<string | null>(null);
+
+  // If the matched booking gets cleared (e.g. Google sign-out) while the
+  // customer is sitting on the Status tab, don't strand them on a tab that
+  // no longer exists in the bar.
+  useEffect(() => {
+    if (!trackedBookingId && tab === "status") setTab("inventory");
+  }, [trackedBookingId, tab]);
 
   useEffect(() => {
     setItems(loadItems());
@@ -195,6 +204,7 @@ export default function HomePage() {
         {tab === "reorder" && <ReorderTab items={items} />}
         {tab === "usage" && <UsageTab items={items} />}
         {tab === "support" && <SupportTab />}
+        {tab === "status" && trackedBookingId && <VisitStatusTab bookingId={trackedBookingId} />}
 
         <AccountSidebar
           open={accountOpen}
@@ -204,9 +214,10 @@ export default function HomePage() {
           sheetId={sheetId}
           setSheetId={setSheetId}
           access={access}
+          onBookingMatch={setTrackedBookingId}
         />
 
-        <BottomNav active={tab} onChange={setTab} />
+        <BottomNav active={tab} onChange={setTab} showStatusTab={!!trackedBookingId} />
       </main>
     </>
   );
