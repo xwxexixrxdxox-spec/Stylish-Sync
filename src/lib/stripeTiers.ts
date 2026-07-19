@@ -20,10 +20,20 @@
 // Neither active price has a Stripe Tax registration behind it yet - no
 // sales tax is currently being calculated/collected on these. See the
 // sales-tax discussion in chat before turning that on.
+//
+// paymentLinkUrl is what the customer status page shows once the admin
+// marks a visit "Finished" (see /admin/visits and /book_appointment/status).
+// It's a real, live Payment Link (plink_1TulZpRs7xq2Oh7Uh9BaN2vB) on the
+// hourly price with an adjustable quantity (1-12) so the customer can set
+// the actual hours worked at checkout — a placeholder in the sense that
+// it always uses the hourly rate regardless of which rate was agreed on;
+// swap this URL (or build real per-booking checkout) once billing needs
+// to get more precise.
 export const VISIT_OFFER = {
   hourlyRateLabel: "$30/hr",
   hourlyRateBlurb: "billed for time actually spent on-site",
   dailyRateLabel: "$300/day",
   dailyRateBlurb: "flat rate, capped at a total of 12hrs/day as required by law",
   bookingUrl: "/book_appointment",
+  paymentLinkUrl: "https://buy.stripe.com/fZuaEZcsg5bpcOc6LH48008",
 };

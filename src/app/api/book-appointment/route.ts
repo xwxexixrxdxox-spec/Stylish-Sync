@@ -64,16 +64,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await claimSlots(date, start, hours, { name, email, phone, contactMethod, notes });
-    if (!result.ok) {
+    if (!result.ok || !result.bookingId || !result.cancelToken) {
       return NextResponse.json({ ok: false, error: result.error }, { status: 409 });
     }
 
     const emailDetails = { date, start, hours, name, email, phone, contactMethod, notes };
     // Best-effort — a booking is still valid even if an email hiccups, so
     // these aren't allowed to fail the request.
-    await Promise.allSettled([sendOwnerNotification(emailDetails), sendCustomerConfirmation(emailDetails)]);
+    await Promise.allSettled([
+      sendOwnerNotification(emailDetails),
+      sendCustomerConfirmation({ ...emailDetails, bookingId: result.bookingId, cancelToken: result.cancelToken }),
+    ]);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, bookingId: result.bookingId, cancelToken: result.cancelToken });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: "Couldn't reach the booking system right now. Please try again shortly." },

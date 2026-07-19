@@ -1,14 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, LogOut, Save } from "lucide-react";
-import { AvailabilityWindow, BookingRecord } from "@/lib/types";
-
-const CONTACT_LABEL: Record<string, string> = { email: "Email", phone: "Phone call", text: "Text message" };
+import { Plus, Trash2, LogOut, Save, CalendarClock } from "lucide-react";
+import { AvailabilityWindow } from "@/lib/types";
 
 export default function AdminAvailabilityEditor() {
   const [windows, setWindows] = useState<AvailabilityWindow[]>([]);
-  const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -18,10 +15,7 @@ export default function AdminAvailabilityEditor() {
     fetch("/api/admin/availability")
       .then((r) => r.json())
       .then((body) => {
-        if (body.ok) {
-          setWindows(body.windows ?? []);
-          setBookings(body.bookings ?? []);
-        }
+        if (body.ok) setWindows(body.windows ?? []);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -67,6 +61,13 @@ export default function AdminAvailabilityEditor() {
 
   return (
     <div className="space-y-6">
+      <a
+        href="/admin/visits"
+        className="flex items-center justify-center gap-1.5 rounded-lg border border-surface-border bg-white py-2.5 text-sm font-medium text-neutral-700 shadow-card hover:bg-surface-muted"
+      >
+        <CalendarClock size={14} /> Manage visits, clock in/out & cancellations →
+      </a>
+
       <section className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-3 text-sm font-medium text-neutral-900">Open time windows</p>
         <p className="mb-3 text-xs text-neutral-500">
@@ -126,27 +127,6 @@ export default function AdminAvailabilityEditor() {
           <Save size={14} /> {saving ? "Saving…" : "Save availability"}
         </button>
         {message && <p className="mt-2 text-center text-xs font-medium text-neutral-600">{message}</p>}
-      </section>
-
-      <section className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-        <p className="mb-3 text-sm font-medium text-neutral-900">Upcoming requests</p>
-        {bookings.length === 0 ? (
-          <p className="text-xs text-neutral-400">No upcoming requests yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {bookings.map((b) => (
-              <li key={b.id} className="rounded-lg border border-surface-border px-3 py-2 text-xs text-neutral-700">
-                <p className="font-medium text-neutral-900">
-                  {b.date} at {b.start} · {b.hours}h
-                </p>
-                <p>
-                  {b.name} — {b.email} — {b.phone} ({CONTACT_LABEL[b.contactMethod] ?? b.contactMethod})
-                </p>
-                {b.notes && <p className="mt-1 text-neutral-500">{b.notes}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       <button

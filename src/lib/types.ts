@@ -67,6 +67,11 @@ export interface OpenSlot {
   end: string;
 }
 
+// Lifecycle of the on-site visit itself, separate from the booking
+// request lifecycle above. Driven entirely by the admin (the technician
+// doing the visit); the customer-facing status page just reflects it.
+export type VisitStatus = "not_started" | "clocked_in" | "on_break" | "finished";
+
 export interface BookingRecord {
   id: string;
   date: string;
@@ -78,4 +83,26 @@ export interface BookingRecord {
   contactMethod: ContactMethod;
   notes: string;
   bookedAt: string;
+  // Random secret the customer needs (alongside id) to cancel their own
+  // request without logging in — mailed to them in the confirmation email
+  // and handed back once from the booking API response. The admin side
+  // cancels by id alone (already behind the admin cookie), so this never
+  // needs to leave the server for admin use.
+  cancelToken: string;
+  visitStatus: VisitStatus;
+  statusUpdatedAt: string;
+}
+
+// What the public status page (linked from the confirmation email, keyed
+// by booking id alone — no token) is allowed to see. Deliberately
+// stripped of email/phone/notes/cancelToken since this link isn't
+// secret-protected the way the cancel link is.
+export interface PublicBookingStatus {
+  id: string;
+  name: string;
+  date: string;
+  start: string;
+  hours: number;
+  visitStatus: VisitStatus;
+  statusUpdatedAt: string;
 }

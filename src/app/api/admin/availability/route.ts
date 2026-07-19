@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAdminCookieValue, ADMIN_SESSION_COOKIE_NAME } from "@/lib/session";
-import { getAvailabilityWindows, setAvailabilityWindows, listUpcomingBookings } from "@/lib/booking";
+import { getAvailabilityWindows, setAvailabilityWindows } from "@/lib/booking";
 import { AvailabilityWindow } from "@/lib/types";
 
 function isAdmin(req: NextRequest): boolean {
@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
   if (!isAdmin(req)) return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
 
   try {
-    const [windows, bookings] = await Promise.all([getAvailabilityWindows(), listUpcomingBookings()]);
-    return NextResponse.json({ ok: true, windows, bookings });
+    const windows = await getAvailabilityWindows();
+    return NextResponse.json({ ok: true, windows });
   } catch (e) {
     return NextResponse.json({ ok: false, error: "Couldn't reach the booking database." }, { status: 503 });
   }

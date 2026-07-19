@@ -1,5 +1,5 @@
 import { getRedis } from "./redis";
-import { AvailabilityWindow, OpenSlot, BookingRecord } from "./types";
+import { AvailabilityWindow, OpenSlot, BookingRecord, VisitStatus, PublicBookingStatus } from "./types";
 
 // Storage layer for the in-person visit booking flow, backed by the same
 // shared Redis instance already used for the crowdsourced barcode lookup
@@ -105,6 +105,7 @@ export async function getOpenSlots(): Promise<OpenSlot[]> {
 export interface ClaimResult {
   ok: boolean;
   bookingId?: string;
+  cancelToken?: string;
   error?: string;
 }
 
@@ -116,7 +117,7 @@ export async function claimSlots(
   date: string,
   start: string,
   hours: number,
-  details: Omit<BookingRecord, "id" | "date" | "start" | "hours" | "bookedAt">
+  details: Omit<BookingRecord, "id" | "date" | "start" | "hours" | "bookedAt" | "cancelToken" | "visitStatus" | "statusUpdatedAt">
 ): Promise<ClaimResult> {
   const redis = await getRedis();
   const startMin = toMinutes(start);
@@ -126,7 +127,18 @@ export async function claimSlots(
   }
 
   const id = crypto.randomUUID();
-  const record: BookingRecord = { id, date, start, hours, bookedAt: new Date().toISOString(), ...details };
+  const cancelToken = crypto.randomUUID();
+  const record: BookingRecord = {
+    id,
+    date,
+    start,
+    hours,
+    bookedAt: new Date().toISOString(),
+    cancelToken,
+    visitStatus: "not_started",
+    statusUpdatedAt: new Date().toISOString(),
+    ...details,
+  };
   const payload = JSON.stringify(record);
 
   const claimed: string[] = [];
@@ -144,17 +156,84 @@ export async function claimSlots(
 
   await redis.set(bookingKey(id), payload);
   await redis.rPush(BOOKING_INDEX_KEY, id);
-  return { ok: true, bookingId: id };
+  return { ok: true, bookingId: id, cancelToken };
 }
 
-export async function listUpcomingBookings(limit = 50): Promise<BookingRecord[]> {
+// Deliberately NOT filtered to "hasn't happened yet" — the admin needs to
+// see (and clock in/out/finish) a visit that's currently in progress or
+// just wrapped up, not just ones still in the future. Cancelled bookings
+// are already gone from the index (cancelBooking removes them), so
+// everything here is either upcoming, in progress, or finished.
+export async function listBookings(limit = 100): Promise<BookingRecord[]> {
   const redis = await getRedis();
   const ids = await redis.lRange(BOOKING_INDEX_KEY, -limit, -1);
   if (!ids.length) return [];
   const raw = await Promise.all(ids.map((id) => redis.get(bookingKey(id))));
-  const records = raw
-    .filter((r): r is string => !!r)
-    .map((r) => JSON.parse(r) as BookingRecord)
-    .filter((r) => new Date(`${r.date}T${r.start}:00`) >= new Date()); // only upcoming
+  const records = raw.filter((r): r is string => !!r).map((r) => JSON.parse(r) as BookingRecord);
   return records.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+}
+
+export async function getBooking(id: string): Promise<BookingRecord | null> {
+  const redis = await getRedis();
+  const raw = await redis.get(bookingKey(id));
+  return raw ? (JSON.parse(raw) as BookingRecord) : null;
+}
+
+// Stripped-down view for the public, token-less status page — see
+// PublicBookingStatus's own comment for why these specific fields.
+export function toPublicStatus(record: BookingRecord): PublicBookingStatus {
+  const { id, name, date, start, hours, visitStatus, statusUpdatedAt } = record;
+  return { id, name, date, start, hours, visitStatus, statusUpdatedAt };
+}
+
+// Admin-only (route enforces the cookie check) — moves a visit through
+// not_started -> clocked_in -> on_break/clocked_in -> finished. No
+// validation of *which* transitions are legal here; the admin UI only
+// exposes the sensible next steps, and a technician correcting a
+// mis-click is a reasonable thing to allow.
+export async function updateVisitStatus(id: string, status: VisitStatus): Promise<BookingMutationResult> {
+  const redis = await getRedis();
+  const raw = await redis.get(bookingKey(id));
+  if (!raw) return { ok: false, error: "That booking no longer exists." };
+
+  const record = JSON.parse(raw) as BookingRecord;
+  record.visitStatus = status;
+  record.statusUpdatedAt = new Date().toISOString();
+  await redis.set(bookingKey(id), JSON.stringify(record));
+  return { ok: true, record };
+}
+
+export interface BookingMutationResult {
+  ok: boolean;
+  record?: BookingRecord;
+  error?: string;
+}
+
+// Cancels a booking, freeing up every hour-slot it claimed. Two callers:
+//  - the customer, via a link in their confirmation email — must supply
+//    the matching cancelToken, since they never authenticate.
+//  - the admin screen, already gated behind the admin cookie — passes
+//    skipTokenCheck instead, since re-deriving/exposing the token there
+//    would be pointless (the admin can already see/cancel everything).
+export async function cancelBooking(
+  id: string,
+  token: string,
+  opts?: { skipTokenCheck?: boolean }
+): Promise<BookingMutationResult> {
+  const redis = await getRedis();
+  const raw = await redis.get(bookingKey(id));
+  if (!raw) return { ok: false, error: "That request no longer exists — it may already be cancelled." };
+
+  const record = JSON.parse(raw) as BookingRecord;
+  if (!opts?.skipTokenCheck && record.cancelToken !== token) {
+    return { ok: false, error: "That cancel link isn't valid." };
+  }
+
+  const startMin = toMinutes(record.start);
+  const slotKeys = Array.from({ length: record.hours }, (_, i) => bookedKey(record.date, toHHMM(startMin + i * SLOT_MINUTES)));
+  await Promise.all(slotKeys.map((k) => redis.del(k)));
+  await redis.del(bookingKey(id));
+  await redis.lRem(BOOKING_INDEX_KEY, 0, id);
+
+  return { ok: true, record };
 }

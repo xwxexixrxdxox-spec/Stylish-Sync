@@ -28,6 +28,7 @@ export default function BookAppointmentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [booking, setBooking] = useState<{ id: string; cancelToken: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/book-appointment")
@@ -59,6 +60,7 @@ export default function BookAppointmentPage() {
       const body = await res.json();
       if (res.ok && body.ok) {
         setDone(true);
+        if (body.bookingId && body.cancelToken) setBooking({ id: body.bookingId, cancelToken: body.cancelToken });
       } else {
         setError(body.error ?? "Couldn't submit your request. Try another time.");
       }
@@ -79,6 +81,21 @@ export default function BookAppointmentPage() {
           {selected && `${formatDate(selected.date)} at ${formatTime(selected.start)}`}. You're billed after the
           visit based on actual time spent — no payment needed now.
         </p>
+
+        {booking && (
+          <div className="mt-4 flex flex-col items-center gap-2 text-xs">
+            <a href={`/book_appointment/status?id=${encodeURIComponent(booking.id)}`} className="font-medium text-blue-600 hover:underline">
+              Track visit status →
+            </a>
+            <a
+              href={`/book_appointment/cancel?id=${encodeURIComponent(booking.id)}&token=${encodeURIComponent(booking.cancelToken)}`}
+              className="font-medium text-blue-600 hover:underline"
+            >
+              Cancel this request →
+            </a>
+          </div>
+        )}
+
         <a href="/" className="mt-5 rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted">
           Back to app
         </a>
