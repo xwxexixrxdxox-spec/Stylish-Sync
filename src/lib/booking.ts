@@ -1,5 +1,16 @@
 import { getRedis } from "./redis";
-import { AvailabilityWindow, OpenSlot, BookingRecord, VisitStatus, PublicBookingStatus } from "./types";
+import {
+  AvailabilityWindow,
+  OpenSlot,
+  BookingRecord,
+  BreakRecord,
+  VisitStatus,
+  PublicBookingStatus,
+  BookingDuration,
+  BREAK_REQUIRED_MINUTES,
+  CLOCK_IN_GRACE_MINUTES,
+  FORCED_CLOCKOUT_HOURS,
+} from "./types";
 
 // Storage layer for the in-person visit booking flow, backed by the same
 // shared Redis instance already used for the crowdsourced barcode lookup
@@ -30,6 +41,12 @@ const BOOKING_INDEX_KEY = "visit:bookings:index";
 const SLOT_MINUTES = 60;
 const LOOKAHEAD_DAYS = 30; // safety cap even though windows are only ever entered ~2-3 weeks out
 
+// Used only to backfill bookings made before per-booking timezones existed
+// — a real (non-guessed) zone is always supplied by the booking form going
+// forward. Kentucky itself straddles Eastern/Central, so this is a rough
+// fallback for old data, not something new bookings should ever rely on.
+const FALLBACK_TIMEZONE = "America/New_York";
+
 function bookedKey(date: string, start: string): string {
   return `visit:booked:${date}:${start}`;
 }
@@ -51,11 +68,12 @@ function toHHMM(totalMinutes: number): string {
   return `${h}:${m}`;
 }
 
-// Bookings created before visitStatus/statusUpdatedAt/cancelToken existed
-// are still sitting in Redis without them — always parse through this
-// rather than a bare JSON.parse, so an old record doesn't silently break
-// the admin UI (missing status badge, no clock-in button, etc.) or the
-// cancel flow (missing cancelToken).
+// Bookings created before visitStatus/statusUpdatedAt/cancelToken/timezone/
+// clockInAt/breaks/autoClockedOut existed are still sitting in Redis
+// without them — always parse through this rather than a bare JSON.parse,
+// so an old record doesn't silently break the admin UI (missing status
+// badge, no clock-in button, etc.) or the cancel flow (missing
+// cancelToken).
 function parseBookingRecord(raw: string): BookingRecord {
   const record = JSON.parse(raw) as BookingRecord;
   return {
@@ -63,6 +81,10 @@ function parseBookingRecord(raw: string): BookingRecord {
     cancelToken: record.cancelToken ?? "",
     visitStatus: record.visitStatus ?? "not_started",
     statusUpdatedAt: record.statusUpdatedAt ?? record.bookedAt,
+    timezone: record.timezone || FALLBACK_TIMEZONE,
+    clockInAt: record.clockInAt ?? null,
+    breaks: Array.isArray(record.breaks) ? record.breaks : [],
+    autoClockedOut: record.autoClockedOut ?? false,
   };
 }
 
@@ -83,9 +105,11 @@ export async function setAvailabilityWindows(windows: AvailabilityWindow[]): Pro
   await redis.set(AVAILABILITY_KEY, JSON.stringify(windows));
 }
 
-// Expands the owner's declared windows into discrete 1-hour slots, drops
-// anything in the past or beyond LOOKAHEAD_DAYS, and filters out slots
-// that already have a booking.
+// Expands the owner's declared windows into discrete 1-hour start-time
+// slots, drops anything in the past or beyond LOOKAHEAD_DAYS, and filters
+// out slots that already have a booking. Start times are still offered on
+// the hour — it's just the *duration* a customer picks on top of a start
+// time that's now restricted to BOOKING_DURATIONS.
 export async function getOpenSlots(): Promise<OpenSlot[]> {
   const windows = await getAvailabilityWindows();
   const redis = await getRedis();
@@ -131,8 +155,11 @@ export interface ClaimResult {
 export async function claimSlots(
   date: string,
   start: string,
-  hours: number,
-  details: Omit<BookingRecord, "id" | "date" | "start" | "hours" | "bookedAt" | "cancelToken" | "visitStatus" | "statusUpdatedAt">
+  hours: BookingDuration,
+  details: Omit<
+    BookingRecord,
+    "id" | "date" | "start" | "hours" | "bookedAt" | "cancelToken" | "visitStatus" | "statusUpdatedAt" | "clockInAt" | "breaks" | "autoClockedOut"
+  >
 ): Promise<ClaimResult> {
   const redis = await getRedis();
   const startMin = toMinutes(start);
@@ -152,6 +179,9 @@ export async function claimSlots(
     cancelToken,
     visitStatus: "not_started",
     statusUpdatedAt: new Date().toISOString(),
+    clockInAt: null,
+    breaks: [],
+    autoClockedOut: false,
     ...details,
   };
   const payload = JSON.stringify(record);
@@ -174,18 +204,133 @@ export async function claimSlots(
   return { ok: true, bookingId: id, cancelToken };
 }
 
+// ---- Timezone-aware scheduling helpers --------------------------------
+// No date library is pulled in for this (matches the rest of the app's
+// "no new dependency for something this small" posture) — these two
+// functions are the standard library-free idiom for converting a wall-clock
+// time in an arbitrary IANA zone to a real UTC instant, using Intl (which
+// Node already ships with full ICU data for).
+
+function timeZoneOffsetMinutes(timeZone: string, atUtc: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" }).formatToParts(atUtc);
+  const tzName = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+0";
+  const match = tzName.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3] ?? 0);
+  return sign * (hours * 60 + minutes);
+}
+
+// Interprets `date` ("YYYY-MM-DD") + `time` ("HH:MM") as wall-clock time in
+// `timeZone`, returning the equivalent real-world instant. Every
+// grace-window / forced-clock-out check funnels through this so a
+// booking's schedule is judged against wherever the visit is actually
+// happening (the customer's own timezone at booking time), not the
+// server's or a single hard-coded business timezone.
+function zonedDateTime(date: string, time: string, timeZone: string): Date {
+  const naiveUtc = new Date(`${date}T${time}:00Z`);
+  const offsetMinutes = timeZoneOffsetMinutes(timeZone, naiveUtc);
+  return new Date(naiveUtc.getTime() - offsetMinutes * 60_000);
+}
+
+export function isValidTimeZone(tz: string): boolean {
+  try {
+    // eslint-disable-next-line no-new
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---- Break tracking -----------------------------------------------------
+
+function closeOpenBreak(breaks: BreakRecord[], now: Date): BreakRecord[] {
+  const openIdx = breaks.findIndex((b) => b.end === null);
+  if (openIdx === -1) return breaks;
+  const openStart = new Date(breaks[openIdx].start);
+  const minutes = Math.max(0, Math.round((now.getTime() - openStart.getTime()) / 60_000));
+  const next = [...breaks];
+  next[openIdx] = { ...next[openIdx], end: now.toISOString(), minutes };
+  return next;
+}
+
+function totalBreakMinutes(breaks: BreakRecord[]): number {
+  return breaks.reduce((sum, b) => sum + b.minutes, 0);
+}
+
+// Defensively force-finishes a visit that's been clocked in for
+// FORCED_CLOCKOUT_HOURS or more, regardless of whether anyone has told the
+// system to. There's no background job in this app (see the redis.ts /
+// architecture notes — everything is computed lazily on read), so this
+// takes effect the next time the record is touched (an admin loading
+// /admin/visits, the customer's status page polling, or an explicit
+// clock-in-out action) rather than the instant the cap is actually hit.
+function applyForcedClockOut(record: BookingRecord): { record: BookingRecord; changed: boolean } {
+  if (record.visitStatus !== "clocked_in" && record.visitStatus !== "on_break") {
+    return { record, changed: false };
+  }
+  if (!record.clockInAt) return { record, changed: false };
+
+  const elapsedMs = Date.now() - new Date(record.clockInAt).getTime();
+  if (elapsedMs < FORCED_CLOCKOUT_HOURS * 60 * 60 * 1000) return { record, changed: false };
+
+  const now = new Date();
+  const breaks = record.visitStatus === "on_break" ? closeOpenBreak(record.breaks, now) : record.breaks;
+  return {
+    record: { ...record, breaks, visitStatus: "finished", statusUpdatedAt: now.toISOString(), autoClockedOut: true },
+    changed: true,
+  };
+}
+
+async function loadAndReconcileBookings(limit: number): Promise<{ records: BookingRecord[]; justForced: BookingRecord[] }> {
+  const redis = await getRedis();
+  const ids = await redis.lRange(BOOKING_INDEX_KEY, -limit, -1);
+  if (!ids.length) return { records: [], justForced: [] };
+
+  const raw = await Promise.all(ids.map((id) => redis.get(bookingKey(id))));
+  const records: BookingRecord[] = [];
+  const justForced: BookingRecord[] = [];
+
+  for (const r of raw) {
+    if (!r) continue;
+    const parsed = parseBookingRecord(r);
+    const forced = applyForcedClockOut(parsed);
+    if (forced.changed) {
+      await redis.set(bookingKey(forced.record.id), JSON.stringify(forced.record));
+      justForced.push(forced.record);
+      records.push(forced.record);
+    } else {
+      records.push(parsed);
+    }
+  }
+
+  records.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+  return { records, justForced };
+}
+
 // Deliberately NOT filtered to "hasn't happened yet" — the admin needs to
 // see (and clock in/out/finish) a visit that's currently in progress or
 // just wrapped up, not just ones still in the future. Cancelled bookings
 // are already gone from the index (cancelBooking removes them), so
 // everything here is either upcoming, in progress, or finished.
 export async function listBookings(limit = 100): Promise<BookingRecord[]> {
-  const redis = await getRedis();
-  const ids = await redis.lRange(BOOKING_INDEX_KEY, -limit, -1);
-  if (!ids.length) return [];
-  const raw = await Promise.all(ids.map((id) => redis.get(bookingKey(id))));
-  const records = raw.filter((r): r is string => !!r).map((r) => parseBookingRecord(r));
-  return records.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+  const { records } = await loadAndReconcileBookings(limit);
+  return records;
+}
+
+// Admin-only variant of listBookings that also surfaces which bookings, if
+// any, just crossed the 12-hour forced-clock-out cap during *this* call —
+// used by the admin bookings route to send the same "visit finished /
+// here's how to pay" email a normal Finished click would trigger. Kept
+// separate from the plain listBookings() (which findActiveBookingForEmail
+// also calls, from an unauthenticated public endpoint) specifically so an
+// anonymous lookup can never be the thing that triggers an email send for
+// someone else's unrelated booking.
+export async function listBookingsForAdmin(limit = 100): Promise<{ bookings: BookingRecord[]; justAutoFinished: BookingRecord[] }> {
+  const { records, justForced } = await loadAndReconcileBookings(limit);
+  return { bookings: records, justAutoFinished: justForced };
 }
 
 // Lets a customer find their own booking by the email they booked with,
@@ -224,37 +369,114 @@ export async function findActiveBookingForEmail(email: string): Promise<BookingR
 export async function getBooking(id: string): Promise<BookingRecord | null> {
   const redis = await getRedis();
   const raw = await redis.get(bookingKey(id));
-  return raw ? parseBookingRecord(raw) : null;
+  if (!raw) return null;
+
+  const record = parseBookingRecord(raw);
+  const forced = applyForcedClockOut(record);
+  if (forced.changed) {
+    await redis.set(bookingKey(id), JSON.stringify(forced.record));
+    return forced.record;
+  }
+  return record;
 }
 
 // Stripped-down view for the public, token-less status page — see
 // PublicBookingStatus's own comment for why these specific fields.
 export function toPublicStatus(record: BookingRecord): PublicBookingStatus {
-  const { id, name, date, start, hours, visitStatus, statusUpdatedAt } = record;
-  return { id, name, date, start, hours, visitStatus, statusUpdatedAt };
-}
-
-// Admin-only (route enforces the cookie check) — moves a visit through
-// not_started -> clocked_in -> on_break/clocked_in -> finished. No
-// validation of *which* transitions are legal here; the admin UI only
-// exposes the sensible next steps, and a technician correcting a
-// mis-click is a reasonable thing to allow.
-export async function updateVisitStatus(id: string, status: VisitStatus): Promise<BookingMutationResult> {
-  const redis = await getRedis();
-  const raw = await redis.get(bookingKey(id));
-  if (!raw) return { ok: false, error: "That booking no longer exists." };
-
-  const record = parseBookingRecord(raw);
-  record.visitStatus = status;
-  record.statusUpdatedAt = new Date().toISOString();
-  await redis.set(bookingKey(id), JSON.stringify(record));
-  return { ok: true, record };
+  const { id, name, date, start, hours, visitStatus, statusUpdatedAt, autoClockedOut } = record;
+  return { id, name, date, start, hours, visitStatus, statusUpdatedAt, autoClockedOut };
 }
 
 export interface BookingMutationResult {
   ok: boolean;
   record?: BookingRecord;
   error?: string;
+  // True only when this exact call is the one that force-finished the
+  // visit via the 12-hour cap (as opposed to the visit already having been
+  // auto-finished by an earlier read) — lets the caller decide whether to
+  // fire the "visit finished" email.
+  autoFinished?: boolean;
+}
+
+// Admin-only (route enforces the cookie check) — moves a visit through
+// not_started -> clocked_in -> on_break/clocked_in -> finished, enforcing
+// three legal guardrails along the way:
+//
+//  1. Clock-in grace window: the first clock-in for a visit can't happen
+//     more than CLOCK_IN_GRACE_MINUTES before its scheduled start (judged
+//     in the customer's own timezone) — this is the actual "admin can't
+//     have free reign over their own clock-in time" protection, since
+//     that's the direction that could be used to pad billed hours. A late
+//     clock-in is allowed through with no upper bound — blocking that
+//     would strand the visit with no way to ever be completed.
+//  2. Break floor: a visit can't be marked "finished" until at least
+//     BREAK_REQUIRED_MINUTES[hours] minutes of break have actually been
+//     logged, protecting the technician's break time even on a flat-rate
+//     $300/day visit.
+//  3. Forced clock-out: a visit clocked in for FORCED_CLOCKOUT_HOURS or
+//     more is force-finished before any other transition is considered.
+//
+// Beyond that, no validation of *which* transitions are legal — the admin
+// UI only exposes the sensible next steps, and a technician correcting a
+// mis-click is a reasonable thing to allow.
+export async function updateVisitStatus(id: string, status: VisitStatus): Promise<BookingMutationResult> {
+  const redis = await getRedis();
+  const raw = await redis.get(bookingKey(id));
+  if (!raw) return { ok: false, error: "That booking no longer exists." };
+
+  let record = parseBookingRecord(raw);
+
+  const forced = applyForcedClockOut(record);
+  if (forced.changed) {
+    record = forced.record;
+    await redis.set(bookingKey(id), JSON.stringify(record));
+    if (status !== "finished") {
+      return {
+        ok: false,
+        error: "This visit hit the 12-hour legal maximum and was automatically clocked out.",
+        record,
+        autoFinished: true,
+      };
+    }
+    // The requested status was already "finished" — nothing left to do.
+    return { ok: true, record, autoFinished: true };
+  }
+
+  const now = new Date();
+
+  if (status === "clocked_in" && record.visitStatus === "not_started") {
+    const scheduledStart = zonedDateTime(record.date, record.start, record.timezone);
+    const earliestAllowed = new Date(scheduledStart.getTime() - CLOCK_IN_GRACE_MINUTES * 60_000);
+    if (now < earliestAllowed) {
+      return { ok: false, error: "Sorry, it's too early to clock in. Come back closer to the scheduled time slot." };
+    }
+    record.clockInAt = record.clockInAt ?? now.toISOString();
+  }
+
+  if (status === "on_break" && record.visitStatus === "clocked_in") {
+    record.breaks = [...record.breaks, { start: now.toISOString(), end: null, minutes: 0 }];
+  }
+
+  if (record.visitStatus === "on_break" && (status === "clocked_in" || status === "finished")) {
+    record.breaks = closeOpenBreak(record.breaks, now);
+  }
+
+  if (status === "finished") {
+    const required = BREAK_REQUIRED_MINUTES[record.hours as BookingDuration] ?? 0;
+    const taken = totalBreakMinutes(record.breaks);
+    if (required > 0 && taken < required) {
+      return {
+        ok: false,
+        error: `Kentucky law requires at least ${required} min of break for a ${record.hours}h visit — only ${taken} min logged so far. Log the technician's break before finishing.`,
+        record,
+      };
+    }
+  }
+
+  record.visitStatus = status;
+  record.statusUpdatedAt = now.toISOString();
+  await redis.set(bookingKey(id), JSON.stringify(record));
+  return { ok: true, record };
 }
 
 // Cancels a booking, freeing up every hour-slot it claimed. Two callers:

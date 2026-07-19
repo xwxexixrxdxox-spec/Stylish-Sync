@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOpenSlots, claimSlots } from "@/lib/booking";
+import { getOpenSlots, claimSlots, isValidTimeZone } from "@/lib/booking";
 import { sendOwnerNotification, sendCustomerConfirmation } from "@/lib/email";
 import { isRateLimited } from "@/lib/rateLimit";
-import { ContactMethod } from "@/lib/types";
+import { ContactMethod, isBookingDuration } from "@/lib/types";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^\d{2}:\d{2}$/;
 const CONTACT_METHODS: ContactMethod[] = ["email", "phone", "text"];
-const MAX_HOURS = 12; // matches the stated 12hrs/day cap on the flat day rate
 const MAX_TEXT_LEN = 2000;
+// Fallback only for the rare case a browser doesn't report a usable
+// Intl timezone — real submissions always send one (see book_appointment
+// page.tsx), this just keeps a booking from being rejected outright over it.
+const FALLBACK_TIMEZONE = "America/New_York";
 
 // Public — no auth. Returns the currently-open 1-hour slots (owner's
 // declared availability minus anything already booked), so the booking
@@ -36,17 +39,19 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const date = String(body.date ?? "");
   const start = String(body.start ?? "");
-  const hours = Number(body.hours ?? 1);
+  const hours = Number(body.hours ?? 0);
   const name = String(body.name ?? "").trim().slice(0, 200);
   const email = String(body.email ?? "").trim().toLowerCase();
   const phone = String(body.phone ?? "").trim().slice(0, 40);
   const contactMethod = String(body.contactMethod ?? "") as ContactMethod;
   const notes = String(body.notes ?? "").trim().slice(0, MAX_TEXT_LEN);
+  const requestedTimezone = String(body.timezone ?? "").trim();
+  const timezone = requestedTimezone && isValidTimeZone(requestedTimezone) ? requestedTimezone : FALLBACK_TIMEZONE;
 
   if (!DATE_PATTERN.test(date) || !TIME_PATTERN.test(start)) {
     return NextResponse.json({ ok: false, error: "Invalid date or time." }, { status: 400 });
   }
-  if (!Number.isInteger(hours) || hours < 1 || hours > MAX_HOURS) {
+  if (!isBookingDuration(hours)) {
     return NextResponse.json({ ok: false, error: "Invalid duration." }, { status: 400 });
   }
   if (!name) {
@@ -63,7 +68,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await claimSlots(date, start, hours, { name, email, phone, contactMethod, notes });
+    const result = await claimSlots(date, start, hours, { name, email, phone, contactMethod, notes, timezone });
     if (!result.ok || !result.bookingId || !result.cancelToken) {
       return NextResponse.json({ ok: false, error: result.error }, { status: 409 });
     }

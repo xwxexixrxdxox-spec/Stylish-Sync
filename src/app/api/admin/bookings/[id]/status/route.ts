@@ -19,9 +19,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   try {
     const result = await updateVisitStatus(params.id, status);
-    if (result.ok && result.record && status === "finished") {
+    const justFinished = result.record?.visitStatus === "finished" && (status === "finished" || result.autoFinished);
+    if (result.record && justFinished) {
       // Best-effort "prompt the customer to pay" — the status page also
       // shows the Pay Now button regardless of whether this send succeeds.
+      // Also fires when this call is the one that discovered a 12-hour
+      // forced clock-out (result.autoFinished), not just an explicit
+      // "Finished" click.
       await sendVisitFinishedEmail(result.record).catch(() => {});
     }
     return NextResponse.json({ ok: result.ok, record: result.record, error: result.error }, { status: result.ok ? 200 : 400 });

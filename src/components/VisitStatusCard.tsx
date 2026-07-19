@@ -77,6 +77,11 @@ export default function VisitStatusCard({ bookingId }: Props) {
         <p className="mt-3 text-xs text-neutral-400">
           {status.date} at {formatTime(status.start)} · {status.hours}h visit for {status.name}
         </p>
+        {status.autoClockedOut && (
+          <p className="mt-2 text-xs text-neutral-400">
+            This visit was automatically clocked out after reaching the 12-hour legal maximum.
+          </p>
+        )}
       </section>
 
       {status.visitStatus === "finished" && (

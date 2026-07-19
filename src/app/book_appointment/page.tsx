@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, Clock } from "lucide-react";
-import { OpenSlot, ContactMethod } from "@/lib/types";
+import { OpenSlot, ContactMethod, BOOKING_DURATIONS, BookingDuration } from "@/lib/types";
 import { VISIT_OFFER } from "@/lib/stripeTiers";
 
 function formatTime(hhmm: string): string {
@@ -23,7 +23,7 @@ function formatDate(date: string): string {
 export default function BookAppointmentPage() {
   const [slots, setSlots] = useState<OpenSlot[] | null>(null);
   const [selected, setSelected] = useState<OpenSlot | null>(null);
-  const [hours, setHours] = useState(2);
+  const [hours, setHours] = useState<BookingDuration>(BOOKING_DURATIONS[0]);
   const [form, setForm] = useState({ name: "", email: "", phone: "", contactMethod: "email" as ContactMethod, notes: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,10 +52,14 @@ export default function BookAppointmentPage() {
     setSubmitting(true);
     setError(null);
     try {
+      // The technician's clock-in window is judged against wherever the
+      // visit is actually happening, so this is sent along with the
+      // booking rather than assumed to match the business owner's zone.
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const res = await fetch("/api/book-appointment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: selected.date, start: selected.start, hours, ...form }),
+        body: JSON.stringify({ date: selected.date, start: selected.start, hours, timezone, ...form }),
       });
       const body = await res.json();
       if (res.ok && body.ok) {
@@ -155,17 +159,25 @@ export default function BookAppointmentPage() {
           </div>
 
           <div className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-            <label className="mb-1 block text-xs font-medium text-neutral-700">
-              How many hours (roughly)? <span className="font-normal text-neutral-400">Capped at 12/day.</span>
+            <label className="mb-2 block text-xs font-medium text-neutral-700">
+              Visit length <span className="font-normal text-neutral-400">Fixed blocks, capped at 12h/day.</span>
             </label>
-            <input
-              type="number"
-              min={1}
-              max={12}
-              value={hours}
-              onChange={(e) => setHours(Number(e.target.value))}
-              className="w-24 rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
-            />
+            <div className="flex flex-wrap gap-2">
+              {BOOKING_DURATIONS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setHours(d)}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                    hours === d
+                      ? "border-neutral-900 bg-neutral-900 text-white"
+                      : "border-surface-border text-neutral-700 hover:border-neutral-900 hover:bg-surface-muted"
+                  }`}
+                >
+                  {d}h
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="space-y-3 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
