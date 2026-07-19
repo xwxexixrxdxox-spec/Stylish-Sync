@@ -212,6 +212,26 @@ export function setSyncedUsageIds(spreadsheetId: string, ids: string[]): void {
   window.localStorage.setItem(syncedUsageIdsKey(spreadsheetId), JSON.stringify(ids));
 }
 
+// When this device last successfully pushed or pulled this spreadsheet —
+// purely informational (see AccountTab's "Last synced" line), so someone
+// signed in on more than one device has a visible signal for "is what I'm
+// looking at here actually current," rather than only finding out a sync
+// was stale after a push conflict warning fires. Doesn't affect conflict
+// detection itself — that's the sync token above.
+function syncedAtKey(spreadsheetId: string): string {
+  return `isc_sync_time_v1:${spreadsheetId}`;
+}
+
+export function getLastSyncedAt(spreadsheetId: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(syncedAtKey(spreadsheetId));
+}
+
+export function setLastSyncedAt(spreadsheetId: string, iso: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(syncedAtKey(spreadsheetId), iso);
+}
+
 export type CookieConsent = "accepted" | "declined" | null;
 
 export function getCookieConsent(): CookieConsent {
@@ -242,7 +262,12 @@ export async function clearAppCache(): Promise<void> {
   // can force-reset a stuck conflict warning if sync state ever gets
   // wedged.
   Object.keys(window.localStorage)
-    .filter((k) => k.startsWith("isc_sync_token_v1:") || k.startsWith("isc_synced_usage_ids_v1:"))
+    .filter(
+      (k) =>
+        k.startsWith("isc_sync_token_v1:") ||
+        k.startsWith("isc_synced_usage_ids_v1:") ||
+        k.startsWith("isc_sync_time_v1:")
+    )
     .forEach((k) => window.localStorage.removeItem(k));
 
   if ("caches" in window) {

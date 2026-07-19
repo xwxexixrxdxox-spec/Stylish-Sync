@@ -1,18 +1,22 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Minus, Plus, Pencil } from "lucide-react";
+import { Minus, Plus, Pencil, Trash2 } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { playChime } from "@/lib/chime";
+import Tooltip from "./Tooltip";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface Props {
   item: InventoryItem;
   onAdjust: (id: string, delta: number) => void;
   onEdit: (item: InventoryItem) => void;
+  onDelete: (id: string) => void;
 }
 
-export default function ItemCard({ item, onAdjust, onEdit }: Props) {
+export default function ItemCard({ item, onAdjust, onEdit, onDelete }: Props) {
   const low = item.quantity <= item.reorderAt;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Cute little "+1"/"-1" pop that floats up from whichever button was
   // pressed, plus a quick squish/bounce on the icon itself. `key` forces
@@ -40,13 +44,15 @@ export default function ItemCard({ item, onAdjust, onEdit }: Props) {
         </p>
         <div className="mt-2 flex items-center gap-2">
           <div className="relative">
-            <button
-              aria-label="Decrease stock"
-              onClick={() => handleAdjust(-1)}
-              className="flex h-7 w-7 items-center justify-center rounded-full border border-surface-border text-neutral-600 transition-transform duration-150 hover:bg-surface-muted active:scale-90"
-            >
-              <Minus size={14} key={burst?.sign === -1 ? burst.key : "idle"} className={burst?.sign === -1 ? "animate-btn-pop" : undefined} />
-            </button>
+            <Tooltip label="Decrease stock by 1">
+              <button
+                aria-label="Decrease stock"
+                onClick={() => handleAdjust(-1)}
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-surface-border text-neutral-600 transition-transform duration-150 hover:bg-surface-muted active:scale-90"
+              >
+                <Minus size={14} key={burst?.sign === -1 ? burst.key : "idle"} className={burst?.sign === -1 ? "animate-btn-pop" : undefined} />
+              </button>
+            </Tooltip>
             {burst?.sign === -1 && (
               <span
                 key={burst.key}
@@ -61,13 +67,15 @@ export default function ItemCard({ item, onAdjust, onEdit }: Props) {
             {item.quantity} {item.unit}
           </span>
           <div className="relative">
-            <button
-              aria-label="Increase stock"
-              onClick={() => handleAdjust(1)}
-              className="flex h-7 w-7 items-center justify-center rounded-full border border-surface-border text-neutral-600 transition-transform duration-150 hover:bg-surface-muted active:scale-90"
-            >
-              <Plus size={14} key={burst?.sign === 1 ? burst.key : "idle"} className={burst?.sign === 1 ? "animate-btn-pop" : undefined} />
-            </button>
+            <Tooltip label="Increase stock by 1">
+              <button
+                aria-label="Increase stock"
+                onClick={() => handleAdjust(1)}
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-surface-border text-neutral-600 transition-transform duration-150 hover:bg-surface-muted active:scale-90"
+              >
+                <Plus size={14} key={burst?.sign === 1 ? burst.key : "idle"} className={burst?.sign === 1 ? "animate-btn-pop" : undefined} />
+              </button>
+            </Tooltip>
             {burst?.sign === 1 && (
               <span
                 key={burst.key}
@@ -81,18 +89,44 @@ export default function ItemCard({ item, onAdjust, onEdit }: Props) {
         </div>
       </div>
       <div className="ml-3 flex shrink-0 flex-col items-end gap-2">
-        <button
-          aria-label="Edit item"
-          onClick={() => onEdit(item)}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-surface-muted"
-        >
-          <Pencil size={14} />
-        </button>
+        <div className="flex gap-1.5">
+          <Tooltip label="Edit item">
+            <button
+              aria-label="Edit item"
+              onClick={() => onEdit(item)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-surface-muted"
+            >
+              <Pencil size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label="Delete item">
+            <button
+              aria-label="Delete item"
+              onClick={() => setConfirmingDelete(true)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-red-50 hover:text-accent-low"
+            >
+              <Trash2 size={14} />
+            </button>
+          </Tooltip>
+        </div>
         <div className="text-right">
           <p className="text-sm font-medium text-neutral-800">${(item.pricePerUnit ?? 0).toFixed(2)} ea</p>
           {low && <p className="text-xs font-medium text-accent-low">Low stock</p>}
         </div>
       </div>
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Delete "${item.name}"?`}
+          message="This removes the item from your inventory. Its past usage history stays intact, but it will no longer be trackable going forward. This can't be undone."
+          confirmLabel="Delete"
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => {
+            setConfirmingDelete(false);
+            onDelete(item.id);
+          }}
+        />
+      )}
     </div>
   );
 }

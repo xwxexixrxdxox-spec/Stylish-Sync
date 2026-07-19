@@ -33,11 +33,14 @@ import {
   signOutGoogle,
 } from "@/lib/googleSheets";
 import { reconcileUsageFromSheetRows } from "@/lib/usageReport";
+import Tooltip from "@/components/Tooltip";
 import {
+  getLastSyncedAt,
   getLastSyncToken,
   getSyncedUsageIds,
   loadMovements,
   replaceMovements,
+  setLastSyncedAt,
   setLastSyncToken,
   setLinkedSheetId,
   setSyncedUsageIds,
@@ -51,6 +54,21 @@ import {
 } from "@/lib/installPrompt";
 import PricingTiers from "./PricingTiers";
 import DevAccessToggle from "./DevAccessToggle";
+
+// Coarse "how long ago" for the Last synced line — doesn't need
+// second-level precision, just enough for someone to eyeball "that's from
+// this morning" vs "that's from three days ago" when checking whether this
+// device is likely to be behind another one.
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
 
 interface Props {
   items: InventoryItem[];
@@ -83,6 +101,15 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   // being explicit here avoids a subtle bug if that ever changes).
   const [conflict, setConflict] = useState<{ targetId: string } | null>(null);
   const [showSyncHelp, setShowSyncHelp] = useState(false);
+  // Purely informational "Last synced" line — see storage.ts's
+  // getLastSyncedAt/setLastSyncedAt. Re-read whenever sheetId changes (a
+  // fresh link, or switching sheets via the picker) and stamped fresh
+  // after every successful push/pull in pushToSheetId/pullFromSheetId.
+  const [lastSyncedAt, setLastSyncedAtState] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLastSyncedAtState(sheetId ? getLastSyncedAt(sheetId) : null);
+  }, [sheetId]);
 
   // Re-render whenever a native install prompt becomes available (or gets
   // used up) — see installPrompt.ts. Checked once on mount too, in case the
@@ -141,6 +168,15 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   // some other device pushed since this device last synced here) — unless
   // `force` is set, which is what "overwrite anyway" uses to push past
   // that warning on purpose.
+  // Stamps "synced just now" both to storage (so it survives a reload/other
+  // tab) and to this component's own state (so the "Last synced" line
+  // updates immediately rather than waiting for a remount).
+  const stampSynced = (targetId: string) => {
+    const iso = new Date().toISOString();
+    setLastSyncedAt(targetId, iso);
+    setLastSyncedAtState(iso);
+  };
+
   const pushToSheetId = async (targetId: string, opts?: { force?: boolean }): Promise<"done" | "conflict"> => {
     if (!opts?.force) {
       const remoteToken = await getRemoteSyncToken(targetId);
@@ -158,6 +194,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     const token = newSyncToken();
     await setRemoteSyncToken(targetId, token);
     setLastSyncToken(targetId, token);
+    stampSynced(targetId);
     return "done";
   };
 
@@ -185,6 +222,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
 
     const remoteToken = await getRemoteSyncToken(targetId);
     if (remoteToken) setLastSyncToken(targetId, remoteToken);
+    stampSynced(targetId);
 
     return {
       itemCount: remoteItems.length,
@@ -415,13 +453,15 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         <div className="mb-3 flex items-center justify-between">
           <p className="text-sm font-medium text-neutral-900">Google Sheets</p>
           {isGoogleSheetsConfigured() && sheetId && (
-            <button
-              onClick={() => setShowSyncHelp((v) => !v)}
-              aria-label="What's the difference between Push and Pull?"
-              className="text-neutral-400 hover:text-neutral-600"
-            >
-              <HelpCircle size={16} />
-            </button>
+            <Tooltip label="What's the difference between Push and Pull?">
+              <button
+                onClick={() => setShowSyncHelp((v) => !v)}
+                aria-label="What's the difference between Push and Pull?"
+                className="text-neutral-400 hover:text-neutral-600"
+              >
+                <HelpCircle size={16} />
+              </button>
+            </Tooltip>
           )}
         </div>
 
@@ -438,7 +478,12 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
             <p>
               Signed in on more than one device? Always Pull before you Push if you're not sure the sheet has your
               latest changes — Push will warn you first if another device has synced more recently, but Pull is the
-              safe way to check.
+              safe way to check. The "Last synced" line below shows how current this device is.
+            </p>
+            <p>
+              This protects against two devices taking turns — it isn't real-time. If two people edit at the exact
+              same moment on different devices, whoever pushes second still gets the warning, but their own edits
+              made since their last sync would need a manual merge rather than being combined automatically.
             </p>
           </div>
         )}
@@ -481,6 +526,9 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
             >
               <DownloadCloud size={14} /> {busy === "pull" ? "Pulling…" : "Pull from Sheet"}
             </button>
+            {lastSyncedAt && (
+              <p className="px-1 text-[11px] text-neutral-400">Last synced on this device: {formatRelativeTime(lastSyncedAt)}</p>
+            )}
             <button
               onClick={connectGoogle}
               className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"

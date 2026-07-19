@@ -1,29 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { clearAppCache } from "@/lib/storage";
+import Tooltip from "./Tooltip";
+import ConfirmDialog from "./ConfirmDialog";
 
-// Small icon-only trash-can button meant to sit right next to the header's
-// gear icon — brought back from an earlier version of the app, where this
-// was a one-tap-away action rather than something buried inside the
-// Support tab. Uses a lightweight inline confirm (tap once to arm, tap
-// again to actually clear) instead of a native confirm() dialog, matching
-// the rest of the app's UI rather than a jarring browser popup — this is
-// destructive (wipes local items/movements/sheet link), so it shouldn't
-// fire on a single accidental tap.
+// Small icon-only button meant to sit right next to the header's gear icon
+// — brought back from an earlier version of the app, where this was a
+// one-tap-away action rather than something buried inside the Support tab.
+//
+// This used to be a trash-can icon with an inline "tap again to confirm"
+// arm step. Now that item cards have their own trash-can delete button
+// (see ItemCard.tsx), keeping a second trash icon here risked being read
+// as "delete something" rather than "reset the app's local cache" — so
+// this is a refresh icon instead, and the confirmation is a real popup
+// (shared ConfirmDialog) rather than the inline arm-tap pattern, matching
+// how the item-delete confirmations now work.
 export default function ClearCacheButton() {
-  const [armed, setArmed] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
 
-  const handleClick = async () => {
-    if (!armed) {
-      setArmed(true);
-      // Auto-disarm after a few seconds so a stray later tap can't clear
-      // the cache long after the customer meant to cancel.
-      setTimeout(() => setArmed(false), 4000);
-      return;
-    }
+  const handleConfirm = async () => {
     setClearing(true);
     try {
       await clearAppCache();
@@ -34,16 +32,27 @@ export default function ClearCacheButton() {
   };
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={clearing}
-      aria-label={armed ? "Tap again to confirm clearing cache" : "Clear cache & reload"}
-      title={armed ? "Tap again to confirm" : "Clear cache & reload"}
-      className={`rounded-lg p-1.5 hover:bg-surface-muted disabled:opacity-50 ${
-        armed ? "text-accent-low" : "text-neutral-500"
-      }`}
-    >
-      <Trash2 size={18} />
-    </button>
+    <>
+      <Tooltip label="Clear cache & reload" side="bottom">
+        <button
+          onClick={() => setConfirming(true)}
+          disabled={clearing}
+          aria-label="Clear cache & reload"
+          className="rounded-lg p-1.5 text-neutral-500 hover:bg-surface-muted disabled:opacity-50"
+        >
+          <RefreshCw size={18} />
+        </button>
+      </Tooltip>
+      {confirming && (
+        <ConfirmDialog
+          title="Clear cache & reload?"
+          message="This clears locally cached inventory data and app files on this device, then reloads. Your Google Sheet isn't affected — if you have one linked, pull from it after reloading to bring your data back."
+          confirmLabel="Clear & reload"
+          busy={clearing}
+          onCancel={() => setConfirming(false)}
+          onConfirm={handleConfirm}
+        />
+      )}
+    </>
   );
 }

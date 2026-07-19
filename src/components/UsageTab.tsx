@@ -5,6 +5,7 @@ import { HelpCircle } from "lucide-react";
 import { InventoryItem, StockMovement } from "@/lib/types";
 import { loadMovements } from "@/lib/storage";
 import UsageImportPanel from "./UsageImportPanel";
+import Tooltip from "./Tooltip";
 
 interface Props {
   items: InventoryItem[];
@@ -178,13 +179,15 @@ export default function UsageTab({ items }: Props) {
     <div className="mx-auto max-w-2xl px-4 pb-24 pt-5 sm:px-6">
       <div className="mb-4 flex items-center gap-2">
         <h1 className="text-lg font-semibold text-neutral-900">Usage</h1>
-        <button
-          onClick={() => setShowHelp((v) => !v)}
-          aria-label="How is usage calculated?"
-          className="text-neutral-400 hover:text-neutral-600"
-        >
-          <HelpCircle size={16} />
-        </button>
+        <Tooltip label="How is usage calculated?">
+          <button
+            onClick={() => setShowHelp((v) => !v)}
+            aria-label="How is usage calculated?"
+            className="text-neutral-400 hover:text-neutral-600"
+          >
+            <HelpCircle size={16} />
+          </button>
+        </Tooltip>
       </div>
 
       {showHelp && (

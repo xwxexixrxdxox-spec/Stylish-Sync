@@ -52,12 +52,12 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
       </div>
 
       <p className="mb-3 text-xs text-neutral-500">
-        {filtered.length} item{filtered.length === 1 ? "" : "s"} · tap ✏️ to edit · ± to adjust stock
+        {filtered.length} item{filtered.length === 1 ? "" : "s"} · tap ✏️ to edit · 🗑️ to delete · ± to adjust stock
       </p>
 
       <div className="space-y-2.5">
         {filtered.map((item) => (
-          <ItemCard key={item.id} item={item} onAdjust={onAdjust} onEdit={setEditing} />
+          <ItemCard key={item.id} item={item} onAdjust={onAdjust} onEdit={setEditing} onDelete={onDelete} />
         ))}
         {filtered.length === 0 && (
           <p className="rounded-xl2 border border-dashed border-surface-border bg-white p-6 text-center text-sm text-neutral-400">
