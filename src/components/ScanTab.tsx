@@ -20,6 +20,7 @@ import {
   EMPTY_DIAGNOSTICS,
 } from "@/lib/cameraTuning";
 import { SCAN_HINTS, MAX_PHOTO_DIMENSION, decodePhotoToCanvas } from "@/lib/photoBarcodeScan";
+import { setActiveCameraStream } from "@/lib/activeCameraStream";
 
 const UNITS: Unit[] = [
   "ea", "box", "case", "pack", "bag", "bottle", "can", "roll", "dozen", "pair",
@@ -117,6 +118,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     () => () => {
       controlsRef.current?.stop();
       cancelFocusTimerRef.current();
+      setActiveCameraStream(null);
     },
     []
   );
@@ -156,6 +158,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
       );
       const stream = videoRef.current?.srcObject;
       if (stream instanceof MediaStream) {
+        setActiveCameraStream(stream);
         const tuningApplied = applyCameraTuning(stream);
         setCanTapFocus(tuningApplied);
         const track = stream.getVideoTracks()[0];
@@ -202,6 +205,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     controlsRef.current?.stop();
     controlsRef.current = null;
     cancelFocusTimerRef.current();
+    setActiveCameraStream(null);
     setScanning(false);
     setCanTapFocus(false);
   };
