@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { CircleDot, Coffee, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { PublicBookingStatus, VisitStatus } from "@/lib/types";
-import { VISIT_OFFER } from "@/lib/stripeTiers";
+import { computeVisitCharge } from "@/lib/stripeTiers";
 
 const STATUS_COPY: Record<VisitStatus, { label: string; sub: string; icon: typeof Clock }> = {
   not_started: { label: "Not started yet", sub: "We haven't started your visit yet.", icon: Clock },
@@ -86,10 +86,10 @@ export default function VisitStatusCard({ bookingId }: Props) {
 
       {status.visitStatus === "finished" && (
         <a
-          href={VISIT_OFFER.paymentLinkUrl}
+          href={`/api/book-appointment/checkout?id=${encodeURIComponent(status.id)}`}
           className="block rounded-xl2 border border-neutral-900 bg-neutral-900 py-2.5 text-center text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:opacity-90"
         >
-          Pay now
+          Pay now — {computeVisitCharge(status.hours).label}
         </a>
       )}
     </div>

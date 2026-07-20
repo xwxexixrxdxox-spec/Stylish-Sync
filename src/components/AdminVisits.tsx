@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Play, Coffee, CheckCircle2, XCircle, Clock, AlertTriangle, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { BookingRecord, VisitStatus, BREAK_REQUIRED_MINUTES, BookingDuration } from "@/lib/types";
+import { computeVisitCharge } from "@/lib/stripeTiers";
 
 const CONTACT_LABEL: Record<string, string> = { email: "Email", phone: "Phone call", text: "Text message" };
 
@@ -180,7 +181,7 @@ export default function AdminVisits() {
             <div className="mb-2 flex items-start justify-between">
               <div>
                 <p className="text-sm font-medium text-neutral-900">
-                  {b.date} at {b.start} · {b.hours}h
+                  {b.date} at {b.start} · {b.hours}h · {computeVisitCharge(b.hours).label}
                 </p>
                 <p className="text-xs text-neutral-500">
                   {b.name} — {b.email} — {b.phone} ({CONTACT_LABEL[b.contactMethod] ?? b.contactMethod})

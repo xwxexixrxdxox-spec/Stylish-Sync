@@ -1,4 +1,4 @@
-import { VISIT_OFFER } from "./stripeTiers";
+import { VISIT_OFFER, computeVisitCharge } from "./stripeTiers";
 
 // Thin wrapper around Resend's REST API (https://resend.com) for the
 // transactional emails the booking flow sends: notifications to the
@@ -131,6 +131,7 @@ export async function sendCustomerConfirmation(details: CustomerConfirmationDeta
 }
 
 interface CancellationEmailDetails {
+  id: string;
   date: string;
   start: string;
   hours: number;
@@ -170,10 +171,14 @@ export async function sendCustomerCancellationNotice(details: CancellationEmailD
 }
 
 // Sent the moment the admin marks a visit "Finished" from /admin/visits —
-// this is the "prompt the customer to pay" step. Uses the shared
-// adjustable-quantity Payment Link (VISIT_OFFER.paymentLinkUrl); the
-// customer sets the correct number of hours at checkout.
+// this is the "prompt the customer to pay" step. Links to a fresh,
+// per-booking Stripe Checkout Session priced by computeVisitCharge
+// (stripeTiers.ts) rather than the old static, adjustable-quantity Payment
+// Link, so the amount the customer sees here is exactly what they're
+// charged — no self-reported hours.
 export async function sendVisitFinishedEmail(details: CancellationEmailDetails): Promise<void> {
+  const charge = computeVisitCharge(details.hours);
+  const payUrl = `${SITE_URL}/api/book-appointment/checkout?id=${encodeURIComponent(details.id)}`;
   const html = `
     <h2>Your visit is complete</h2>
     <p>Thanks, ${escapeHtml(details.name)}! Your visit on <strong>${visitLine(
@@ -181,8 +186,8 @@ export async function sendVisitFinishedEmail(details: CancellationEmailDetails):
     details.start,
     details.hours
   )}</strong> has been marked finished.</p>
-    <p>You can pay for the visit here — set the number of hours at checkout:</p>
-    <p><a href="${VISIT_OFFER.paymentLinkUrl}" style="display:inline-block;padding:10px 16px;background:#171717;color:#fff;border-radius:8px;text-decoration:none;">Pay now</a></p>
+    <p>Amount due: <strong>${charge.label}</strong>.</p>
+    <p><a href="${payUrl}" style="display:inline-block;padding:10px 16px;background:#171717;color:#fff;border-radius:8px;text-decoration:none;">Pay now</a></p>
   `;
   await sendEmail({ to: details.email, subject: "Your visit is complete — payment", html });
 }
