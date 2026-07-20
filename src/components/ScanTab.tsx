@@ -8,6 +8,7 @@ import ReceiptScanTab from "@/components/ReceiptScanTab";
 import LocationField from "@/components/LocationField";
 import { lookupBarcode } from "@/lib/productLookup";
 import { contributeCommunityBarcode, lookupCommunityBarcode } from "@/lib/communityLookup";
+import { expandUpcEtoUpcA } from "@/lib/barcodeFormat";
 import { playChime } from "@/lib/chime";
 import {
   ExtendedTrackCapabilities,
@@ -81,6 +82,11 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
   const [price, setPrice] = useState(0);
   const [location, setLocation] = useState("");
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
+  // True when the most recent lookup expanded a scanned 8-digit UPC-E code
+  // to its full 12-digit UPC-A (see barcodeFormat.ts) - surfaced in the UI
+  // so it's not confusing that the Barcode field shows a longer number than
+  // whatever was actually scanned.
+  const [expandedFromUpcE, setExpandedFromUpcE] = useState(false);
   const knownLocations = useMemo(() => getKnownLocations(items), [items]);
   // Same cute "+qty"/"-qty" pop + button squish used on the inventory list's
   // stock buttons, shown here on Add Stock / Remove after a successful tap.
@@ -251,7 +257,21 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     lastLookedUpRef.current = trimmed;
     pendingContributionRef.current = null;
 
-    const existing = items.find((it) => it.barcode === trimmed);
+    // Small packaging (an individual can pulled out of a case, trial
+    // sizes, etc.) often carries a compressed 8-digit UPC-E instead of a
+    // full 12-digit UPC-A - see barcodeFormat.ts. Both the shared
+    // community database and the external UPCitemdb lookup are keyed by
+    // the full form, so expand before searching or a genuinely-listed
+    // product can still come back "not found" just because it was
+    // scanned in its compressed form. This does NOT relate an item to any
+    // case/multipack it came from - that's a separate, unrelated barcode.
+    const canonical = expandUpcEtoUpcA(trimmed) ?? trimmed;
+    setExpandedFromUpcE(canonical !== trimmed);
+    if (canonical !== trimmed) setBarcode(canonical);
+
+    // Match against either form - an item added before this fix shipped
+    // may still be stored under the raw, un-expanded code.
+    const existing = items.find((it) => it.barcode === canonical || it.barcode === trimmed);
     if (existing) {
       setLookupStatus("existing");
       setName(existing.name);
@@ -267,7 +287,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     // limit like the external lookup below) and can succeed on barcodes
     // the external service has never heard of, since it's built entirely
     // from other WS Inventory Management customers typing in the real answer by hand.
-    const community = await lookupCommunityBarcode(trimmed);
+    const community = await lookupCommunityBarcode(canonical);
     if (community) {
       setLookupStatus("found");
       setName(community.name);
@@ -275,7 +295,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
       return;
     }
 
-    const found = await lookupBarcode(trimmed);
+    const found = await lookupBarcode(canonical);
     if (found) {
       setLookupStatus("found");
       setName(found);
@@ -284,8 +304,10 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
 
     // Neither the shared database nor the external lookup had this
     // barcode - mark it eligible for contribution so the Add Stock handler
-    // below can share whatever the customer types in next.
-    pendingContributionRef.current = trimmed;
+    // below can share whatever the customer types in next. Always the
+    // canonical (expanded) form, so a future scan of the same UPC-E - by
+    // this customer or anyone else - resolves to the same shared entry.
+    pendingContributionRef.current = canonical;
     setLookupStatus("not-found");
   };
 
@@ -300,6 +322,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     // Clear stale feedback the moment the value changes so an old
     // "not found" or "found: X" doesn't linger while they edit or retype.
     setLookupStatus("idle");
+    setExpandedFromUpcE(false);
     pendingContributionRef.current = null;
   };
 
@@ -323,6 +346,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     setPrice(0);
     setLocation("");
     setLookupStatus("idle");
+    setExpandedFromUpcE(false);
     lastLookedUpRef.current = null;
     pendingContributionRef.current = null;
   };
@@ -470,6 +494,11 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
             onKeyDown={handleBarcodeKeyDown}
             placeholder="Scan or type manually"
           />
+          {expandedFromUpcE && (
+            <p className="mt-1 text-[11px] text-neutral-400">
+              Expanded from a compressed 8-digit barcode to its full 12-digit code.
+            </p>
+          )}
           {lookupStatus === "checking" && (
             <p className="mt-1 text-[11px] text-neutral-400">🔎 Looking up barcode…</p>
           )}
