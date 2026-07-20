@@ -25,7 +25,21 @@ export default function ClearCacheButton() {
     setClearing(true);
     try {
       await clearAppCache();
-      window.location.reload();
+      // iOS Safari (especially installed to the home screen) can render a
+      // corrupted/stale-looking frame for a moment right here: reload()
+      // triggers WebKit's "restore last snapshot, then transition to the
+      // fresh page" animation, and if that fires the instant the service
+      // worker unregister + Cache Storage delete promises above resolve,
+      // it can race WebKit's own internal teardown of the outgoing
+      // worker/cache before the snapshot is captured - producing a
+      // flash of garbled/stale content. Two things reduce that: a short
+      // pause (two animation frames) gives the teardown a beat to
+      // actually finish, and reassigning location.href instead of calling
+      // reload() skips that reload-specific snapshot/diff transition
+      // altogether. Neither change is observable on other browsers - it's
+      // just a marginally slower path to the same fresh page load.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      window.location.href = window.location.href;
     } finally {
       setClearing(false);
     }

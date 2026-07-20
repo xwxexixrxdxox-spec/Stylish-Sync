@@ -13,6 +13,7 @@ import {
   DownloadCloud,
   AlertTriangle,
   HelpCircle,
+  Eraser,
 } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
@@ -34,6 +35,7 @@ import {
 } from "@/lib/googleSheets";
 import { reconcileUsageFromSheetRows } from "@/lib/usageReport";
 import Tooltip from "@/components/Tooltip";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   getLastSyncedAt,
   getLastSyncToken,
@@ -44,6 +46,7 @@ import {
   setLastSyncToken,
   setLinkedSheetId,
   setSyncedUsageIds,
+  startFreshInventory,
 } from "@/lib/storage";
 import {
   getDeferredInstallPrompt,
@@ -87,6 +90,12 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   const [message, setMessage] = useState<string | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
   const [trackEmail, setTrackEmail] = useState("");
+  // Local "Start Fresh" — the non-Google counterpart to the Google Sheets
+  // section's "Start Fresh (new sheet)" button below. Separate confirm gate
+  // from ClearCacheButton's (header icon) since this is scoped specifically
+  // to wiping inventory/usage back to empty, not app files/service worker.
+  const [confirmingLocalFresh, setConfirmingLocalFresh] = useState(false);
+  const [localFreshBusy, setLocalFreshBusy] = useState(false);
   const [trackBusy, setTrackBusy] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [installable, setInstallable] = useState(false);
@@ -403,6 +412,20 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     }
   };
 
+  // Wipes this device's inventory/usage back to empty (see
+  // startFreshInventory's comment for why it writes [] instead of just
+  // deleting the key) and reloads — the same "clear storage, then reload
+  // so every read path picks up the new state" pattern ClearCacheButton
+  // uses, which is simpler and more reliable here than trying to push an
+  // empty array through page.tsx's items state (that state only persists
+  // back to storage when non-empty, to avoid wiping real data during the
+  // brief window before the initial loadItems() call resolves).
+  const startFreshLocalInventory = () => {
+    setLocalFreshBusy(true);
+    startFreshInventory();
+    window.location.reload();
+  };
+
   const signOut = () => {
     signOutGoogle();
     setSheetId(null);
@@ -551,6 +574,36 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
           </div>
         )}
       </section>
+
+      <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+        <p className="mb-3 text-sm font-medium text-neutral-900">Inventory Data</p>
+        <button
+          disabled={localFreshBusy}
+          onClick={() => setConfirmingLocalFresh(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-accent-low hover:bg-red-50 disabled:opacity-50"
+        >
+          <Eraser size={14} /> {localFreshBusy ? "Clearing…" : "Start Fresh (clear inventory)"}
+        </button>
+        <p className="mt-2 text-[11px] text-neutral-400">
+          Clears every item and usage record on this device and starts with an empty inventory — no Google account
+          needed. {sheetId && "Your linked Google Sheet isn't touched; pull from it afterward if you want that data back."}
+        </p>
+      </section>
+
+      {confirmingLocalFresh && (
+        <ConfirmDialog
+          title="Start fresh?"
+          message={
+            "This clears every item and usage record on this device and starts with a completely empty inventory " +
+            "— including the 3 sample items new installs start with, if you still have those. This can't be undone." +
+            (sheetId ? " Your linked Google Sheet itself isn't touched — pull from it afterward to bring that data back onto this device." : "")
+          }
+          confirmLabel="Start fresh"
+          busy={localFreshBusy}
+          onCancel={() => setConfirmingLocalFresh(false)}
+          onConfirm={startFreshLocalInventory}
+        />
+      )}
 
       {conflict && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">

@@ -95,6 +95,25 @@ export function saveItems(items: InventoryItem[]): void {
   window.localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
 }
 
+// Local-only "start fresh": wipes this device's inventory and usage
+// history back to a genuinely empty state. This is the counterpart to the
+// Google Sheets section's "Start Fresh (new sheet)" button, which only
+// ever existed for customers signed into Google — someone who never
+// connects Google Sheets had no equivalent way to wipe out the 3 seed/demo
+// items and any real data they'd entered, and start over clean.
+//
+// Deliberately writes an empty array rather than removeItem-ing ITEMS_KEY:
+// loadItems() treats a *missing* key as "never opened this app before" and
+// reseeds the demo items (see SEED_ITEMS above) - that's the right call
+// for a brand new install, but wrong here, where the customer explicitly
+// asked for empty and reseeding demo data back in would look like data
+// loss turned into confusing fake inventory instead.
+export function startFreshInventory(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ITEMS_KEY, JSON.stringify([]));
+  window.localStorage.removeItem(MOVEMENTS_KEY);
+}
+
 export function getLinkedSheetId(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(SHEET_LINK_KEY);
