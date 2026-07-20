@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { clearAppCache } from "@/lib/storage";
 import { stopActiveCameraStream } from "@/lib/activeCameraStream";
@@ -16,22 +16,57 @@ import Tooltip from "./Tooltip";
 // as "delete something" rather than "reset the app's local cache" — so
 // this is a refresh icon instead.
 //
-// There's deliberately no "are you sure?" popup here anymore (there used
-// to be a shared ConfirmDialog step). A tester agent doing normal
-// exploratory testing treats a two-step "tap, then confirm in a popup"
-// destructive action as something to leave alone unless specifically told
-// to trigger it — which meant this button's real bugs (see below) went
-// unexercised for a while. Trading the popup for an unmissable full-screen
-// reveal the instant you tap the icon means there's no separate gated step
-// to skip, and a real customer gets an even clearer signal of what's about
-// to happen than a small popup ever gave them.
-const MIN_OVERLAY_MS = 1500;
+// There's deliberately no "are you sure?" popup here (there used to be a
+// shared ConfirmDialog step, then briefly an instant-trigger-on-tap
+// version). A tester agent doing normal exploratory testing treats a
+// two-step "tap, then confirm in a popup" destructive action as something
+// to leave alone unless specifically told to trigger it — which meant this
+// button's real bugs went unexercised for a while. Removing the gate
+// entirely on a single tap, though, made a stray tap immediately wipe
+// local data with zero friction. A hold-to-confirm gesture is the middle
+// ground: nothing to click through and skip (so real usage exercises it
+// same as always), but an accidental brush of the icon can't trigger it —
+// only a deliberate, sustained press can.
+const HOLD_MS = 900; // keep in sync with the clear-cache-hold-ring animation duration in tailwind.config.ts
+const RING_CIRCUMFERENCE = 2 * Math.PI * 17; // keep in sync with the ring's r=17 below and its stroke-dashoffset keyframe
+const MIN_OVERLAY_MS = 1700;
 const HARD_CAP_MS = 4000;
 
-export default function ClearCacheButton() {
-  const [clearing, setClearing] = useState(false);
+interface OverlayOrigin {
+  x: number;
+  y: number;
+  maxRadius: number;
+}
 
-  const handleClick = async () => {
+export default function ClearCacheButton() {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const holdTimerRef = useRef<number | null>(null);
+  const [holding, setHolding] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [overlayOrigin, setOverlayOrigin] = useState<OverlayOrigin | null>(null);
+
+  const cancelHold = () => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setHolding(false);
+  };
+
+  const triggerClear = async () => {
+    // The circle below grows from wherever this button actually sits on
+    // screen, so it has to be measured at trigger time rather than
+    // hardcoded — this button lives in a shared header rendered at
+    // different positions/sizes across breakpoints.
+    const rect = buttonRef.current?.getBoundingClientRect();
+    const x = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+    const y = rect ? rect.top + rect.height / 2 : 0;
+    // Distance to the farthest viewport corner from that point, so the
+    // circle is guaranteed to have fully enveloped the screen (not just
+    // gotten close) by the time its animation ends, regardless of where
+    // the button is positioned.
+    const maxRadius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+    setOverlayOrigin({ x, y, maxRadius });
     setClearing(true);
     try {
       // This icon sits in the global header, reachable from every tab —
@@ -70,36 +105,89 @@ export default function ClearCacheButton() {
     }
   };
 
+  const startHold = () => {
+    if (clearing || holdTimerRef.current !== null) return;
+    setHolding(true);
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = null;
+      setHolding(false);
+      void triggerClear();
+    }, HOLD_MS);
+  };
+
+  // Keyboard users get the same hold gesture via Space/Enter — pointer
+  // events alone would leave them with no way to trigger this at all.
+  // e.repeat guards against the key's own auto-repeat restarting the timer
+  // on every repeated keydown while held.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.repeat) return;
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      startHold();
+    }
+  };
+  const handleKeyUp = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === " " || e.key === "Enter") cancelHold();
+  };
+
   return (
     <>
-      <Tooltip label="Clear cache & reload" side="bottom">
+      <Tooltip label="Hold to clear cache & reload" side="bottom">
         <button
-          onClick={handleClick}
+          ref={buttonRef}
+          onPointerDown={startHold}
+          onPointerUp={cancelHold}
+          onPointerLeave={cancelHold}
+          onPointerCancel={cancelHold}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          onContextMenu={(e) => e.preventDefault()}
           disabled={clearing}
-          aria-label="Clear cache & reload"
-          className="rounded-lg p-1.5 text-neutral-500 hover:bg-surface-muted disabled:opacity-50"
+          aria-label="Hold to clear cache and reload"
+          className={`relative select-none rounded-lg p-1.5 disabled:opacity-50 ${
+            holding ? "text-accent-low" : "text-neutral-500 hover:bg-surface-muted"
+          }`}
         >
           <RefreshCw size={18} />
+          {holding && (
+            <svg
+              className="pointer-events-none absolute -inset-1.5 -rotate-90"
+              viewBox="0 0 40 40"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle
+                cx="20"
+                cy="20"
+                r="17"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray={RING_CIRCUMFERENCE}
+                className="animate-clear-cache-hold-ring"
+              />
+            </svg>
+          )}
         </button>
       </Tooltip>
-      {clearing && (
+      {clearing && overlayOrigin && (
         <div
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center"
-          style={{ animation: "clear-cache-overlay-in 250ms ease-out both" }}
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center animate-clear-cache-circle-in"
+          style={
+            {
+              "--origin-x": `${overlayOrigin.x}px`,
+              "--origin-y": `${overlayOrigin.y}px`,
+              "--max-radius": `${overlayOrigin.maxRadius}px`,
+            } as React.CSSProperties
+          }
         >
           <p
-            className="text-3xl font-black uppercase text-neutral-100 sm:text-5xl"
-            style={{
-              animation: "clear-cache-heading-in 550ms ease-out 150ms both",
-              textShadow: "0 0 24px rgba(239,68,68,0.45)",
-            }}
+            className="text-3xl font-black uppercase text-neutral-100 sm:text-5xl animate-clear-cache-heading-in"
+            style={{ textShadow: "0 0 24px rgba(239,68,68,0.45)" }}
           >
             Deleting all data
           </p>
-          <p
-            className="max-w-xs text-sm text-neutral-400 sm:text-base"
-            style={{ animation: "clear-cache-subtext-in 400ms ease-out 650ms both" }}
-          >
+          <p className="max-w-xs text-sm text-neutral-400 sm:text-base animate-clear-cache-subtext-in">
             You will be forced logged out. Please log back in to continue.
           </p>
         </div>
