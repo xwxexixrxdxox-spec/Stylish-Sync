@@ -15,9 +15,10 @@ interface Props {
   onSave: (item: InventoryItem) => void;
   onDelete: (id: string) => void;
   onImport: (items: InventoryItem[]) => void;
+  onBreakCase: (caseItemId: string, casesToBreak: number) => void;
 }
 
-export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImport }: Props) {
+export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImport, onBreakCase }: Props) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<InventoryItem | null>(null);
 
@@ -62,7 +63,15 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
 
       <div className="space-y-2.5">
         {filtered.map((item) => (
-          <ItemCard key={item.id} item={item} onAdjust={onAdjust} onEdit={setEditing} onDelete={onDelete} />
+          <ItemCard
+            key={item.id}
+            item={item}
+            items={items}
+            onAdjust={onAdjust}
+            onEdit={setEditing}
+            onDelete={onDelete}
+            onBreakCase={onBreakCase}
+          />
         ))}
         {filtered.length === 0 && (
           <p className="rounded-xl2 border border-dashed border-surface-border bg-white p-6 text-center text-sm text-neutral-400">
@@ -74,6 +83,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
       {editing && (
         <ItemEditModal
           item={editing}
+          items={items}
           locations={locations}
           onClose={() => setEditing(null)}
           onSave={(it) => {

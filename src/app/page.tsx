@@ -160,6 +160,34 @@ export default function HomePage() {
     logMovement({ itemId, delta: input.quantity, reason: "scan-add", at: new Date().toISOString() });
   };
 
+  // Breaks down N units of a case/pack item into its linked each-level
+  // item (see breaksDownIntoBarcode/breaksDownIntoQty on InventoryItem).
+  // Per the customer's explicit choice: this is a manual action (not
+  // automatic on receiving a shipment), and the case side is logged as
+  // real removed stock — not a no-op transfer — so its reorder threshold
+  // and usage history reflect that cases actually left the "still sealed"
+  // count, giving the customer the same "time to reorder more cases"
+  // signal any other stock removal would.
+  const breakCase = (caseItemId: string, casesToBreak: number) => {
+    const caseItem = items.find((it) => it.id === caseItemId);
+    if (!caseItem || !caseItem.breaksDownIntoBarcode || !caseItem.breaksDownIntoQty) return;
+    const eachItem = items.find((it) => it.barcode === caseItem.breaksDownIntoBarcode);
+    if (!eachItem) return;
+    const n = Math.max(0, Math.min(Math.round(casesToBreak) || 0, caseItem.quantity));
+    if (n <= 0) return;
+    const addedEaches = n * caseItem.breaksDownIntoQty;
+    const now = new Date().toISOString();
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id === caseItem.id) return { ...it, quantity: it.quantity - n, updatedAt: now };
+        if (it.id === eachItem.id) return { ...it, quantity: it.quantity + addedEaches, updatedAt: now };
+        return it;
+      })
+    );
+    logMovement({ itemId: caseItem.id, delta: -n, reason: "break-case", at: now });
+    logMovement({ itemId: eachItem.id, delta: addedEaches, reason: "break-case", at: now });
+  };
+
   const removeStock = (input: { barcode: string; quantity: number }) => {
     const existing = items.find((it) => it.barcode === input.barcode);
     setItems((prev) =>
@@ -205,7 +233,14 @@ export default function HomePage() {
         </header>
 
         {tab === "inventory" && (
-          <InventoryTab items={items} onAdjust={adjust} onSave={upsertItem} onDelete={deleteItem} onImport={bulkImport} />
+          <InventoryTab
+            items={items}
+            onAdjust={adjust}
+            onSave={upsertItem}
+            onDelete={deleteItem}
+            onImport={bulkImport}
+            onBreakCase={breakCase}
+          />
         )}
         {tab === "scan" && <ScanTab items={items} onAddStock={addStock} onRemoveStock={removeStock} access={access} />}
         {tab === "reorder" && <ReorderTab items={items} />}

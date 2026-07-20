@@ -8,14 +8,20 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 
 interface Props {
   item: InventoryItem;
+  items: InventoryItem[];
   onSave: (item: InventoryItem) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
   locations?: string[];
 }
 
-export default function ItemEditModal({ item, onSave, onDelete, onClose, locations = [] }: Props) {
+export default function ItemEditModal({ item, items, onSave, onDelete, onClose, locations = [] }: Props) {
   const [draft, setDraft] = useState<InventoryItem>(item);
+  // Candidates for "breaks down into": every other item that has a
+  // barcode, since the link itself is stored keyed by barcode (see
+  // InventoryItem in types.ts) and an item with no barcode has nothing
+  // stable to point at.
+  const linkCandidates = items.filter((it) => it.id !== item.id && it.barcode);
   // Delete used to fire immediately on click with no confirmation at all —
   // a real gap, since it's one accidental tap away from permanently
   // removing an item. Now goes through the same confirm popup as the
@@ -94,6 +100,42 @@ export default function ItemEditModal({ item, onSave, onDelete, onClose, locatio
               />
             </Field>
           </div>
+
+          <Field label="Breaks down into (optional)">
+            <select
+              className="input"
+              value={draft.breaksDownIntoBarcode ?? ""}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  breaksDownIntoBarcode: e.target.value || undefined,
+                  breaksDownIntoQty: e.target.value ? draft.breaksDownIntoQty || 12 : undefined,
+                })
+              }
+            >
+              <option value="">Not a case/pack — tracked as-is</option>
+              {linkCandidates.map((it) => (
+                <option key={it.id} value={it.barcode}>
+                  {it.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-neutral-400">
+              e.g. this item is a case that gets broken down into individually-tracked cans, bottles, etc. Adds a
+              &quot;Break Case&quot; button to this item in the inventory list.
+            </p>
+          </Field>
+          {draft.breaksDownIntoBarcode && (
+            <Field label="How many does one unit break down into?">
+              <input
+                type="number"
+                min={1}
+                className="input"
+                value={draft.breaksDownIntoQty ?? 12}
+                onChange={(e) => setDraft({ ...draft, breaksDownIntoQty: Math.max(1, Number(e.target.value)) })}
+              />
+            </Field>
+          )}
         </div>
 
         <div className="mt-5 flex items-center justify-between gap-3">

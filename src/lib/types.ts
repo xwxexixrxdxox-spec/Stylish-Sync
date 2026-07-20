@@ -28,6 +28,20 @@ export interface InventoryItem {
   reorderAt: number;
   updatedAt: string;
   location?: string;
+  // If this item is a case/pack that gets broken down into a separate,
+  // individually-tracked each-level item (e.g. a 12-pack case of cans that
+  // gets unpacked onto a shelf as loose cans), these two fields describe
+  // that relationship. Only ever set on the case/pack side — the each item
+  // itself carries no back-reference. Keyed by the *other* item's barcode
+  // rather than its id: an id is only ever stable on the device that
+  // generated it, while every other cross-device path in this app (scan
+  // add/remove, bulk import) already identifies "the same item" by
+  // barcode, so this is what actually survives an import or a second
+  // device rather than silently pointing at nothing.
+  breaksDownIntoBarcode?: string;
+  // How many of the linked each-item one unit of *this* item yields when
+  // broken down (e.g. 12).
+  breaksDownIntoQty?: number;
 }
 
 export interface StockMovement {
@@ -38,7 +52,13 @@ export interface StockMovement {
   // bulk-overwrote inventory quantities) — this one specifically means
   // "the customer told us about usage that happened before/outside this
   // app," so the two never get conflated when reviewing usage history.
-  reason: "scan-add" | "scan-remove" | "manual-adjust" | "import" | "usage-import";
+  // "break-case" is logged twice per break (a negative delta on the case
+  // item, a positive delta on the each item) — see breakCase in page.tsx.
+  // The case side is deliberately logged as real removed stock (not a
+  // no-op transfer) so its own reorder threshold and usage history reflect
+  // that cases actually left the "still sealed" count, per the customer's
+  // explicit ask.
+  reason: "scan-add" | "scan-remove" | "manual-adjust" | "import" | "usage-import" | "break-case";
   at: string;
 }
 

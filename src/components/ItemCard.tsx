@@ -1,22 +1,34 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Minus, Plus, Pencil, Trash2 } from "lucide-react";
+import { Minus, Plus, Pencil, Trash2, PackageOpen } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { playChime } from "@/lib/chime";
 import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
+import BreakCaseDialog from "./BreakCaseDialog";
 
 interface Props {
   item: InventoryItem;
+  items: InventoryItem[];
   onAdjust: (id: string, delta: number) => void;
   onEdit: (item: InventoryItem) => void;
   onDelete: (id: string) => void;
+  onBreakCase: (caseItemId: string, casesToBreak: number) => void;
 }
 
-export default function ItemCard({ item, onAdjust, onEdit, onDelete }: Props) {
+export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBreakCase }: Props) {
   const low = item.quantity <= item.reorderAt;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [breakingCase, setBreakingCase] = useState(false);
+  // The linked each-item, looked up live by barcode every render rather
+  // than trusted as "must still exist" — the customer can delete or
+  // re-barcode the each item independently, at which point the case item's
+  // link just quietly stops offering a "Break Case" button rather than
+  // pointing at nothing.
+  const eachItem = item.breaksDownIntoBarcode
+    ? items.find((it) => it.barcode === item.breaksDownIntoBarcode)
+    : undefined;
 
   // Cute little "+1"/"-1" pop that floats up from whichever button was
   // pressed, plus a quick squish/bounce on the icon itself. `key` forces
@@ -90,6 +102,17 @@ export default function ItemCard({ item, onAdjust, onEdit, onDelete }: Props) {
       </div>
       <div className="ml-3 flex shrink-0 flex-col items-end gap-2">
         <div className="flex gap-1.5">
+          {eachItem && (
+            <Tooltip label={`Break down into "${eachItem.name}"`}>
+              <button
+                aria-label="Break case into individual units"
+                onClick={() => setBreakingCase(true)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-surface-muted"
+              >
+                <PackageOpen size={14} />
+              </button>
+            </Tooltip>
+          )}
           <Tooltip label="Edit item">
             <button
               aria-label="Edit item"
@@ -124,6 +147,18 @@ export default function ItemCard({ item, onAdjust, onEdit, onDelete }: Props) {
           onConfirm={() => {
             setConfirmingDelete(false);
             onDelete(item.id);
+          }}
+        />
+      )}
+
+      {breakingCase && eachItem && (
+        <BreakCaseDialog
+          caseItem={item}
+          eachItem={eachItem}
+          onCancel={() => setBreakingCase(false)}
+          onConfirm={(n) => {
+            setBreakingCase(false);
+            onBreakCase(item.id, n);
           }}
         />
       )}
