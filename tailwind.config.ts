@@ -107,6 +107,18 @@ const config: Config = {
           "0%": { opacity: "0", transform: "translateY(6px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        "clear-cache-cancel-hint-in": {
+          "0%": { opacity: "0", transform: "translateY(6px)" },
+          "100%": { opacity: "0.8", transform: "translateY(0)" },
+        },
+        // The grace-period progress bar: a full-width bar that empties out
+        // over the whole cancel window, so there's a constant visual answer
+        // to "how much longer do I have to change my mind" rather than the
+        // customer having to guess when the screen might act.
+        "clear-cache-grace-countdown": {
+          "0%": { width: "100%" },
+          "100%": { width: "0%" },
+        },
       },
       animation: {
         "mark-in": "mark-in 0.5s cubic-bezier(0.22,1,0.36,1) both",
@@ -120,6 +132,9 @@ const config: Config = {
         "clear-cache-circle-in": "clear-cache-circle-in 550ms cubic-bezier(0.22,1,0.36,1) both",
         "clear-cache-heading-in": "clear-cache-heading-in 450ms ease-out 420ms both",
         "clear-cache-subtext-in": "clear-cache-subtext-in 400ms ease-out 820ms both",
+        "clear-cache-cancel-hint-in": "clear-cache-cancel-hint-in 400ms ease-out 1300ms both",
+        // Duration here must stay in sync with GRACE_MS in ClearCacheButton.tsx.
+        "clear-cache-grace-countdown": "clear-cache-grace-countdown 4000ms linear forwards",
       },
     },
   },

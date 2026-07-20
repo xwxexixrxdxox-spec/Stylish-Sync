@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { RefreshCw } from "lucide-react";
 import { clearAppCache } from "@/lib/storage";
@@ -30,8 +30,16 @@ import Tooltip from "./Tooltip";
 // only a deliberate, sustained press can.
 const HOLD_MS = 900; // keep in sync with the clear-cache-hold-ring animation duration in tailwind.config.ts
 const RING_CIRCUMFERENCE = 2 * Math.PI * 17; // keep in sync with the ring's r=17 below and its stroke-dashoffset keyframe
-const MIN_OVERLAY_MS = 1700;
-const HARD_CAP_MS = 4000;
+// How long the full-screen warning sits up, cancelable, before anything is
+// actually touched. This used to be a fixed, un-cancelable 1.7s "let the
+// animation play out" pause with the real clearAppCache() already running
+// underneath it — a customer who'd changed their mind mid-reveal had no way
+// to stop it. Now nothing destructive happens until this whole window
+// elapses without a tap, so "the words disappear too quickly" and "I can't
+// change my mind" are the same fix: give the screen more time, and make
+// that time genuinely cancelable rather than just a longer forced wait.
+const GRACE_MS = 4000;
+const HARD_CAP_MS = 4000; // safety net for the actual clear once grace expires — see executeClear
 
 interface OverlayOrigin {
   x: number;
@@ -42,8 +50,12 @@ interface OverlayOrigin {
 export default function ClearCacheButton() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const holdTimerRef = useRef<number | null>(null);
+  const graceTimerRef = useRef<number | null>(null);
   const [holding, setHolding] = useState(false);
-  const [clearing, setClearing] = useState(false);
+  // "confirming": the cancelable warning screen is up, nothing has happened
+  // yet. "clearing": the grace window elapsed without a cancel — the actual
+  // clear is now running and this is no longer interruptible.
+  const [overlayPhase, setOverlayPhase] = useState<"confirming" | "clearing" | null>(null);
   const [overlayOrigin, setOverlayOrigin] = useState<OverlayOrigin | null>(null);
 
   const cancelHold = () => {
@@ -54,7 +66,56 @@ export default function ClearCacheButton() {
     setHolding(false);
   };
 
-  const triggerClear = async () => {
+  const clearGraceTimer = () => {
+    if (graceTimerRef.current !== null) {
+      window.clearTimeout(graceTimerRef.current);
+      graceTimerRef.current = null;
+    }
+  };
+
+  // Only reachable once the grace window has already elapsed — this is the
+  // point of no return, so cancelWarning below can no longer stop it.
+  const executeClear = async () => {
+    setOverlayPhase("clearing");
+    try {
+      // This icon sits in the global header, reachable from every tab —
+      // including Scan, mid-scan, with the camera actively streaming.
+      // Stopping it first (before anything else) matters specifically for
+      // the iOS Safari "digital artifact" a tester saw here: WebKit
+      // captures a snapshot of the current page for its reload/navigation
+      // transition, and a live camera <video> element still rendering
+      // frames at that exact moment can get baked into that snapshot —
+      // a blurry/noisy frozen camera frame flashing during the reload,
+      // which is a very literal "digital artifact." Stopping the stream
+      // blanks the video element before that snapshot gets captured.
+      stopActiveCameraStream();
+      // Race the actual clear (plus a brief settle pause — the customer
+      // already had the full GRACE_MS window to watch this coming, so this
+      // is just enough for the browser to finish painting, not another
+      // reveal) against a hard cap, so a customer can never get stuck
+      // staring at this screen forever — not from the settle pause, and
+      // not from some other browser API call inside clearAppCache() that
+      // might hang for an unrelated reason on some device. Whatever hasn't
+      // finished clearing by the cap just gets left for next time;
+      // reloading either way is strictly better than a frozen screen.
+      //
+      // This used to be a chained requestAnimationFrame delay, which was a
+      // real bug, not just a theoretical one: rAF callbacks are suspended
+      // entirely while a tab is backgrounded/not visible (confirmed live —
+      // this got stuck indefinitely in a background tab, since the browser
+      // never scheduled the frames to resolve the promise). setTimeout
+      // doesn't have that failure mode: background tabs throttle it, they
+      // don't suspend it, so it always eventually fires.
+      await Promise.race([
+        clearAppCache().then(() => new Promise((resolve) => setTimeout(resolve, 50))),
+        new Promise((resolve) => setTimeout(resolve, HARD_CAP_MS)),
+      ]);
+    } finally {
+      window.location.reload();
+    }
+  };
+
+  const showWarning = () => {
     // The circle below grows from wherever this button actually sits on
     // screen, so it has to be measured at trigger time rather than
     // hardcoded — this button lives in a shared header rendered at
@@ -68,51 +129,45 @@ export default function ClearCacheButton() {
     // the button is positioned.
     const maxRadius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
     setOverlayOrigin({ x, y, maxRadius });
-    setClearing(true);
-    try {
-      // This icon sits in the global header, reachable from every tab —
-      // including Scan, mid-scan, with the camera actively streaming.
-      // Stopping it first (before anything else) matters specifically for
-      // the iOS Safari "digital artifact" a tester saw here: WebKit
-      // captures a snapshot of the current page for its reload/navigation
-      // transition, and a live camera <video> element still rendering
-      // frames at that exact moment can get baked into that snapshot —
-      // a blurry/noisy frozen camera frame flashing during the reload,
-      // which is a very literal "digital artifact." Stopping the stream
-      // blanks the video element before that snapshot gets captured.
-      stopActiveCameraStream();
-      // Race the actual clear (plus a minimum hold so the reveal below
-      // has time to play instead of flashing by) against a hard cap, so a
-      // customer can never get stuck staring at this screen forever — not
-      // from the hold below, and not from some other browser API call
-      // inside clearAppCache() that might hang for an unrelated reason on
-      // some device. Whatever hasn't finished clearing by the cap just
-      // gets left for next time; reloading either way is strictly better
-      // than a frozen screen.
-      //
-      // This used to be a chained requestAnimationFrame delay, which was a
-      // real bug, not just a theoretical one: rAF callbacks are suspended
-      // entirely while a tab is backgrounded/not visible (confirmed live —
-      // this got stuck indefinitely in a background tab, since the browser
-      // never scheduled the frames to resolve the promise). setTimeout
-      // doesn't have that failure mode: background tabs throttle it, they
-      // don't suspend it, so it always eventually fires.
-      await Promise.race([
-        Promise.all([clearAppCache(), new Promise((resolve) => setTimeout(resolve, MIN_OVERLAY_MS))]),
-        new Promise((resolve) => setTimeout(resolve, HARD_CAP_MS)),
-      ]);
-    } finally {
-      window.location.reload();
-    }
+    setOverlayPhase("confirming");
+    graceTimerRef.current = window.setTimeout(() => {
+      graceTimerRef.current = null;
+      void executeClear();
+    }, GRACE_MS);
   };
 
+  // Backs all the way out with nothing touched: no camera stop, no cache
+  // clear, no reload. Only does anything while phase is "confirming" —
+  // once executeClear has taken over there's no undoing it.
+  const cancelWarning = () => {
+    clearGraceTimer();
+    setOverlayPhase((prev) => (prev === "confirming" ? null : prev));
+    setOverlayOrigin((prev) => (prev !== null ? null : prev));
+  };
+
+  useEffect(() => {
+    if (overlayPhase !== "confirming") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") cancelWarning();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlayPhase]);
+
+  // Belt-and-suspenders alongside the unmount cleanup below: if this
+  // component itself ever unmounts mid-grace-window (shouldn't happen for
+  // a header icon, but cheap insurance), don't leave a dangling timer that
+  // fires executeClear against a torn-down component.
+  useEffect(() => clearGraceTimer, []);
+
   const startHold = () => {
-    if (clearing || holdTimerRef.current !== null) return;
+    if (overlayPhase || holdTimerRef.current !== null) return;
     setHolding(true);
     holdTimerRef.current = window.setTimeout(() => {
       holdTimerRef.current = null;
       setHolding(false);
-      void triggerClear();
+      showWarning();
     }, HOLD_MS);
   };
 
@@ -143,7 +198,7 @@ export default function ClearCacheButton() {
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           onContextMenu={(e) => e.preventDefault()}
-          disabled={clearing}
+          disabled={!!overlayPhase}
           aria-label="Hold to clear cache and reload"
           className={`relative select-none rounded-lg p-1.5 disabled:opacity-50 ${
             holding ? "text-accent-low" : "text-neutral-500 hover:bg-surface-muted"
@@ -179,12 +234,17 @@ export default function ClearCacheButton() {
           the portal, "fixed inset-0" below would resolve against the
           header's own box instead of the viewport, and the reveal would
           stay pinned to the header strip instead of covering the screen. */}
-      {clearing &&
+      {overlayPhase &&
         overlayOrigin &&
         typeof document !== "undefined" &&
         createPortal(
           <div
-            className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center animate-clear-cache-circle-in"
+            role={overlayPhase === "confirming" ? "alertdialog" : undefined}
+            aria-label={overlayPhase === "confirming" ? "Clearing cache — tap anywhere to cancel" : undefined}
+            onClick={overlayPhase === "confirming" ? cancelWarning : undefined}
+            className={`fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center animate-clear-cache-circle-in ${
+              overlayPhase === "confirming" ? "cursor-pointer" : ""
+            }`}
             style={
               {
                 "--origin-x": `${overlayOrigin.x}px`,
@@ -202,6 +262,18 @@ export default function ClearCacheButton() {
             <p className="max-w-xs text-sm text-neutral-400 sm:text-base animate-clear-cache-subtext-in">
               You will be forced logged out. Please log back in to continue.
             </p>
+            {/* Only shown during the cancelable window — once executeClear
+                takes over there's nothing left to change your mind about,
+                so the hint (and the countdown that promised it) disappears
+                along with the ability it was describing. */}
+            {overlayPhase === "confirming" && (
+              <>
+                <p className="mt-1 animate-clear-cache-cancel-hint-in text-xs font-medium uppercase tracking-wide text-neutral-500">
+                  Tap anywhere to cancel
+                </p>
+                <div className="absolute bottom-0 left-0 h-1 bg-accent-low/70 animate-clear-cache-grace-countdown" />
+              </>
+            )}
           </div>,
           document.body,
         )}
