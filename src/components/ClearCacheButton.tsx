@@ -34,26 +34,36 @@ export default function ClearCacheButton() {
       // frames at that exact moment can get baked into that snapshot —
       // a blurry/noisy frozen camera frame flashing during the reload,
       // which is a very literal "digital artifact." Stopping the stream
-      // blanks the video element; the delay below gives that a paint
-      // frame to actually take effect before the snapshot is captured.
+      // blanks the video element; the short pause below gives that a
+      // paint frame to actually take effect before the snapshot is
+      // captured, and before the service worker/Cache Storage teardown
+      // below needs to visually settle too.
+      //
+      // That pause was originally two chained requestAnimationFrame
+      // callbacks - which turned out to be a real bug, not just a
+      // theoretical one: rAF callbacks are suspended entirely while a tab
+      // is backgrounded/not visible (confirmed live - this button got
+      // stuck on "Working..." indefinitely in a background tab, since the
+      // browser never scheduled the frames to resolve the promise). A
+      // customer backgrounding the app for a second right after tapping
+      // this - switching apps, a notification, locking their phone -
+      // would have hit the exact same hang. setTimeout doesn't have that
+      // failure mode: background tabs throttle it, they don't suspend it,
+      // so it always eventually fires.
       stopActiveCameraStream();
-      await clearAppCache();
-      // Also guards against a related, more general race: reload()
-      // triggers WebKit's "restore last snapshot, then transition to the
-      // fresh page" animation, and if that fires the instant the service
-      // worker unregister + Cache Storage delete promises above resolve,
-      // it can race WebKit's own internal teardown of the outgoing
-      // worker/cache before the snapshot is captured - producing its own
-      // flash of garbled/stale content. Two things reduce that: a short
-      // pause (two animation frames) gives both the camera stop above and
-      // the teardown a beat to actually finish, and reassigning
-      // location.href instead of calling reload() skips that
-      // reload-specific snapshot/diff transition altogether. Neither
-      // change is observable on other browsers - it's just a marginally
-      // slower path to the same fresh page load.
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      window.location.href = window.location.href;
+      // Belt-and-suspenders after the rAF hang above: race the actual
+      // clear + settle pause against a hard cap, so a customer can never
+      // get stuck staring at "Working..." again - not from this delay, and
+      // not from some other browser API call inside clearAppCache() that
+      // might hang for an unrelated reason on some device. Whatever
+      // hasn't finished clearing by then just gets left for next time;
+      // reloading either way is strictly better than a frozen button.
+      await Promise.race([
+        clearAppCache().then(() => new Promise((resolve) => setTimeout(resolve, 50))),
+        new Promise((resolve) => setTimeout(resolve, 4000)),
+      ]);
     } finally {
+      window.location.reload();
       setClearing(false);
     }
   };
