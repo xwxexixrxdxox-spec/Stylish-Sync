@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Minus, Plus, Pencil, Trash2, PackageOpen } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { playChime } from "@/lib/chime";
@@ -31,18 +31,94 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
     : undefined;
 
   // Cute little "+1"/"-1" pop that floats up from whichever button was
-  // pressed, plus a quick squish/bounce on the icon itself. `key` forces
-  // React to remount the badge on every click (even repeated same-direction
-  // clicks) so the animation always restarts from the beginning.
-  const [burst, setBurst] = useState<{ sign: 1 | -1; key: number } | null>(null);
+  // pressed, plus a quick squish/bounce on the icon itself.
+  //
+  // A plain tap always gets its own fresh pop-in-and-fade badge ("popping"
+  // phase), exactly like before. Holding a button down repeats the step
+  // (see startPress below) instead of doing nothing until release — but
+  // repeat ticks don't each get their own badge. Instead the same badge
+  // switches to a static "holding" phase that just counts up ("+1", "+2",
+  // "+3"…) while pressed, with no animation running, and only fades out
+  // ("releasing" phase) once the press ends. Firing a brand-new 650ms
+  // pop-in-and-out animation every ~120ms tick (this component's original
+  // approach, before hold-to-repeat existed) was the actual bug a tester
+  // found: each tick's badge got yanked out mid-flight by the next tick's
+  // before its animation ever reached completion, so only the very last
+  // tick's badge actually finished — and that finish raced against the
+  // finger lifting, occasionally leaving a badge stuck on screen well
+  // after the hold had ended.
+  const [burst, setBurst] = useState<{
+    sign: 1 | -1;
+    key: number;
+    count: number;
+    phase: "popping" | "holding" | "releasing";
+  } | null>(null);
   const burstKeyRef = useRef(0);
+  const holdTimeoutRef = useRef<number | null>(null);
+  const holdIntervalRef = useRef<number | null>(null);
 
-  const handleAdjust = (delta: 1 | -1) => {
+  const HOLD_REPEAT_DELAY_MS = 350; // pause before repeat kicks in, so a normal tap never feels like it double-fires
+  const HOLD_REPEAT_INTERVAL_MS = 120;
+
+  const applyStep = (delta: 1 | -1, repeating: boolean) => {
     onAdjust(item.id, delta);
     playChime(delta > 0 ? "add" : "remove");
-    burstKeyRef.current += 1;
-    setBurst({ sign: delta, key: burstKeyRef.current });
+    setBurst((prev) =>
+      repeating && prev && prev.sign === delta
+        ? { ...prev, count: prev.count + 1 } // same key: update the existing badge in place, no remount
+        : { sign: delta, key: ++burstKeyRef.current, count: 1, phase: "popping" }
+    );
   };
+
+  const clearHoldTimers = () => {
+    if (holdTimeoutRef.current !== null) {
+      window.clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    if (holdIntervalRef.current !== null) {
+      window.clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+  };
+
+  const startPress = (delta: 1 | -1) => {
+    applyStep(delta, false); // the press itself always behaves like a normal single click
+    clearHoldTimers();
+    holdTimeoutRef.current = window.setTimeout(() => {
+      // Switch the badge to its static "holding" phase (no animation while
+      // still actively pressed) before the repeat ticks start bumping its
+      // count.
+      setBurst((prev) => (prev && prev.sign === delta ? { ...prev, phase: "holding" } : prev));
+      holdIntervalRef.current = window.setInterval(() => applyStep(delta, true), HOLD_REPEAT_INTERVAL_MS);
+    }, HOLD_REPEAT_DELAY_MS);
+  };
+
+  const endPress = () => {
+    clearHoldTimers();
+    // If the hold actually reached "holding" phase, fade it out from where
+    // it's already sitting (a fresh key so the fade-out animation starts
+    // clean) rather than leaving it static forever.
+    setBurst((prev) =>
+      prev && prev.phase === "holding" ? { ...prev, key: ++burstKeyRef.current, phase: "releasing" } : prev
+    );
+  };
+
+  // Space/Enter keydown fires repeatedly on its own (the OS's native key-
+  // repeat) while held, so keyboard users get the same "hold to repeat"
+  // result without needing separate timers — every keydown just applies a
+  // normal single step, same as a tap.
+  const handleKeyDown = (delta: 1 | -1) => (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      applyStep(delta, false);
+    }
+  };
+
+  // If this card unmounts mid-hold (e.g. the item gets deleted, or an
+  // import/sync replaces the list, while a finger is still down) the
+  // repeat interval has to stop with it — otherwise it keeps firing
+  // onAdjust for an id that's no longer in the list every 120ms forever.
+  useEffect(() => clearHoldTimers, []);
 
   return (
     <div className="flex items-center justify-between rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
@@ -56,11 +132,16 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
         </p>
         <div className="mt-2 flex items-center gap-2">
           <div className="relative">
-            <Tooltip label="Decrease stock by 1">
+            <Tooltip label="Hold to decrease stock">
               <button
                 aria-label="Decrease stock"
-                onClick={() => handleAdjust(-1)}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-surface-border text-neutral-600 transition-transform duration-150 hover:bg-surface-muted active:scale-90"
+                onPointerDown={() => startPress(-1)}
+                onPointerUp={endPress}
+                onPointerLeave={endPress}
+                onPointerCancel={endPress}
+                onKeyDown={handleKeyDown(-1)}
+                onContextMenu={(e) => e.preventDefault()}
+                className="flex h-7 w-7 select-none items-center justify-center rounded-full border border-surface-border text-neutral-600 transition-transform duration-150 hover:bg-surface-muted active:scale-90"
               >
                 <Minus size={14} key={burst?.sign === -1 ? burst.key : "idle"} className={burst?.sign === -1 ? "animate-btn-pop" : undefined} />
               </button>
@@ -69,9 +150,15 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
               <span
                 key={burst.key}
                 onAnimationEnd={() => setBurst(null)}
-                className="pointer-events-none absolute left-1/2 top-0 select-none animate-float-up text-xs font-semibold text-accent-low"
+                className={`pointer-events-none absolute left-1/2 top-0 select-none text-xs font-semibold text-accent-low ${
+                  burst.phase === "popping"
+                    ? "animate-float-up"
+                    : burst.phase === "releasing"
+                      ? "animate-float-away"
+                      : "-translate-x-1/2 -translate-y-2 opacity-100"
+                }`}
               >
-                −1
+                −{burst.count}
               </span>
             )}
           </div>
@@ -79,11 +166,16 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
             {item.quantity} {item.unit}
           </span>
           <div className="relative">
-            <Tooltip label="Increase stock by 1">
+            <Tooltip label="Hold to increase stock">
               <button
                 aria-label="Increase stock"
-                onClick={() => handleAdjust(1)}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-surface-border text-neutral-600 transition-transform duration-150 hover:bg-surface-muted active:scale-90"
+                onPointerDown={() => startPress(1)}
+                onPointerUp={endPress}
+                onPointerLeave={endPress}
+                onPointerCancel={endPress}
+                onKeyDown={handleKeyDown(1)}
+                onContextMenu={(e) => e.preventDefault()}
+                className="flex h-7 w-7 select-none items-center justify-center rounded-full border border-surface-border text-neutral-600 transition-transform duration-150 hover:bg-surface-muted active:scale-90"
               >
                 <Plus size={14} key={burst?.sign === 1 ? burst.key : "idle"} className={burst?.sign === 1 ? "animate-btn-pop" : undefined} />
               </button>
@@ -92,9 +184,15 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
               <span
                 key={burst.key}
                 onAnimationEnd={() => setBurst(null)}
-                className="pointer-events-none absolute left-1/2 top-0 select-none animate-float-up text-xs font-semibold text-accent-ok"
+                className={`pointer-events-none absolute left-1/2 top-0 select-none text-xs font-semibold text-accent-ok ${
+                  burst.phase === "popping"
+                    ? "animate-float-up"
+                    : burst.phase === "releasing"
+                      ? "animate-float-away"
+                      : "-translate-x-1/2 -translate-y-2 opacity-100"
+                }`}
               >
-                +1
+                +{burst.count}
               </span>
             )}
           </div>

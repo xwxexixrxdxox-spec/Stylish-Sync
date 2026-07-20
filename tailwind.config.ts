@@ -73,6 +73,15 @@ const config: Config = {
           "40%": { transform: "translate(-50%, -10px) scale(1)" },
           "100%": { opacity: "0", transform: "translate(-50%, -28px) scale(1)" },
         },
+        // The back half of float-up on its own (ItemCard.tsx's +/- hold-to-
+        // repeat badge): fades out from wherever the badge is already
+        // sitting, rather than restarting the pop-in from scratch — used
+        // when a hold ends, since the badge stayed visible and settled
+        // (not invisible/tiny) the whole time it was held.
+        "float-away": {
+          "0%": { opacity: "1", transform: "translate(-50%, -8px) scale(1)" },
+          "100%": { opacity: "0", transform: "translate(-50%, -28px) scale(1)" },
+        },
         // Clear Cache & Reload's hold-to-confirm ring (ClearCacheButton.tsx):
         // the stroke draws itself in over the hold duration, so releasing
         // early visibly abandons an unfinished ring rather than snapping a
@@ -105,6 +114,7 @@ const config: Config = {
         "fill-bar": "fill-bar 1.3s cubic-bezier(0.4,0,0.2,1) 0.2s both",
         "btn-pop": "btn-pop 320ms cubic-bezier(0.34,1.56,0.64,1) both",
         "float-up": "float-up 650ms ease-out both",
+        "float-away": "float-away 450ms ease-out both",
         // Duration here must stay in sync with HOLD_MS in ClearCacheButton.tsx.
         "clear-cache-hold-ring": "clear-cache-hold-ring 900ms linear forwards",
         "clear-cache-circle-in": "clear-cache-circle-in 550ms cubic-bezier(0.22,1,0.36,1) both",
