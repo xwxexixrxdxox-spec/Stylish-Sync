@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Check } from "lucide-react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { InventoryItem, Unit, AccessCheckResponse } from "@/lib/types";
 import { getKnownLocations } from "@/lib/locations";
@@ -82,11 +83,17 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
   const [price, setPrice] = useState(0);
   const [location, setLocation] = useState("");
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
-  // True when the most recent lookup expanded a scanned 8-digit UPC-E code
+  // Set when the most recent lookup expanded a scanned 8-digit UPC-E code
   // to its full 12-digit UPC-A (see barcodeFormat.ts) - surfaced in the UI
   // so it's not confusing that the Barcode field shows a longer number than
-  // whatever was actually scanned.
-  const [expandedFromUpcE, setExpandedFromUpcE] = useState(false);
+  // whatever was actually scanned, and so the full parent UPC is always
+  // right there to reference (e.g. to look the product up elsewhere) even
+  // if the Barcode field itself gets edited afterward. Keeps both the
+  // original short code and the decoded full one, since showing just "it
+  // was expanded" without the actual numbers isn't a useful hint on its
+  // own.
+  const [expandedFromUpcE, setExpandedFromUpcE] = useState<{ short: string; full: string } | null>(null);
+  const [copiedParentUpc, setCopiedParentUpc] = useState(false);
   const knownLocations = useMemo(() => getKnownLocations(items), [items]);
   // Same cute "+qty"/"-qty" pop + button squish used on the inventory list's
   // stock buttons, shown here on Add Stock / Remove after a successful tap.
@@ -266,7 +273,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     // scanned in its compressed form. This does NOT relate an item to any
     // case/multipack it came from - that's a separate, unrelated barcode.
     const canonical = expandUpcEtoUpcA(trimmed) ?? trimmed;
-    setExpandedFromUpcE(canonical !== trimmed);
+    setExpandedFromUpcE(canonical !== trimmed ? { short: trimmed, full: canonical } : null);
     if (canonical !== trimmed) setBarcode(canonical);
 
     // Match against either form - an item added before this fix shipped
@@ -322,7 +329,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     // Clear stale feedback the moment the value changes so an old
     // "not found" or "found: X" doesn't linger while they edit or retype.
     setLookupStatus("idle");
-    setExpandedFromUpcE(false);
+    setExpandedFromUpcE(null);
     pendingContributionRef.current = null;
   };
 
@@ -346,9 +353,37 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     setPrice(0);
     setLocation("");
     setLookupStatus("idle");
-    setExpandedFromUpcE(false);
+    setExpandedFromUpcE(null);
     lastLookedUpRef.current = null;
     pendingContributionRef.current = null;
+  };
+
+  // Puts the full decoded UPC on the clipboard so a customer can paste it
+  // somewhere else (a price-check, a supplier lookup, etc.) without having
+  // to retype a 12-digit number by hand. Falls back to the older
+  // execCommand approach for browsers/webviews that don't support the
+  // async Clipboard API - the number is always shown in plain text right
+  // next to the button regardless, so a failed copy never loses anything.
+  const copyParentUpc = async (code: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const el = document.createElement("textarea");
+        el.value = code;
+        el.style.position = "fixed";
+        el.style.opacity = "0";
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+      }
+      setCopiedParentUpc(true);
+      setTimeout(() => setCopiedParentUpc(false), 1500);
+    } catch {
+      // Clipboard access denied/unavailable - nothing to do, the number is
+      // already visible on screen for manual copying.
+    }
   };
 
   return (
@@ -495,9 +530,28 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
             placeholder="Scan or type manually"
           />
           {expandedFromUpcE && (
-            <p className="mt-1 text-[11px] text-neutral-400">
-              Expanded from a compressed 8-digit barcode to its full 12-digit code.
-            </p>
+            <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-surface-muted px-2.5 py-2">
+              <p className="flex-1 text-[11px] leading-snug text-neutral-600">
+                Compressed 8-digit barcode ({expandedFromUpcE.short}) — full UPC is{" "}
+                <span className="font-mono font-semibold text-neutral-800">{expandedFromUpcE.full}</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => copyParentUpc(expandedFromUpcE.full)}
+                aria-label="Copy full UPC"
+                className="flex shrink-0 items-center gap-1 rounded-md border border-surface-border bg-white px-2 py-1 text-[11px] font-medium text-neutral-600 hover:bg-surface-muted"
+              >
+                {copiedParentUpc ? (
+                  <>
+                    <Check size={12} className="text-green-600" /> Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} /> Copy
+                  </>
+                )}
+              </button>
+            </div>
           )}
           {lookupStatus === "checking" && (
             <p className="mt-1 text-[11px] text-neutral-400">🔎 Looking up barcode…</p>

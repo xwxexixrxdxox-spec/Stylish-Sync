@@ -13,6 +13,7 @@ const ITEMS_KEY = "isc_inventory_items_v1";
 const SHEET_LINK_KEY = "isc_google_sheet_id_v1";
 const COOKIE_CONSENT_KEY = "isc_cookie_consent_v1";
 const MOVEMENTS_KEY = "isc_stock_movements_v1";
+const INVENTORY_SORT_KEY = "isc_inventory_sort_v1";
 // Caps how much movement history we keep in localStorage. The Usage tab's
 // date filter now goes up to "All time," so this needs to comfortably
 // cover several years of realistic activity rather than "well over a
@@ -103,6 +104,25 @@ export function setLinkedSheetId(id: string | null): void {
   if (typeof window === "undefined") return;
   if (id) window.localStorage.setItem(SHEET_LINK_KEY, id);
   else window.localStorage.removeItem(SHEET_LINK_KEY);
+}
+
+// How the Inventory list is ordered - remembered per device so a customer's
+// chosen view sticks around across visits instead of resetting every time.
+// "recent" (most recently changed or scanned first) is the default: it
+// reuses the same updatedAt timestamp every mutation path already bumps
+// (manual adjust, scan add/remove, edit, import, Break Case), so whatever a
+// customer just touched surfaces at the top without any new tracking.
+export type InventorySort = "recent" | "name" | "low-stock";
+
+export function getInventorySort(): InventorySort {
+  if (typeof window === "undefined") return "recent";
+  const v = window.localStorage.getItem(INVENTORY_SORT_KEY);
+  return v === "name" || v === "low-stock" ? v : "recent";
+}
+
+export function setInventorySort(sort: InventorySort): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(INVENTORY_SORT_KEY, sort);
 }
 
 // Stock movement log, used by the Usage tab to chart how fast a product is
