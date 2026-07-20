@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { RefreshCw } from "lucide-react";
 import { clearAppCache } from "@/lib/storage";
 import { stopActiveCameraStream } from "@/lib/activeCameraStream";
@@ -170,28 +171,40 @@ export default function ClearCacheButton() {
           )}
         </button>
       </Tooltip>
-      {clearing && overlayOrigin && (
-        <div
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center animate-clear-cache-circle-in"
-          style={
-            {
-              "--origin-x": `${overlayOrigin.x}px`,
-              "--origin-y": `${overlayOrigin.y}px`,
-              "--max-radius": `${overlayOrigin.maxRadius}px`,
-            } as React.CSSProperties
-          }
-        >
-          <p
-            className="text-3xl font-black uppercase text-neutral-100 sm:text-5xl animate-clear-cache-heading-in"
-            style={{ textShadow: "0 0 24px rgba(239,68,68,0.45)" }}
+      {/* Portaled straight to <body> rather than rendered in place: this
+          button lives inside the app's <header>, which has backdrop-blur
+          for its frosted-glass look. Per the CSS spec, an element with a
+          backdrop-filter (like transform/filter/perspective) becomes the
+          containing block for any position:fixed descendant — so without
+          the portal, "fixed inset-0" below would resolve against the
+          header's own box instead of the viewport, and the reveal would
+          stay pinned to the header strip instead of covering the screen. */}
+      {clearing &&
+        overlayOrigin &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center animate-clear-cache-circle-in"
+            style={
+              {
+                "--origin-x": `${overlayOrigin.x}px`,
+                "--origin-y": `${overlayOrigin.y}px`,
+                "--max-radius": `${overlayOrigin.maxRadius}px`,
+              } as React.CSSProperties
+            }
           >
-            Deleting all data
-          </p>
-          <p className="max-w-xs text-sm text-neutral-400 sm:text-base animate-clear-cache-subtext-in">
-            You will be forced logged out. Please log back in to continue.
-          </p>
-        </div>
-      )}
+            <p
+              className="text-3xl font-black uppercase text-neutral-100 sm:text-5xl animate-clear-cache-heading-in"
+              style={{ textShadow: "0 0 24px rgba(239,68,68,0.45)" }}
+            >
+              Deleting all data
+            </p>
+            <p className="max-w-xs text-sm text-neutral-400 sm:text-base animate-clear-cache-subtext-in">
+              You will be forced logged out. Please log back in to continue.
+            </p>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
