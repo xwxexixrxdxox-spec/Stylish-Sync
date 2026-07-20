@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Share2 } from "lucide-react";
 import { importItemsFromFile } from "@/lib/xlsxTools";
 import { contributeCommunityBarcodesBulk } from "@/lib/communityLookup";
+import { repairImportedBarcodes } from "@/lib/barcodeRepair";
 import ConfirmDialog from "./ConfirmDialog";
 
 // Lets a customer contribute their own barcode/UPC/SKU catalog to the
@@ -31,6 +32,7 @@ export default function ShareBarcodeDatabase() {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [repairProgress, setRepairProgress] = useState<{ done: number; total: number } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
   const handlePick = (file: File) => {
@@ -43,7 +45,16 @@ export default function ShareBarcodeDatabase() {
     if (!pendingFile) return;
     setBusy(true);
     try {
-      const { items } = await importItemsFromFile(pendingFile);
+      const { items: parsed } = await importItemsFromFile(pendingFile);
+      // Repair short barcodes (stripped leading zeros, compressed UPC-E
+      // codes — see barcodeRepair.ts) before sharing them - a truncated
+      // barcode contributed as-is would never match anyone's real scan, so
+      // this is the one chance to fix it before it's permanently on file.
+      const { items, attempted, repaired } = await repairImportedBarcodes(parsed, (done, total) =>
+        setRepairProgress({ done, total })
+      );
+      setRepairProgress(null);
+
       const entries = items
         .filter((it) => it.barcode.trim() && it.name.trim())
         .map((it) => ({ barcode: it.barcode.trim(), name: it.name.trim(), unit: it.unit || "ea" }));
@@ -59,12 +70,14 @@ export default function ShareBarcodeDatabase() {
       if (result.alreadyClaimed) parts.push(`${result.alreadyClaimed} already in the shared database`);
       if (result.invalid) parts.push(`${result.invalid} skipped (missing barcode or name)`);
       if (result.failedBatches) parts.push(`${result.failedBatches} batch(es) failed — try importing again later`);
+      if (attempted) parts.push(`fixed ${repaired} of ${attempted} short barcode${attempted === 1 ? "" : "s"} first`);
       setStatus(`Checked ${entries.length} barcode(s): ${parts.join(", ") || "nothing new to share"}.`);
     } catch {
       setStatus("Couldn't read that file. Make sure it's a valid .xlsx, .ods, or .csv export.");
     } finally {
       setBusy(false);
       setProgress(null);
+      setRepairProgress(null);
       setConfirming(false);
       setPendingFile(null);
       setTimeout(() => setStatus(null), 8000);
@@ -96,9 +109,14 @@ export default function ShareBarcodeDatabase() {
           e.currentTarget.value = "";
         }}
       />
-      {busy && progress && (
+      {busy && repairProgress && (
         <p className="mt-2 text-xs text-neutral-500">
-          Checking {progress.done} / {progress.total}…
+          Checking short barcodes… {repairProgress.done} / {repairProgress.total}
+        </p>
+      )}
+      {busy && !repairProgress && progress && (
+        <p className="mt-2 text-xs text-neutral-500">
+          Sharing {progress.done} / {progress.total}…
         </p>
       )}
       {status && <p className="mt-2 text-xs font-medium text-neutral-700">{status}</p>}

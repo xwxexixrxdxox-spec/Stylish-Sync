@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Upload, Download, ChevronDown } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { exportItems, importItemsFromFile } from "@/lib/xlsxTools";
+import { repairImportedBarcodes } from "@/lib/barcodeRepair";
 import { loadMovements } from "@/lib/storage";
 
 interface Props {
@@ -15,19 +16,29 @@ export default function ImportExportPanel({ items, onImport }: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [repairProgress, setRepairProgress] = useState<{ done: number; total: number } | null>(null);
 
   const handleFile = async (file: File) => {
     try {
       const { items: imported, skippedRows } = await importItemsFromFile(file);
-      onImport(imported);
-      setStatus(
-        `Imported ${imported.length} item${imported.length === 1 ? "" : "s"}` +
-          (skippedRows ? ` (${skippedRows} row${skippedRows === 1 ? "" : "s"} skipped — missing a name).` : ".")
+      // Barcodes shorter than 12 digits are usually either a spreadsheet
+      // that stripped a leading zero, or a compressed 8-digit UPC-E code —
+      // see barcodeRepair.ts. Worth attempting before committing to
+      // inventory, since a scan later on won't match a truncated barcode.
+      const { items: repaired, attempted, repaired: repairedCount } = await repairImportedBarcodes(
+        imported,
+        (done, total) => setRepairProgress({ done, total })
       );
+      onImport(repaired);
+      const parts = [`Imported ${repaired.length} item${repaired.length === 1 ? "" : "s"}`];
+      if (attempted) parts.push(`fixed ${repairedCount} of ${attempted} short barcode${attempted === 1 ? "" : "s"}`);
+      if (skippedRows) parts.push(`${skippedRows} row${skippedRows === 1 ? "" : "s"} skipped — missing a name`);
+      setStatus(parts.join(", ") + ".");
     } catch (e) {
       setStatus("Couldn't read that file. Make sure it's a valid .xlsx, .ods, or .csv export.");
     } finally {
-      setTimeout(() => setStatus(null), 5000);
+      setRepairProgress(null);
+      setTimeout(() => setStatus(null), 6000);
     }
   };
 
@@ -82,6 +93,11 @@ export default function ImportExportPanel({ items, onImport }: Props) {
         Supports Excel (.xlsx), LibreOffice (.ods), and CSV. Excel/LibreOffice exports also include a Usage sheet
         (history + summary chart); CSV is Inventory-only.
       </p>
+      {repairProgress && (
+        <p className="mt-2 text-xs text-neutral-500">
+          Checking short barcodes… {repairProgress.done} / {repairProgress.total}
+        </p>
+      )}
       {status && <p className="mt-2 text-xs font-medium text-neutral-700">{status}</p>}
     </div>
   );
