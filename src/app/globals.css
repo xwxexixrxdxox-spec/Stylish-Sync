@@ -28,3 +28,40 @@ body {
   background: #d4d4d8;
   border-radius: 9999px;
 }
+
+/* Clear Cache & Reload's full-screen "wasted" reveal (see ClearCacheButton.tsx).
+   Three-stage timing mirrors a game-over screen: the backdrop snaps to black,
+   then the headline drops in a beat later, then the explanatory line settles
+   in after that — rather than everything appearing at once. */
+@keyframes clear-cache-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes clear-cache-heading-in {
+  from {
+    opacity: 0;
+    transform: scale(1.15);
+    letter-spacing: 0.5em;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    letter-spacing: 0.15em;
+  }
+}
+
+@keyframes clear-cache-subtext-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
