@@ -85,13 +85,13 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
   // Set when the most recent lookup expanded a scanned 8-digit UPC-E code
   // to its full 12-digit UPC-A (see barcodeFormat.ts) - surfaced in the UI
-  // so it's not confusing that the Barcode field shows a longer number than
-  // whatever was actually scanned, and so the full parent UPC is always
-  // right there to reference (e.g. to look the product up elsewhere) even
-  // if the Barcode field itself gets edited afterward. Keeps both the
-  // original short code and the decoded full one, since showing just "it
-  // was expanded" without the actual numbers isn't a useful hint on its
-  // own.
+  // as a reference hint so the full parent UPC is always right there to
+  // copy (e.g. to look the product up elsewhere), without the Barcode
+  // field itself ever being silently swapped to the longer number - Add
+  // Stock/Remove still act on exactly what was scanned/typed. Keeps both
+  // the original short code and the decoded full one, since showing just
+  // "it was expanded" without the actual numbers isn't a useful hint on
+  // its own.
   const [expandedFromUpcE, setExpandedFromUpcE] = useState<{ short: string; full: string } | null>(null);
   const [copiedParentUpc, setCopiedParentUpc] = useState(false);
   const knownLocations = useMemo(() => getKnownLocations(items), [items]);
@@ -272,12 +272,26 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     // product can still come back "not found" just because it was
     // scanned in its compressed form. This does NOT relate an item to any
     // case/multipack it came from - that's a separate, unrelated barcode.
+    //
+    // The Barcode field itself intentionally keeps showing whatever was
+    // actually scanned/typed (the compressed code), instead of being
+    // silently swapped to the expanded one - what gets added to (or
+    // removed from) inventory should match what's literally printed on
+    // this specific item, since that's what scanning the same can again
+    // will produce. The decoded full UPC is surfaced purely as a
+    // copyable reference (the hint box below) for things like looking
+    // the product up elsewhere - it never overwrites the field.
     const canonical = expandUpcEtoUpcA(trimmed) ?? trimmed;
     setExpandedFromUpcE(canonical !== trimmed ? { short: trimmed, full: canonical } : null);
-    if (canonical !== trimmed) setBarcode(canonical);
 
-    // Match against either form - an item added before this fix shipped
-    // may still be stored under the raw, un-expanded code.
+    // Match against either form for the auto-fill preview below - covers
+    // both an item already stored under the expanded UPC-A (e.g.
+    // imported from a spreadsheet) and one stored under this same
+    // compressed code from a previous scan. Note this only pre-fills the
+    // name/price/etc. fields; Add Stock still saves under whatever's in
+    // the Barcode field (see above), so scanning the compressed code for
+    // a product previously stored under its full UPC-A will add it as a
+    // separate line rather than merging into that existing one.
     const existing = items.find((it) => it.barcode === canonical || it.barcode === trimmed);
     if (existing) {
       setLookupStatus("existing");
@@ -626,8 +640,15 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
                 // barcode just came back "not-found" - never for a match
                 // against an existing item or an external-lookup result,
                 // both of which are already known and don't need sharing.
-                if (pendingContributionRef.current && pendingContributionRef.current === barcode.trim()) {
-                  void contributeCommunityBarcode(barcode.trim(), trimmedName, unit);
+                // Compares against the raw code that was actually looked up,
+                // not the Barcode field's current text - a decoded UPC-E
+                // code is no longer mirrored into the field (see
+                // runBarcodeLookup above), so contribute under the
+                // resolved/canonical form pendingContributionRef already
+                // holds, keyed off whether the field is still exactly what
+                // was last looked up (i.e. not edited since).
+                if (pendingContributionRef.current && lastLookedUpRef.current === barcode.trim()) {
+                  void contributeCommunityBarcode(pendingContributionRef.current, trimmedName, unit);
                 }
                 onAddStock({ barcode, name, quantity, unit, pricePerUnit: price, location: location.trim() || undefined });
                 playChime("add");
