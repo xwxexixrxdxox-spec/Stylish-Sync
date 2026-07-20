@@ -20,8 +20,12 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
   // Candidates for "breaks down into": every other item that has a
   // barcode, since the link itself is stored keyed by barcode (see
   // InventoryItem in types.ts) and an item with no barcode has nothing
-  // stable to point at.
-  const linkCandidates = items.filter((it) => it.id !== item.id && it.barcode);
+  // stable to point at. Sorted by name so a customer with dozens of items
+  // can actually find the right one instead of hunting through whatever
+  // order they happen to be stored/scanned in.
+  const linkCandidates = items
+    .filter((it) => it.id !== item.id && it.barcode)
+    .sort((a, b) => a.name.localeCompare(b.name));
   // Delete used to fire immediately on click with no confirmation at all —
   // a real gap, since it's one accidental tap away from permanently
   // removing an item. Now goes through the same confirm popup as the
