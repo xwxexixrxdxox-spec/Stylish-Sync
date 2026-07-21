@@ -122,7 +122,15 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const cardNearTop = rect ? rect.top > window.innerHeight / 2 : false;
 
   return createPortal(
-    <div className="fixed inset-0 z-[200]">
+    // pointer-events-none here is load-bearing, not decorative: this outer
+    // div's own box spans the full viewport at z-[200], so without this it
+    // would swallow every click - including ones aimed at the "hole" over
+    // the spotlighted element - regardless of the mask bands below only
+    // painting around that hole. Each interactive piece (the masks, the
+    // callout card) opts back into pointer-events-auto individually; the
+    // real element under the hole is never covered by anything here, so it
+    // falls through to receive the click normally.
+    <div className="pointer-events-none fixed inset-0 z-[200]">
       {rect ? (
         <>
           {/* Four masking bands leave a real, clickable hole over the
@@ -131,19 +139,19 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
               "Sign in with Google" or "Start Fresh") stays genuinely
               interactive rather than just visible. */}
           <div
-            className="fixed left-0 right-0 top-0 bg-black/70 transition-all duration-200"
+            className="pointer-events-auto fixed left-0 right-0 top-0 bg-black/70 transition-all duration-200"
             style={{ height: Math.max(0, rect.top - PAD) }}
           />
           <div
-            className="fixed bottom-0 left-0 right-0 bg-black/70 transition-all duration-200"
+            className="pointer-events-auto fixed bottom-0 left-0 right-0 bg-black/70 transition-all duration-200"
             style={{ top: rect.top + rect.height + PAD }}
           />
           <div
-            className="fixed bg-black/70 transition-all duration-200"
+            className="pointer-events-auto fixed bg-black/70 transition-all duration-200"
             style={{ top: rect.top - PAD, left: 0, width: Math.max(0, rect.left - PAD), height: rect.height + PAD * 2 }}
           />
           <div
-            className="fixed bg-black/70 transition-all duration-200"
+            className="pointer-events-auto fixed bg-black/70 transition-all duration-200"
             style={{ top: rect.top - PAD, left: rect.left + rect.width + PAD, right: 0, height: rect.height + PAD * 2 }}
           />
           <div
@@ -157,11 +165,11 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
           />
         </>
       ) : (
-        <div className="fixed inset-0 bg-black/70" />
+        <div className="pointer-events-auto fixed inset-0 bg-black/70" />
       )}
 
       <div
-        className={`fixed inset-x-0 flex justify-center px-4 ${
+        className={`pointer-events-auto fixed inset-x-0 flex justify-center px-4 ${
           !rect ? "inset-y-0 items-center" : cardNearTop ? "top-[76px]" : "bottom-24"
         }`}
       >
