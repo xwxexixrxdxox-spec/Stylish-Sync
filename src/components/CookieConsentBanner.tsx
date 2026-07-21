@@ -24,7 +24,14 @@ export default function CookieConsentBanner() {
   };
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-surface-border bg-white/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/80 sm:px-6">
+    // data-tutorial: the new-customer walkthrough spotlights this banner as
+    // an early step (see tutorial.ts's "cookie-consent" step) — at z-50 it
+    // sits above the bottom nav (z-30), so leaving it unresolved would keep
+    // it covering exactly the tabs the rest of the tour points at.
+    <div
+      data-tutorial="cookie-banner"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-surface-border bg-white/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/80 sm:px-6"
+    >
       <div className="mx-auto flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-neutral-600">
           We use essential cookies to keep you signed in and remember your preferences on this device.{" "}

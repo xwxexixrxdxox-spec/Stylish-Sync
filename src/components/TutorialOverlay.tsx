@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TUTORIAL_STEPS, waitForElement } from "@/lib/tutorial";
-import { setTutorialCompleted } from "@/lib/storage";
+import { getCookieConsent, setTutorialCompleted } from "@/lib/storage";
 import type { TabId } from "./BottomNav";
 
 interface Rect {
@@ -35,7 +35,14 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const targetElRef = useRef<HTMLElement | null>(null);
-  const step = TUTORIAL_STEPS[stepIndex];
+  // Frozen once at mount (useState initializer, not useMemo) on purpose:
+  // the cookie-consent step only belongs in the tour while consent is still
+  // undecided, but consent gets decided DURING that very step — recomputing
+  // the list at that moment would shift every later step's index mid-tour.
+  const [steps] = useState(() =>
+    TUTORIAL_STEPS.filter((s) => s.id !== "cookie-consent" || getCookieConsent() === null)
+  );
+  const step = steps[stepIndex];
 
   const finish = (reason: "finished" | "skipped") => {
     setTutorialCompleted(reason);
@@ -44,7 +51,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   const advance = () => {
     setStepIndex((i) => {
-      if (i >= TUTORIAL_STEPS.length - 1) {
+      if (i >= steps.length - 1) {
         setTutorialCompleted("finished");
         onClose();
         return i;
@@ -116,6 +123,20 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetId]);
 
+  // The cookie-consent step resolves itself: the banner's Accept/Decline
+  // buttons write straight to localStorage (no event this component could
+  // subscribe to, and no prop that changes), so a light poll is the
+  // simplest reliable signal. The banner also unmounts on choice, which
+  // would otherwise leave this step spotlighting empty space.
+  useEffect(() => {
+    if (step.id !== "cookie-consent") return;
+    const timer = window.setInterval(() => {
+      if (getCookieConsent() !== null) advance();
+    }, 250);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
+
   if (typeof document === "undefined") return null;
 
   const nextLabel = step.nextLabel ?? "Next";
@@ -185,7 +206,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
             </button>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-neutral-400">
-                {stepIndex + 1}/{TUTORIAL_STEPS.length}
+                {stepIndex + 1}/{steps.length}
               </span>
               <button
                 onClick={advance}

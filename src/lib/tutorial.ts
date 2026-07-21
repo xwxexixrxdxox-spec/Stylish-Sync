@@ -35,6 +35,20 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "Welcome to WS Inventory Management 👋",
     body: "We loaded 3 sample items so there's something to explore right away. This quick tour covers everything the app can do — tap Next to start, or Skip tour if you'd rather dive in on your own.",
   },
+  // Sits right after the welcome step so the consent banner gets resolved
+  // before the tour starts pointing at the bottom nav — the banner renders
+  // at z-50, above the nav's z-30, so until the customer chooses, it
+  // physically covers the very tabs steps 4-7 spotlight. TutorialOverlay
+  // filters this step out entirely when consent was already given (e.g. a
+  // replayed tour), and auto-advances it the moment a choice is made.
+  {
+    id: "cookie-consent",
+    tab: null,
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="cookie-banner"]',
+    title: "First, a quick choice",
+    body: "Pick Accept or Decline below — either is fine, the app only uses essential cookies. Choosing now also clears this banner out of the way for the rest of the tour.",
+  },
   {
     id: "stock-controls",
     tab: "inventory",
