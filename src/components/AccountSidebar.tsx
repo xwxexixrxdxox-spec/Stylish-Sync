@@ -13,6 +13,7 @@ interface Props {
   setSheetId: (id: string | null) => void;
   access: AccessCheckResponse | null;
   onBookingMatch?: (bookingId: string | null) => void;
+  onReplayTutorial?: () => void;
 }
 
 // Account settings live in a collapsible sidebar rather than a slot in the
@@ -29,6 +30,7 @@ export default function AccountSidebar({
   setSheetId,
   access,
   onBookingMatch,
+  onReplayTutorial,
 }: Props) {
   return (
     <>
@@ -65,6 +67,7 @@ export default function AccountSidebar({
             setSheetId={setSheetId}
             access={access}
             onBookingMatch={onBookingMatch}
+            onReplayTutorial={onReplayTutorial}
           />
         </div>
       </div>

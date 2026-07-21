@@ -3,7 +3,16 @@
 import { useEffect, useState } from "react";
 import { Settings } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
-import { loadItems, saveItems, getLinkedSheetId, setLinkedSheetId, logMovement } from "@/lib/storage";
+import {
+  loadItems,
+  saveItems,
+  getLinkedSheetId,
+  setLinkedSheetId,
+  logMovement,
+  isFreshInstall,
+  getTutorialCompleted,
+  resetTutorialCompleted,
+} from "@/lib/storage";
 import BottomNav, { TabId } from "@/components/BottomNav";
 import InventoryTab from "@/components/InventoryTab";
 import ScanTab from "@/components/ScanTab";
@@ -15,6 +24,7 @@ import AccountSidebar from "@/components/AccountSidebar";
 import LoadScreen from "@/components/LoadScreen";
 import ClearCacheButton from "@/components/ClearCacheButton";
 import Tooltip from "@/components/Tooltip";
+import TutorialOverlay from "@/components/TutorialOverlay";
 
 // Minimum time to keep the load screen up, so its entrance animation
 // (logo mark + label + progress fill) always gets to finish playing even
@@ -31,6 +41,7 @@ export default function HomePage() {
   const [loadScreenExiting, setLoadScreenExiting] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [trackedBookingId, setTrackedBookingId] = useState<string | null>(null);
+  const [tutorialActive, setTutorialActive] = useState(false);
 
   // If the matched booking gets cleared (e.g. Google sign-out) while the
   // customer is sitting on the Status tab, don't strand them on a tab that
@@ -40,8 +51,14 @@ export default function HomePage() {
   }, [trackedBookingId, tab]);
 
   useEffect(() => {
+    // Has to be read before loadItems() below, which writes the seed data
+    // the instant it finds ITEMS_KEY missing - that write is exactly the
+    // signal this is checking for, so calling loadItems() first would
+    // erase it before this ever saw it.
+    const freshInstall = isFreshInstall();
     setItems(loadItems());
     setSheetIdState(getLinkedSheetId());
+    if (freshInstall && !getTutorialCompleted()) setTutorialActive(true);
     fetch("/api/check-access")
       .then((r) => r.json())
       .then(setAccess)
@@ -49,6 +66,20 @@ export default function HomePage() {
     const timer = setTimeout(() => setLoadScreenExiting(true), LOAD_SCREEN_MIN_MS);
     return () => clearTimeout(timer);
   }, []);
+
+  // "Replay the welcome tour" (AccountTab, inside the Account sidebar) -
+  // relaunches the walkthrough on demand regardless of whether it's
+  // already been finished/skipped, or the inventory no longer looks
+  // anything like the original 3 seed items. Resets to the tour's own
+  // starting position (Inventory tab, sidebar closed) so it opens from a
+  // consistent, known state rather than wherever the customer happened to
+  // be sitting when they asked for it.
+  const replayTutorial = () => {
+    resetTutorialCompleted();
+    setTab("inventory");
+    setAccountOpen(false);
+    setTutorialActive(true);
+  };
 
   useEffect(() => {
     if (!loadScreenExiting) return;
@@ -223,6 +254,7 @@ export default function HomePage() {
                 <button
                   onClick={() => setAccountOpen(true)}
                   aria-label="Open account settings"
+                  data-tutorial="account-gear"
                   className="rounded-lg p-1.5 text-neutral-500 hover:bg-surface-muted"
                 >
                   <Settings size={20} />
@@ -257,9 +289,24 @@ export default function HomePage() {
           setSheetId={setSheetId}
           access={access}
           onBookingMatch={setTrackedBookingId}
+          onReplayTutorial={replayTutorial}
         />
 
         <BottomNav active={tab} onChange={setTab} showStatusTab={!!trackedBookingId} />
+
+        {/* Gated on !showLoadScreen so the tour never stacks on top of the
+            opening animation - tutorialActive can flip true well before
+            that finishes exiting. */}
+        {tutorialActive && !showLoadScreen && (
+          <TutorialOverlay
+            tab={tab}
+            setTab={setTab}
+            accountOpen={accountOpen}
+            setAccountOpen={setAccountOpen}
+            sheetId={sheetId}
+            onClose={() => setTutorialActive(false)}
+          />
+        )}
       </main>
     </>
   );

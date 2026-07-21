@@ -15,9 +15,15 @@ interface Props {
   onEdit: (item: InventoryItem) => void;
   onDelete: (id: string) => void;
   onBreakCase: (caseItemId: string, casesToBreak: number) => void;
+  // Marks this card's stock controls as the new-customer tutorial's
+  // spotlight target (see TutorialOverlay.tsx / InventoryTab.tsx, which
+  // only sets this on whichever item happens to render first) - not tied
+  // to a specific item id, since the tour should still find something to
+  // point at even after the seed items are edited or reordered.
+  tutorialTarget?: boolean;
 }
 
-export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBreakCase }: Props) {
+export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBreakCase, tutorialTarget }: Props) {
   const low = item.quantity <= item.reorderAt;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [breakingCase, setBreakingCase] = useState(false);
@@ -130,7 +136,7 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
           {item.barcode || "no barcode"} · {item.unit}
           {item.location && <> · 📍 {item.location}</>}
         </p>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2" data-tutorial={tutorialTarget ? "item-stock-controls" : undefined}>
           <div className="relative">
             <Tooltip label="Hold to decrease stock">
               <button

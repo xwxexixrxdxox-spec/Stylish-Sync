@@ -119,6 +119,18 @@ const config: Config = {
           "0%": { width: "100%" },
           "100%": { width: "0%" },
         },
+        // New-customer walkthrough (TutorialOverlay.tsx): the callout card
+        // easing in each time a step changes, and a slow pulse on the
+        // spotlight ring so the highlighted element keeps drawing the eye
+        // without being distracting.
+        "tutorial-card-in": {
+          "0%": { opacity: "0", transform: "translateY(8px) scale(0.98)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
+        "tutorial-ring-pulse": {
+          "0%, 100%": { opacity: "0.9", transform: "scale(1)" },
+          "50%": { opacity: "0.55", transform: "scale(1.03)" },
+        },
       },
       animation: {
         "mark-in": "mark-in 0.5s cubic-bezier(0.22,1,0.36,1) both",
@@ -135,6 +147,8 @@ const config: Config = {
         "clear-cache-cancel-hint-in": "clear-cache-cancel-hint-in 400ms ease-out 1300ms both",
         // Duration here must stay in sync with GRACE_MS in ClearCacheButton.tsx.
         "clear-cache-grace-countdown": "clear-cache-grace-countdown 4000ms linear forwards",
+        "tutorial-card-in": "tutorial-card-in 260ms cubic-bezier(0.22,1,0.36,1) both",
+        "tutorial-ring-pulse": "tutorial-ring-pulse 1.6s ease-in-out infinite",
       },
     },
   },

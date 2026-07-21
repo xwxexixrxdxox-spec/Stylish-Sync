@@ -83,9 +83,14 @@ interface Props {
   // matches an active visit booking, so the app shell can surface the
   // minimal "Status" tab — or with null on sign-out, to hide it again.
   onBookingMatch?: (bookingId: string | null) => void;
+  // Lets a customer pull the new-customer walkthrough back up on demand
+  // (see TutorialOverlay.tsx) even long after its one automatic launch on
+  // a fresh install has come and gone. Optional since this panel is also
+  // reused in contexts that don't wire up the tour.
+  onReplayTutorial?: () => void;
 }
 
-export default function AccountTab({ items, onImport, sheetId, setSheetId, access, onBookingMatch }: Props) {
+export default function AccountTab({ items, onImport, sheetId, setSheetId, access, onBookingMatch, onReplayTutorial }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
@@ -520,6 +525,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
           <button
             disabled={busy === "connect"}
             onClick={connectGoogle}
+            data-tutorial="google-signin"
             className="w-full rounded-lg border border-surface-border py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
           >
             {busy === "connect" ? "Connecting…" : "Sign in with Google"}
@@ -580,6 +586,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         <button
           disabled={localFreshBusy}
           onClick={() => setConfirmingLocalFresh(true)}
+          data-tutorial="start-fresh-local"
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-accent-low hover:bg-red-50 disabled:opacity-50"
         >
           <Eraser size={14} /> {localFreshBusy ? "Clearing…" : "Start Fresh (clear inventory)"}
@@ -588,6 +595,14 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
           Clears every item and usage record on this device and starts with an empty inventory — no Google account
           needed. {sheetId && "Your linked Google Sheet isn't touched; pull from it afterward if you want that data back."}
         </p>
+        {onReplayTutorial && (
+          <button
+            onClick={onReplayTutorial}
+            className="mt-3 w-full text-center text-xs font-medium text-neutral-400 hover:text-neutral-600"
+          >
+            ↻ Replay the welcome tour
+          </button>
+        )}
       </section>
 
       {confirmingLocalFresh && (

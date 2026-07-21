@@ -14,6 +14,13 @@ const SHEET_LINK_KEY = "isc_google_sheet_id_v1";
 const COOKIE_CONSENT_KEY = "isc_cookie_consent_v1";
 const MOVEMENTS_KEY = "isc_stock_movements_v1";
 const INVENTORY_SORT_KEY = "isc_inventory_sort_v1";
+// Whether the new-customer walkthrough (TutorialOverlay.tsx) has already
+// run its course - present (any value) once the customer has finished or
+// explicitly skipped it, missing otherwise. Kept separate from ITEMS_KEY's
+// own "brand new install" signal (see isFreshInstall below) rather than
+// derived from it, so a customer who clears their cache and gets reseeded
+// demo items also genuinely gets the tour again - see clearAppCache.
+const TUTORIAL_KEY = "isc_tutorial_completed_v1";
 // Caps how much movement history we keep in localStorage. The Usage tab's
 // date filter now goes up to "All time," so this needs to comfortably
 // cover several years of realistic activity rather than "well over a
@@ -88,6 +95,39 @@ export function loadItems(): InventoryItem[] {
   } catch {
     return [];
   }
+}
+
+// The one genuinely reliable "has this browser ever opened this app
+// before" signal - loadItems() above reseeds SEED_ITEMS precisely when
+// ITEMS_KEY is entirely absent, so checking for that same absence *before*
+// calling loadItems() (which would immediately write the seed data and
+// erase the signal) is how the new-customer tutorial decides whether to
+// launch itself. Deliberately not inferred from "items happen to still
+// look like the 3 seed items" - a customer could delete everything down to
+// a coincidentally-similar state and this would misfire.
+export function isFreshInstall(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(ITEMS_KEY) === null;
+}
+
+export type TutorialCompletionReason = "finished" | "skipped";
+
+export function getTutorialCompleted(): boolean {
+  if (typeof window === "undefined") return true; // never auto-launch during SSR
+  return window.localStorage.getItem(TUTORIAL_KEY) !== null;
+}
+
+export function setTutorialCompleted(reason: TutorialCompletionReason): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TUTORIAL_KEY, reason);
+}
+
+// Used by the "Replay tutorial" link in AccountTab - lets a customer pull
+// the walkthrough back up on demand even though it's well past its one
+// automatic launch on a fresh install.
+export function resetTutorialCompleted(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(TUTORIAL_KEY);
 }
 
 export function saveItems(items: InventoryItem[]): void {
@@ -295,6 +335,12 @@ export async function clearAppCache(): Promise<void> {
   window.localStorage.removeItem(ITEMS_KEY);
   window.localStorage.removeItem(SHEET_LINK_KEY);
   window.localStorage.removeItem(MOVEMENTS_KEY);
+  // Removing ITEMS_KEY here is also what makes isFreshInstall() true again
+  // on the next load (reseeding the demo items) - clearing the tutorial
+  // flag alongside it keeps those two "brand new customer" signals in
+  // sync, so a full cache clear genuinely resets to a first-open experience
+  // rather than reseeding demo items with no tour to explain them.
+  window.localStorage.removeItem(TUTORIAL_KEY);
   // Sync tokens/synced-id sets are namespaced per spreadsheetId (see
   // above) rather than one fixed key, so they need an explicit scan
   // rather than a single removeItem — this is also the way a customer

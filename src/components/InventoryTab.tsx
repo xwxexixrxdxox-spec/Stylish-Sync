@@ -101,7 +101,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
       </p>
 
       <div className="space-y-2.5">
-        {filtered.map((item) => (
+        {filtered.map((item, index) => (
           <ItemCard
             key={item.id}
             item={item}
@@ -110,6 +110,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
             onEdit={setEditing}
             onDelete={onDelete}
             onBreakCase={onBreakCase}
+            tutorialTarget={index === 0}
           />
         ))}
         {filtered.length === 0 && (

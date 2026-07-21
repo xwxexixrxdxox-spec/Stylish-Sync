@@ -43,6 +43,7 @@ export default function BottomNav({ active, onChange, showStatusTab }: Props) {
             <button
               key={id}
               onClick={() => onChange(id)}
+              data-tutorial={`tab-${id}`}
               className="flex min-w-[64px] flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium"
             >
               <Icon
