@@ -13,6 +13,7 @@ import {
   getTutorialCompleted,
   resetTutorialCompleted,
 } from "@/lib/storage";
+import { syncPushDigest } from "@/lib/pushReminders";
 import BottomNav, { TabId } from "@/components/BottomNav";
 import InventoryTab from "@/components/InventoryTab";
 import ScanTab from "@/components/ScanTab";
@@ -89,6 +90,17 @@ export default function HomePage() {
 
   useEffect(() => {
     if (items.length) saveItems(items);
+  }, [items]);
+
+  // Keep the server-side reorder-reminder digest tracking real inventory as
+  // it changes (syncPushDigest is a no-op unless this browser has actually
+  // opted in — see pushReminders.ts). Debounced a few seconds so a burst of
+  // rapid changes (hold-to-repeat on +/-, a bulk import) collapses into one
+  // network write instead of one per tick.
+  useEffect(() => {
+    if (!items.length) return;
+    const timer = setTimeout(() => void syncPushDigest(items), 4000);
+    return () => clearTimeout(timer);
   }, [items]);
 
   const setSheetId = (id: string | null) => {

@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   HelpCircle,
   Eraser,
+  Bell,
 } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
@@ -55,6 +56,12 @@ import {
   subscribeInstallPrompt,
   triggerInstallPrompt,
 } from "@/lib/installPrompt";
+import {
+  disablePushReminders,
+  enablePushReminders,
+  getExistingPushSubscription,
+  isPushSupported,
+} from "@/lib/pushReminders";
 import PricingTiers from "./PricingTiers";
 import DevAccessToggle from "./DevAccessToggle";
 
@@ -107,6 +114,48 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   const [installing, setInstalling] = useState(false);
   const [alreadyInstalled, setAlreadyInstalled] = useState(false);
   const [showIosInstructions, setShowIosInstructions] = useState(false);
+  // Reorder-reminder push notifications (see pushReminders.ts). "unknown"
+  // until the async subscription check on mount resolves, so the toggle
+  // never flashes the wrong state.
+  const [remindersState, setRemindersState] = useState<"unknown" | "unsupported" | "off" | "on">("unknown");
+  const [remindersBusy, setRemindersBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isPushSupported()) {
+      setRemindersState("unsupported");
+      return;
+    }
+    let cancelled = false;
+    getExistingPushSubscription().then((sub) => {
+      if (!cancelled) setRemindersState(sub ? "on" : "off");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleReminders = async () => {
+    setRemindersBusy(true);
+    try {
+      if (remindersState === "on") {
+        await disablePushReminders();
+        setRemindersState("off");
+        flash("Reorder reminders turned off — the stored summary was deleted.");
+      } else {
+        const result = await enablePushReminders(items);
+        if (result === "enabled") {
+          setRemindersState("on");
+          flash("Reorder reminders are on. You'll only ever get a notification when something's actually worth checking.");
+        } else if (result === "denied") {
+          flash("Notifications are blocked for this site — allow them in your browser settings, then try again.");
+        } else {
+          flash("Couldn't enable reminders on this device. Try again in a moment.");
+        }
+      }
+    } finally {
+      setRemindersBusy(false);
+    }
+  };
   // Set when a push is about to overwrite changes another device made to
   // the sheet since this device last synced — see pushToSheetId below for
   // the actual detection. Holds the spreadsheet id so the modal's
@@ -580,6 +629,35 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
           </div>
         )}
       </section>
+
+      {remindersState !== "unsupported" && (
+        <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+          <p className="mb-3 text-sm font-medium text-neutral-900">Reorder Reminders</p>
+          <button
+            disabled={remindersBusy || remindersState === "unknown"}
+            onClick={toggleReminders}
+            className={`flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+              remindersState === "on"
+                ? "border border-surface-border text-neutral-700 hover:bg-surface-muted"
+                : "bg-neutral-900 text-white hover:opacity-90"
+            }`}
+          >
+            <Bell size={14} />
+            {remindersBusy
+              ? "Working…"
+              : remindersState === "on"
+                ? "Turn off daily reminders"
+                : "Turn on daily reminders"}
+          </button>
+          <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+            A daily notification naming the exact items worth acting on — what&apos;s below its reorder point, and
+            which fast-moving items are on pace to run out — with real quantities from your own usage. If nothing
+            needs attention, no notification is sent. Turning this on stores a small summary of those items (names
+            and counts only) on our server so reminders work while the app is closed; turning it off deletes it.
+            {isIosSafari() && " On iPhone/iPad, install the app to your home screen first — iOS only delivers web notifications to installed apps."}
+          </p>
+        </section>
+      )}
 
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-3 text-sm font-medium text-neutral-900">Inventory Data</p>

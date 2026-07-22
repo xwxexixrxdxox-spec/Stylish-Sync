@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@types/web-push": "^3.6.4",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "@zxing/browser": "^0.1.5",
@@ -21,6 +22,7 @@
     "redis": "^4.7.0",
     "stripe": "^17.4.0",
     "tesseract.js": "^7.0.0",
+    "web-push": "^3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz"
   },
   "devDependencies": {

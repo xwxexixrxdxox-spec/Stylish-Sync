@@ -31,7 +31,15 @@ export default function PrivacyPage() {
           <li>
             <strong>Inventory data you enter</strong> (item names, barcodes, quantities, prices, locations) — stored
             locally on your device, and optionally in a Google Sheet you own and control if you connect Google
-            Sheets sync. We do not copy this data to our own servers.
+            Sheets sync. We do not copy this data to our own servers, with one opt-in exception: reorder reminders,
+            described next.
+          </li>
+          <li>
+            <strong>A reorder-reminder summary, only if you turn on reminders</strong>: enabling daily reorder
+            reminders stores a small summary on our server — the names, quantities, units, and usage rates of your
+            low-stock and fastest-moving items (at most 20 items) — because reminder notifications have to be sent
+            while the app is closed. It contains no barcodes, prices, or locations. Turning reminders off deletes
+            it immediately.
           </li>
           <li>
             <strong>Camera access</strong> is used only to scan barcodes in the moment you tap "Scan Barcode." No
@@ -109,7 +117,8 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>No server-side copies:</strong> your inventory and spreadsheet data live only on your device
-            and in your Google account. Our servers store no copy, which means a breach of our infrastructure
+            and in your Google account. Our servers store no copy — except the small opt-in reorder-reminder
+            summary described above, if you've enabled reminders — which means a breach of our infrastructure
             cannot expose your Google user data.
           </li>
           <li>
@@ -153,9 +162,16 @@ export default function PrivacyPage() {
             page, removes our access permanently and instantly.
           </li>
           <li>
+            <strong>Reorder-reminder summaries</strong> (if you enabled reminders) are kept only while reminders
+            are on: turning them off in Account settings deletes the stored summary immediately, and a summary
+            that stops being refreshed (you haven't opened the app in two weeks) stops being used for
+            notifications.
+          </li>
+          <li>
             <strong>On request:</strong> email{" "}
             <a href="mailto:xwxexixrxdxox@gmail.com">xwxexixrxdxox@gmail.com</a> and we will delete any data we do
-            hold about you (your Stripe customer ID and subscription status) within 30 days.
+            hold about you (your Stripe customer ID, subscription status, and any reminder summary) within 30
+            days.
           </li>
         </ul>
 

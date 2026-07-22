@@ -1,7 +1,9 @@
 // Minimal offline-friendly service worker: cache-first for static assets,
 // network-first for everything else (so inventory data and API calls
 // always try the network first and only fall back to cache if offline).
-const CACHE_NAME = "inventorysync-v1";
+// Also handles the opt-in reorder-reminder web push (see
+// src/lib/pushServer.ts for the sending side).
+const CACHE_NAME = "inventorysync-v2";
 const PRECACHE_URLS = ["/", "/manifest.json"];
 
 self.addEventListener("install", (event) => {
@@ -47,5 +49,46 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() => caches.match(request).then((cached) => cached || caches.match("/")))
+  );
+});
+
+// Reorder-reminder pushes. The payload is composed server-side from this
+// customer's own synced digest (real item names/quantities), so this
+// handler just renders it. The fixed tag means a newer daily digest
+// replaces a stale unread one instead of stacking up.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // Not JSON (shouldn't happen from our own server) — show nothing
+    // rather than a broken notification.
+    return;
+  }
+  if (!data.title) return;
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: data.tag || "ws-reorder-digest",
+      data: { url: data.url || "/" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      for (const client of windows) {
+        if (new URL(client.url).origin === self.location.origin) {
+          client.focus();
+          return;
+        }
+      }
+      return self.clients.openWindow(url);
+    })
   );
 });
