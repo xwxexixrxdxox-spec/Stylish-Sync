@@ -41,6 +41,11 @@ export default function ReorderTab({ items }: Props) {
           Nothing needs reordering right now.
         </p>
       ) : (
+        <>
+        <p className="mb-3 text-[11px] leading-relaxed text-neutral-400">
+          &quot;Find on Amazon&quot; searches by this item&apos;s barcode (or name) — results may not meet
+          expectations, so always verify it&apos;s the right product before purchasing.
+        </p>
         <div className="space-y-2.5">
           {low.map((it) => (
             <div key={it.id} className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
@@ -72,6 +77,7 @@ export default function ReorderTab({ items }: Props) {
             </div>
           ))}
         </div>
+        </>
       )}
     </div>
   );

@@ -62,6 +62,9 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
   const burstKeyRef = useRef(0);
   const holdTimeoutRef = useRef<number | null>(null);
   const holdIntervalRef = useRef<number | null>(null);
+  // Removes the window-level release listeners installed by startPress —
+  // see the comment there for why those exist at all.
+  const releaseListenersCleanupRef = useRef<(() => void) | null>(null);
 
   const HOLD_REPEAT_DELAY_MS = 350; // pause before repeat kicks in, so a normal tap never feels like it double-fires
   const HOLD_REPEAT_INTERVAL_MS = 120;
@@ -87,9 +90,32 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
     }
   };
 
-  const startPress = (delta: 1 | -1) => {
+  const startPress = (delta: 1 | -1, pointerId: number) => {
     applyStep(delta, false); // the press itself always behaves like a normal single click
     clearHoldTimers();
+    releaseListenersCleanupRef.current?.();
+    // The button's own onPointerUp is NOT a reliable stop signal: every
+    // repeat tick bumps this item's updatedAt, and pressing another item's
+    // button mid-hold bumps that one's too — and under the default
+    // "Recently changed" sort, either can re-sort the list and physically
+    // move this button's DOM node while the finger is still down. Chrome
+    // then delivers the eventual release to whatever's under the finger
+    // now, not to the moved button — leaving the repeat interval running
+    // forever after the finger lifted (a real bug found by holding + on one
+    // item while tapping + on another). So the authoritative stop signal
+    // lives on window, keyed to this exact pointer, where no amount of DOM
+    // reshuffling can hide the release from it. The button-level handlers
+    // stay as belt-and-suspenders (endPress is idempotent).
+    const onRelease = (ev: PointerEvent) => {
+      if (ev.pointerId === pointerId) endPress();
+    };
+    window.addEventListener("pointerup", onRelease);
+    window.addEventListener("pointercancel", onRelease);
+    releaseListenersCleanupRef.current = () => {
+      window.removeEventListener("pointerup", onRelease);
+      window.removeEventListener("pointercancel", onRelease);
+      releaseListenersCleanupRef.current = null;
+    };
     holdTimeoutRef.current = window.setTimeout(() => {
       // Switch the badge to its static "holding" phase (no animation while
       // still actively pressed) before the repeat ticks start bumping its
@@ -100,6 +126,7 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
   };
 
   const endPress = () => {
+    releaseListenersCleanupRef.current?.();
     clearHoldTimers();
     // If the hold actually reached "holding" phase, fade it out from where
     // it's already sitting (a fresh key so the fade-out animation starts
@@ -124,7 +151,15 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
   // import/sync replaces the list, while a finger is still down) the
   // repeat interval has to stop with it — otherwise it keeps firing
   // onAdjust for an id that's no longer in the list every 120ms forever.
-  useEffect(() => clearHoldTimers, []);
+  // The window-level release listeners have to go with it too, or they'd
+  // fire against a torn-down component.
+  useEffect(
+    () => () => {
+      clearHoldTimers();
+      releaseListenersCleanupRef.current?.();
+    },
+    []
+  );
 
   return (
     <div className="flex items-center justify-between rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
@@ -141,7 +176,7 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
             <Tooltip label="Hold to decrease stock">
               <button
                 aria-label="Decrease stock"
-                onPointerDown={() => startPress(-1)}
+                onPointerDown={(e) => startPress(-1, e.pointerId)}
                 onPointerUp={endPress}
                 onPointerLeave={endPress}
                 onPointerCancel={endPress}
@@ -175,7 +210,7 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
             <Tooltip label="Hold to increase stock">
               <button
                 aria-label="Increase stock"
-                onPointerDown={() => startPress(1)}
+                onPointerDown={(e) => startPress(1, e.pointerId)}
                 onPointerUp={endPress}
                 onPointerLeave={endPress}
                 onPointerCancel={endPress}
