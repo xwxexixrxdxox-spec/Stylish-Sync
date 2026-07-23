@@ -95,6 +95,14 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
   // its own.
   const [expandedFromUpcE, setExpandedFromUpcE] = useState<{ short: string; full: string } | null>(null);
   const [copiedParentUpc, setCopiedParentUpc] = useState(false);
+  // Set only when the Price field was just auto-filled from the external
+  // UPCitemdb lookup (never from an existing inventory item or a community
+  // match, both of which are the customer's own prior data). Drives the
+  // "this is an online estimate, not a shelf tag" disclaimer below the
+  // Price field — shown only while that estimated number is still sitting
+  // there untouched, so it disappears the moment the customer edits the
+  // price or changes the barcode.
+  const [priceFromLookup, setPriceFromLookup] = useState(false);
   const knownLocations = useMemo(() => getKnownLocations(items), [items]);
   // Same cute "+qty"/"-qty" pop + button squish used on the inventory list's
   // stock buttons, shown here on Add Stock / Remove after a successful tap.
@@ -323,7 +331,16 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     const found = await lookupBarcode(canonical);
     if (found) {
       setLookupStatus("found");
-      setName(found);
+      setName(found.name);
+      // Only pre-fill the price when the provider actually returned one and
+      // the customer hasn't already typed their own — never clobber a
+      // hand-entered price with an online estimate. The disclaimer flag
+      // goes up alongside it so the customer knows where the number came
+      // from.
+      if (found.price !== null && price === 0) {
+        setPrice(found.price);
+        setPriceFromLookup(true);
+      }
       return;
     }
 
@@ -348,6 +365,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     // "not found" or "found: X" doesn't linger while they edit or retype.
     setLookupStatus("idle");
     setExpandedFromUpcE(null);
+    setPriceFromLookup(false);
     pendingContributionRef.current = null;
   };
 
@@ -372,6 +390,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     setLocation("");
     setLookupStatus("idle");
     setExpandedFromUpcE(null);
+    setPriceFromLookup(false);
     lastLookedUpRef.current = null;
     pendingContributionRef.current = null;
   };
@@ -629,9 +648,21 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
               step="0.01"
               className="input"
               value={price}
-              onChange={(e) => setPrice(Number(e.target.value))}
+              onChange={(e) => {
+                setPrice(Number(e.target.value));
+                // The customer just typed their own number — this is now
+                // their price, not an online estimate, so retire the
+                // disclaimer.
+                setPriceFromLookup(false);
+              }}
             />
           </div>
+          {priceFromLookup && (
+            <p className="mt-1 text-[11px] leading-snug text-amber-700">
+              💲 Estimated from an online listing — prices change often and may not match the retail price on the
+              shelf. Adjust it to what you actually paid.
+            </p>
+          )}
         </Field>
 
         <div className="flex gap-2 pt-1">

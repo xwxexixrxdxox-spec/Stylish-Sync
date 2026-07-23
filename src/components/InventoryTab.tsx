@@ -62,6 +62,25 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
 
   const locations = useMemo(() => getKnownLocations(items), [items]);
 
+  // Estimated total dollar value of everything on hand: sum of quantity ×
+  // price-per-unit across the *filtered* set, so it answers "what am I
+  // looking at right now" — the full inventory when unfiltered, or just the
+  // matching subset when a search is active (the label says which). Recomputes
+  // live as stock is adjusted, items are edited, or the search changes. It's
+  // an estimate because per-unit prices are whatever was entered/looked up,
+  // not a valuation — the banner says so.
+  const totalValue = useMemo(
+    () => filtered.reduce((sum, it) => sum + (it.pricePerUnit ?? 0) * (it.quantity ?? 0), 0),
+    [filtered]
+  );
+  const formattedValue = totalValue.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const isFiltered = query.trim().length > 0;
+
   return (
     <div className="mx-auto max-w-2xl px-4 pb-24 pt-5 sm:px-6">
       <h1 className="mb-4 flex items-center gap-2 text-lg font-semibold text-neutral-900">
@@ -100,6 +119,8 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
         {filtered.length} item{filtered.length === 1 ? "" : "s"} · tap ✏️ to edit · 🗑️ to delete · ± to adjust stock
       </p>
 
+      {filtered.length > 0 && <InventoryValueBanner value={formattedValue} isFiltered={isFiltered} placement="top" />}
+
       <div className="space-y-2.5">
         {filtered.map((item, index) => (
           <ItemCard
@@ -120,6 +141,11 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
         )}
       </div>
 
+      {/* Repeated at the bottom so a customer who's scrolled through a long
+          list doesn't have to scroll back up to see the total — same live
+          number, just within thumb reach after a long scroll. */}
+      {filtered.length > 3 && <InventoryValueBanner value={formattedValue} isFiltered={isFiltered} placement="bottom" />}
+
       {editing && (
         <ItemEditModal
           item={editing}
@@ -136,6 +162,32 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
           }}
         />
       )}
+    </div>
+  );
+}
+
+function InventoryValueBanner({
+  value,
+  isFiltered,
+  placement,
+}: {
+  value: string;
+  isFiltered: boolean;
+  placement: "top" | "bottom";
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-xl2 border border-surface-border bg-white px-4 py-3 shadow-card ${
+        placement === "top" ? "mb-3" : "mt-3"
+      }`}
+    >
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-neutral-500">
+          {isFiltered ? "Estimated value (matching items)" : "Estimated total inventory value"}
+        </p>
+        <p className="text-[11px] text-neutral-400">Quantity × price per unit · estimate only</p>
+      </div>
+      <p className="shrink-0 text-lg font-semibold tabular-nums text-neutral-900">{value}</p>
     </div>
   );
 }

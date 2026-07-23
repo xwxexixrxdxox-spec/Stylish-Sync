@@ -42,13 +42,32 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`);
-    if (!res.ok) return NextResponse.json({ name: null });
+    if (!res.ok) return NextResponse.json({ name: null, price: null });
     const data = await res.json();
-    const title: string | undefined = data?.items?.[0]?.title;
-    return NextResponse.json({ name: title ?? null });
+    const item = data?.items?.[0];
+    const title: string | undefined = item?.title;
+
+    // Best-effort "latest price": UPCitemdb returns an offers[] array of
+    // per-merchant listings, each stamped with updated_t — the most
+    // recently updated one with a real price is the closest thing the
+    // provider has to current pricing. The recorded-price floor is the
+    // fallback for products whose offers have all gone stale/zero. Either
+    // way this is an online-listing estimate, not the customer's shelf
+    // tag — the Scan UI shows a disclaimer to that effect whenever it
+    // auto-fills.
+    let price: number | null = null;
+    const offers = Array.isArray(item?.offers) ? (item.offers as { price?: unknown; updated_t?: unknown }[]) : [];
+    const latestOffer = offers
+      .filter((o) => Number(o?.price) > 0)
+      .sort((a, b) => (Number(b?.updated_t) || 0) - (Number(a?.updated_t) || 0))[0];
+    if (latestOffer) price = Number(latestOffer.price);
+    else if (Number(item?.lowest_recorded_price) > 0) price = Number(item.lowest_recorded_price);
+    if (price !== null) price = Math.round(price * 100) / 100;
+
+    return NextResponse.json({ name: title ?? null, price });
   } catch {
     // Provider unreachable/erroring — same as "nothing found," callers
     // already treat a null name as a silent miss, not an error state.
-    return NextResponse.json({ name: null });
+    return NextResponse.json({ name: null, price: null });
   }
 }

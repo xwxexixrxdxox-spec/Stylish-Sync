@@ -1,10 +1,10 @@
 "use client";
 
-// Best-effort barcode -> product name lookup, matching the ISC app's
-// "Auto-fills from lookup, or type your own" behavior. Uses UPCitemdb's
-// free trial endpoint by default (no key required); swap in a paid
-// provider by setting NEXT_PUBLIC_UPC_LOOKUP_URL to your own endpoint
-// that accepts ?upc=<code> and returns { name: string }.
+// Best-effort barcode -> product name + latest-price lookup, matching the
+// ISC app's "Auto-fills from lookup, or type your own" behavior. Uses
+// UPCitemdb's free trial endpoint by default (no key required); swap in a
+// paid provider by setting NEXT_PUBLIC_UPC_LOOKUP_URL to your own endpoint
+// that accepts ?upc=<code> and returns { name: string, price?: number }.
 // Lookup failures are silent by design — manual entry always works.
 //
 // The default provider is fetched through our own /api/upc-lookup route
@@ -15,20 +15,28 @@
 // NEXT_PUBLIC_UPC_LOOKUP_URL is assumed to already be CORS-friendly for
 // direct browser use, so that path is left as a direct client fetch.
 
-export async function lookupBarcode(barcode: string): Promise<string | null> {
+export interface BarcodeLookupResult {
+  name: string;
+  // Best-effort latest price from the provider's online listings (see
+  // api/upc-lookup for how it's chosen): a market estimate that moves over
+  // time, never a statement of the customer's own retail tag — callers
+  // that auto-fill it must show a disclaimer saying so. Null when the
+  // provider knew the product but had no usable price.
+  price: number | null;
+}
+
+export async function lookupBarcode(barcode: string): Promise<BarcodeLookupResult | null> {
   const customUrl = process.env.NEXT_PUBLIC_UPC_LOOKUP_URL;
   try {
-    if (customUrl) {
-      const res = await fetch(`${customUrl}?upc=${encodeURIComponent(barcode)}`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.name ?? null;
-    }
-
-    const res = await fetch(`/api/upc-lookup?upc=${encodeURIComponent(barcode)}`);
+    const url = customUrl
+      ? `${customUrl}?upc=${encodeURIComponent(barcode)}`
+      : `/api/upc-lookup?upc=${encodeURIComponent(barcode)}`;
+    const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    return data.name ?? null;
+    if (!data.name) return null;
+    const price = Number(data.price);
+    return { name: data.name, price: Number.isFinite(price) && price > 0 ? price : null };
   } catch {
     return null;
   }
