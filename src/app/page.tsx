@@ -289,7 +289,7 @@ export default function HomePage() {
         )}
         {tab === "scan" && <ScanTab items={items} onAddStock={addStock} onRemoveStock={removeStock} access={access} />}
         {tab === "reorder" && <ReorderTab items={items} />}
-        {tab === "usage" && <UsageTab items={items} />}
+        {tab === "usage" && <UsageTab items={items} onSave={upsertItem} />}
         {tab === "support" && <SupportTab />}
         {tab === "status" && trackedBookingId && <VisitStatusTab bookingId={trackedBookingId} />}
 
