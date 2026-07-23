@@ -201,7 +201,11 @@ export default function ClearCacheButton() {
           disabled={!!overlayPhase}
           aria-label="Hold to clear cache and reload"
           className={`relative select-none rounded-lg p-1.5 disabled:opacity-50 ${
-            holding ? "text-accent-low" : "text-neutral-500 hover:bg-surface-muted"
+            // A shade of red at rest (this is a destructive "wipe local data"
+            // action, so the standing red hints it isn't the ordinary
+            // refresh it resembles), deepening to the full accent red while
+            // actively held.
+            holding ? "text-accent-low" : "text-red-400 hover:bg-red-50 hover:text-accent-low"
           }`}
         >
           <RefreshCw size={18} />

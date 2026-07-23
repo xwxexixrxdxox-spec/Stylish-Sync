@@ -21,6 +21,12 @@ const INVENTORY_SORT_KEY = "isc_inventory_sort_v1";
 // derived from it, so a customer who clears their cache and gets reseeded
 // demo items also genuinely gets the tour again - see clearAppCache.
 const TUTORIAL_KEY = "isc_tutorial_completed_v1";
+// Whether the customer has dismissed the "Install app" banner (the
+// closeable pop-up on the main screen). Present once dismissed, missing
+// otherwise — so the banner nags at most until the first dismissal, then
+// stays out of the way. The Account panel still has an always-available
+// install entry point regardless.
+const INSTALL_BANNER_DISMISSED_KEY = "isc_install_banner_dismissed_v1";
 // Caps how much movement history we keep in localStorage. The Usage tab's
 // date filter now goes up to "All time," so this needs to comfortably
 // cover several years of realistic activity rather than "well over a
@@ -133,6 +139,16 @@ export function resetTutorialCompleted(): void {
 export function saveItems(items: InventoryItem[]): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
+}
+
+export function getInstallBannerDismissed(): boolean {
+  if (typeof window === "undefined") return true; // never flash the banner during SSR
+  return window.localStorage.getItem(INSTALL_BANNER_DISMISSED_KEY) !== null;
+}
+
+export function setInstallBannerDismissed(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(INSTALL_BANNER_DISMISSED_KEY, "1");
 }
 
 // Local-only "start fresh": wipes this device's inventory and usage

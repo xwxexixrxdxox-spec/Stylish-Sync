@@ -27,6 +27,24 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
   const low = item.quantity <= item.reorderAt;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [breakingCase, setBreakingCase] = useState(false);
+  // Tap-to-edit the quantity directly (the number between the +/- buttons),
+  // as a fast path to "set it to exactly N" without holding +/- or opening
+  // the full edit modal — the pencil button still does the latter. Commits
+  // as a delta through the same onAdjust path the +/- buttons use, so the
+  // change is clamped at 0 and logged as a normal manual adjustment.
+  const [editingQty, setEditingQty] = useState(false);
+  const [qtyDraft, setQtyDraft] = useState("");
+
+  const startEditQty = () => {
+    setQtyDraft(String(item.quantity));
+    setEditingQty(true);
+  };
+  const commitQty = () => {
+    setEditingQty(false);
+    const next = Math.round(Number(qtyDraft));
+    if (!Number.isFinite(next) || next < 0 || next === item.quantity) return;
+    onAdjust(item.id, next - item.quantity);
+  };
   // The linked each-item, looked up live by barcode every render rather
   // than trusted as "must still exist" — the customer can delete or
   // re-barcode the each item independently, at which point the case item's
@@ -203,9 +221,33 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
               </span>
             )}
           </div>
-          <span className={`min-w-[64px] text-center text-sm font-semibold ${low ? "text-accent-low" : "text-neutral-800"}`}>
-            {item.quantity} {item.unit}
-          </span>
+          {editingQty ? (
+            <input
+              autoFocus
+              type="number"
+              inputMode="numeric"
+              value={qtyDraft}
+              onChange={(e) => setQtyDraft(e.target.value)}
+              onBlur={commitQty}
+              onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                else if (e.key === "Escape") setEditingQty(false);
+              }}
+              aria-label={`Set quantity for ${item.name}`}
+              className="w-[64px] rounded-md border border-neutral-300 px-1 py-0.5 text-center text-sm font-semibold text-neutral-900 outline-none focus:border-neutral-900"
+            />
+          ) : (
+            <button
+              onClick={startEditQty}
+              aria-label={`Quantity ${item.quantity} ${item.unit} — tap to edit`}
+              className={`min-w-[64px] select-none rounded-md px-1 py-0.5 text-center text-sm font-semibold hover:bg-surface-muted ${
+                low ? "text-accent-low" : "text-neutral-800"
+              }`}
+            >
+              {item.quantity} {item.unit}
+            </button>
+          )}
           <div className="relative">
             <Tooltip label="Hold to increase stock">
               <button

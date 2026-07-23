@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings } from "lucide-react";
+import { Menu } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
   loadItems,
@@ -26,6 +26,7 @@ import LoadScreen from "@/components/LoadScreen";
 import ClearCacheButton from "@/components/ClearCacheButton";
 import Tooltip from "@/components/Tooltip";
 import TutorialOverlay from "@/components/TutorialOverlay";
+import InstallBanner from "@/components/InstallBanner";
 
 // Minimum time to keep the load screen up, so its entrance animation
 // (logo mark + label + progress fill) always gets to finish playing even
@@ -269,7 +270,7 @@ export default function HomePage() {
                   data-tutorial="account-gear"
                   className="rounded-lg p-1.5 text-neutral-500 hover:bg-surface-muted"
                 >
-                  <Settings size={20} />
+                  <Menu size={20} />
                 </button>
               </Tooltip>
             </div>
@@ -303,6 +304,8 @@ export default function HomePage() {
           onBookingMatch={setTrackedBookingId}
           onReplayTutorial={replayTutorial}
         />
+
+        <InstallBanner />
 
         <BottomNav active={tab} onChange={setTab} showStatusTab={!!trackedBookingId} />
 
