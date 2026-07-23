@@ -2,13 +2,18 @@
 
 import { Share2, ShoppingCart } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
+import { getEffectiveQuantity, isLowStock } from "@/lib/reorderStatus";
 
 interface Props {
   items: InventoryItem[];
 }
 
 export default function ReorderTab({ items }: Props) {
-  const low = items.filter((it) => it.quantity <= it.reorderAt);
+  // A case/pack that's had a couple of units broken down into a linked
+  // loose item doesn't count as low here just because its own remaining
+  // count dipped — see reorderStatus.ts for why (in short: there's still
+  // real supply sitting in the broken-down item).
+  const low = items.filter((it) => isLowStock(it, items));
 
   const share = async () => {
     const text = low
@@ -57,7 +62,7 @@ export default function ReorderTab({ items }: Props) {
                     {it.location && <> · 📍 {it.location}</>}
                   </p>
                   <p className="mt-1 text-xs font-medium text-accent-low">
-                    Need {Math.max(it.reorderAt - it.quantity + 1, 1)} more
+                    Need {Math.max(Math.ceil(it.reorderAt - getEffectiveQuantity(it, items) + 1), 1)} more
                   </p>
                 </div>
                 {/* Manual reorder v1: a UPC search on Amazon usually lands

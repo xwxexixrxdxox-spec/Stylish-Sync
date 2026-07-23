@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Minus, Plus, Pencil, Trash2, PackageOpen } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { playChime } from "@/lib/chime";
+import { isLowStock } from "@/lib/reorderStatus";
 import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
 import BreakCaseDialog from "./BreakCaseDialog";
@@ -39,7 +40,14 @@ export default function ItemCard({
   tutorialTarget,
   onActivity,
 }: Props) {
-  const low = item.quantity <= item.reorderAt;
+  // Low-stock accounts for a linked break-down child's remaining stock (see
+  // reorderStatus.ts) — rawLow is the old plain "just this item's own
+  // quantity" check, kept only to detect when the tie-in is the reason a
+  // card that would otherwise look low isn't flagged, so that can be
+  // surfaced rather than silently suppressed (see the hint near eachItem
+  // below).
+  const low = isLowStock(item, items);
+  const rawLow = item.quantity <= item.reorderAt;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [breakingCase, setBreakingCase] = useState(false);
   // Tap-to-edit the quantity directly (the number between the +/- buttons),
@@ -334,9 +342,19 @@ export default function ItemCard({
             </button>
           </Tooltip>
         </div>
-        <div className="text-right">
+        <div className="max-w-[9rem] text-right">
           <p className="text-sm font-medium text-neutral-800">${(item.pricePerUnit ?? 0).toFixed(2)} ea</p>
           {low && <p className="text-xs font-medium text-accent-low">Low stock</p>}
+          {/* This item's own quantity alone would read as low, but the
+              broken-down child item still has enough on hand to cover it —
+              e.g. one intact case left after breaking a couple down — so
+              it isn't flagged. Only shown when that's actually why it
+              differs, not on every linked item. */}
+          {!low && rawLow && eachItem && (
+            <p className="mt-0.5 text-[11px] leading-snug text-neutral-400">
+              Not low — {eachItem.quantity} {eachItem.unit} of broken-down {eachItem.name} on hand
+            </p>
+          )}
         </div>
       </div>
 

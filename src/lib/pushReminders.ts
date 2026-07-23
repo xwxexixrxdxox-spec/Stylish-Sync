@@ -2,6 +2,7 @@
 
 import { InventoryItem } from "./types";
 import { loadMovements } from "./storage";
+import { isLowStock, stockDeficit } from "./reorderStatus";
 
 // Client side of the opt-in reorder-reminder push notifications — see
 // pushServer.ts for the overall architecture. This module owns: asking for
@@ -60,10 +61,14 @@ export function buildDigest(items: InventoryItem[]): DigestPayload {
   const cutoff = Date.now() - USAGE_WINDOW_DAYS * 86_400_000;
 
   const lowStock = items
-    .filter((it) => it.quantity <= it.reorderAt)
+    // A case/pack with a linked broken-down item doesn't count as low just
+    // because its own quantity dipped — see reorderStatus.ts. Keeps push
+    // reminders from nagging about a case that still has a full buffer of
+    // loose stock backing it up.
+    .filter((it) => isLowStock(it, items))
     // Biggest deficit first — same urgency ordering the Inventory tab's
     // "Low stock first" sort uses.
-    .sort((a, b) => b.reorderAt - b.quantity - (a.reorderAt - a.quantity))
+    .sort((a, b) => stockDeficit(b, items) - stockDeficit(a, items))
     .slice(0, MAX_ITEMS_PER_LIST)
     .map((it) => ({ name: it.name, quantity: it.quantity, unit: it.unit, reorderAt: it.reorderAt }));
 

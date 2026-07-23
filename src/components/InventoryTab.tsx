@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { getKnownLocations } from "@/lib/locations";
+import { stockDeficit } from "@/lib/reorderStatus";
 import { InventorySort, getInventorySort, setInventorySort } from "@/lib/storage";
 import ItemCard from "./ItemCard";
 import ItemEditModal from "./ItemEditModal";
@@ -106,9 +107,12 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
     if (sort === "name") {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
     } else if (sort === "low-stock") {
-      // Biggest deficit (reorderAt - quantity) first, so whatever needs
-      // reordering most urgently surfaces at the top of the list.
-      sorted.sort((a, b) => b.reorderAt - b.quantity - (a.reorderAt - a.quantity));
+      // Biggest deficit first, so whatever needs reordering most urgently
+      // surfaces at the top of the list. Uses the full `items` list (not
+      // `base`/the filtered subset) so a break-down child that's currently
+      // filtered out of view is still found when computing a linked
+      // parent's effective quantity — see reorderStatus.ts.
+      sorted.sort((a, b) => stockDeficit(b, items) - stockDeficit(a, items));
     } else {
       // "recent" (default): most recently changed or scanned first.
       sorted.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
