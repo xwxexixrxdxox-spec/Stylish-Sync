@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { getKnownLocations } from "@/lib/locations";
@@ -36,6 +36,44 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
     setInventorySort(value);
   };
 
+  // Any live sort — "Recently changed" most of all, but "Low stock first"
+  // shifts under your finger too — can re-rank an item the instant its
+  // quantity or updatedAt changes. Without this, holding + on one item (or
+  // tapping the inline quantity editor) could yank that very item to a new
+  // spot in the list mid-interaction, or shove a *different* item under
+  // your finger right as you go to tap again. So: while any card reports
+  // activity (a step, a hold tick, opening/typing the quantity editor), the
+  // on-screen ORDER is frozen at whatever it was the instant before — the
+  // numbers on each card still update live — and only re-settles into the
+  // live sort order ~700ms after the last touch. isBusyRef/stableOrderRef
+  // are refs (not state) so every tick of a hold doesn't itself trigger an
+  // extra render; busyVersion is the one bit of state used to force a
+  // single recompute once the grace period actually elapses.
+  const ACTIVITY_FREEZE_MS = 700;
+  const isBusyRef = useRef(false);
+  const stableOrderRef = useRef<string[] | null>(null);
+  const unfreezeTimerRef = useRef<number | null>(null);
+  const [busyVersion, setBusyVersion] = useState(0);
+
+  const handleActivity = useCallback(() => {
+    isBusyRef.current = true;
+    if (unfreezeTimerRef.current !== null) {
+      window.clearTimeout(unfreezeTimerRef.current);
+    }
+    unfreezeTimerRef.current = window.setTimeout(() => {
+      isBusyRef.current = false;
+      unfreezeTimerRef.current = null;
+      setBusyVersion((v) => v + 1); // one recompute now that re-sorting is allowed again
+    }, ACTIVITY_FREEZE_MS);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (unfreezeTimerRef.current !== null) window.clearTimeout(unfreezeTimerRef.current);
+    },
+    []
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base = !q
@@ -46,6 +84,24 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
             it.barcode.toLowerCase().includes(q) ||
             (it.location || "").toLowerCase().includes(q)
         );
+
+    if (isBusyRef.current && stableOrderRef.current) {
+      const byId = new Map(base.map((it) => [it.id, it] as const));
+      const ordered: InventoryItem[] = [];
+      for (const id of stableOrderRef.current) {
+        const it = byId.get(id);
+        if (it) {
+          ordered.push(it);
+          byId.delete(id);
+        }
+      }
+      // Anything not in the frozen order — e.g. a new item scanned in or
+      // imported mid-interaction — just tacks onto the end rather than
+      // vanishing until the freeze lifts.
+      ordered.push(...byId.values());
+      return ordered;
+    }
+
     const sorted = [...base];
     if (sort === "name") {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
@@ -57,8 +113,10 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
       // "recent" (default): most recently changed or scanned first.
       sorted.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
     }
+    stableOrderRef.current = sorted.map((it) => it.id);
     return sorted;
-  }, [items, query, sort]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, query, sort, busyVersion]);
 
   const locations = useMemo(() => getKnownLocations(items), [items]);
 
@@ -132,6 +190,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
             onDelete={onDelete}
             onBreakCase={onBreakCase}
             tutorialTarget={index === 0}
+            onActivity={handleActivity}
           />
         ))}
         {filtered.length === 0 && (

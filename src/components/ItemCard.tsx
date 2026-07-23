@@ -21,9 +21,24 @@ interface Props {
   // to a specific item id, since the tour should still find something to
   // point at even after the seed items are edited or reordered.
   tutorialTarget?: boolean;
+  // Pings the parent list every time this card does something that could
+  // change sort order (a tap/hold step, opening or typing in the inline
+  // quantity editor). InventoryTab uses this to freeze the on-screen order
+  // for a moment so a live re-sort (e.g. "Recently changed") never yanks
+  // the card you're actively touching out from under your finger.
+  onActivity?: () => void;
 }
 
-export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBreakCase, tutorialTarget }: Props) {
+export default function ItemCard({
+  item,
+  items,
+  onAdjust,
+  onEdit,
+  onDelete,
+  onBreakCase,
+  tutorialTarget,
+  onActivity,
+}: Props) {
   const low = item.quantity <= item.reorderAt;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [breakingCase, setBreakingCase] = useState(false);
@@ -36,6 +51,7 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
   const [qtyDraft, setQtyDraft] = useState("");
 
   const startEditQty = () => {
+    onActivity?.();
     setQtyDraft(String(item.quantity));
     setEditingQty(true);
   };
@@ -43,6 +59,7 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
     setEditingQty(false);
     const next = Math.round(Number(qtyDraft));
     if (!Number.isFinite(next) || next < 0 || next === item.quantity) return;
+    onActivity?.();
     onAdjust(item.id, next - item.quantity);
   };
   // The linked each-item, looked up live by barcode every render rather
@@ -88,6 +105,7 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
   const HOLD_REPEAT_INTERVAL_MS = 120;
 
   const applyStep = (delta: 1 | -1, repeating: boolean) => {
+    onActivity?.();
     onAdjust(item.id, delta);
     playChime(delta > 0 ? "add" : "remove");
     setBurst((prev) =>
@@ -227,7 +245,10 @@ export default function ItemCard({ item, items, onAdjust, onEdit, onDelete, onBr
               type="number"
               inputMode="numeric"
               value={qtyDraft}
-              onChange={(e) => setQtyDraft(e.target.value)}
+              onChange={(e) => {
+                onActivity?.();
+                setQtyDraft(e.target.value);
+              }}
               onBlur={commitQty}
               onFocus={(e) => e.currentTarget.select()}
               onKeyDown={(e) => {
