@@ -134,14 +134,29 @@ export function respond(input: string, topicId?: string, history: HistoryTurn[] 
     };
   }
 
-  if (/^resolved$/i.test(trimmed)) {
+  // The quick-reply buttons for these two send their human-readable LABEL
+  // as the message text ("That fixed it 🎉" / "Still stuck") and the id
+  // ("resolved" / "still-stuck") separately as topicId — see
+  // SupportChatWidget.tsx's send(q.label, q.id). Checking `trimmed` against
+  // the literal id strings below only ever matched if someone hand-typed
+  // "resolved"/"still-stuck", which nobody does — every real button click
+  // fell straight through to the generic "pick a topic" fallback below with
+  // zero acknowledgment. That silent fall-through, on top of the topic
+  // steps themselves being byte-identical every time (see wasAlreadySaid
+  // above), was the actual loop: pick a topic → steps → tap "Still stuck"
+  // → generic "pick one of these" → pick the same topic again → identical
+  // steps again, forever. Checking topicId (falling back to the raw text,
+  // in case a future caller sends it as typed text instead) fixes both the
+  // dead branch and, by finally letting the real "sorry, email us" message
+  // through, closes the loop this was reported as.
+  if (topicId === "resolved" || /^resolved$/i.test(trimmed)) {
     return {
       reply: "Glad that worked! Anything else I can help with?",
       quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
     };
   }
 
-  if (/^still-stuck$/i.test(trimmed)) {
+  if (topicId === "still-stuck" || /^still-stuck$/i.test(trimmed)) {
     const reply =
       "Sorry that didn't do it. I don't have a live chat team behind me, but you can email the details and we'll dig in personally.";
     if (wasAlreadySaid(reply, history)) return loopBreakTurn();
