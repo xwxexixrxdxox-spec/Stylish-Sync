@@ -1,4 +1,4 @@
-import { TOPICS, BotTurn, checkEscalationRequest, respond as fallbackRespond } from "./supportBot";
+import { TOPICS, BotTurn, HistoryTurn, checkEscalationRequest, respond as fallbackRespond } from "./supportBot";
 
 // Clyde is WS Inventory Management's AI support assistant - a "pocket" version of an
 // AI assistant wired up to Ollama Cloud (a free-tier-friendly hosted model
@@ -8,10 +8,10 @@ import { TOPICS, BotTurn, checkEscalationRequest, respond as fallbackRespond } f
 // falls back to the free rule-based assistant instead of breaking support
 // chat entirely.
 
-export interface HistoryTurn {
-  role: "user" | "bot";
-  text: string;
-}
+// Re-exported from supportBot.ts (its true home now — see the comment
+// there) purely so the existing `import { HistoryTurn } from "./clyde"` in
+// route.ts keeps working without churn.
+export type { HistoryTurn };
 
 // gpt-oss:20b-cloud is Ollama Cloud's "Low Usage" tier - the best fit for a
 // free-tier account, since a lightweight support chat doesn't need a bigger
@@ -33,6 +33,8 @@ You can't take real actions (you can't change billing, sync data, or access anyo
 
 There is no live human chat team backing this app - you're the only support available in-app. If a customer explicitly asks for a live human/agent, say so plainly and don't pretend to connect them to anyone. The one paid, human option is the in-store inventory setup service (a technician physically comes and sets up their inventory on-site, booked from Account - the gear icon in the header) - mention that only if it's actually relevant to what they're asking.
 
+The conversation history below is the real transcript so far - actually read it before replying. If you already gave the customer troubleshooting steps for this same issue and they're telling you (again) that it's still not fixed, do NOT repeat the same steps verbatim - that just loops them in circles. Instead acknowledge that those steps already came up, ask one sharp clarifying question to narrow down what's different, or suggest emailing the specifics so a person can dig in directly.
+
 Reference troubleshooting steps for WS Inventory Management:
 
 ${KNOWLEDGE_BASE}`;
@@ -52,8 +54,9 @@ export async function respond(message: string, topicId: string | undefined, hist
   const apiKey = process.env.OLLAMA_API_KEY;
   if (!apiKey) {
     // No key configured yet - fall back to the free rule-based assistant
-    // rather than breaking support chat entirely.
-    return fallbackRespond(message, topicId);
+    // rather than breaking support chat entirely. Pass history through so
+    // its own loop-breaking (see supportBot.ts) still applies here.
+    return fallbackRespond(message, topicId, history);
   }
 
   try {
@@ -66,7 +69,7 @@ export async function respond(message: string, topicId: string | undefined, hist
       ],
     };
   } catch {
-    return fallbackRespond(message, topicId);
+    return fallbackRespond(message, topicId, history);
   }
 }
 

@@ -15,6 +15,16 @@ export interface BotTurn {
   escalateOffered?: boolean;
 }
 
+// Mirrors clyde.ts's chat history shape (a bot turn's text is stored here
+// verbatim) — declared in this module rather than clyde.ts so this file
+// (the one that actually needs it, to detect loops below) doesn't have to
+// import from clyde.ts, which itself imports from here. clyde.ts re-exports
+// this type so existing imports of it from there keep working.
+export interface HistoryTurn {
+  role: "user" | "bot";
+  text: string;
+}
+
 interface TroubleshootTopic {
   id: string;
   label: string;
@@ -80,7 +90,29 @@ export function getGreeting(): BotTurn {
   };
 }
 
-export function respond(input: string, topicId?: string): BotTurn {
+// The rule-based bot is stateless by design (every reply is a pure function
+// of the current input/topicId) — which is exactly what let it loop: a
+// customer who re-selects the same topic (or clicks "still stuck" more than
+// once) got the byte-identical reply every single time, forever, with
+// nothing ever changing. `history` is the transcript-so-far the client
+// already sends on every request (see SupportChatWidget.tsx) — passing it
+// through here just lets each branch check "have I already said this exact
+// thing?" before repeating itself, and break out into a different message
+// (pointing at emailing a person) instead of saying it again.
+function wasAlreadySaid(reply: string, history: HistoryTurn[]): boolean {
+  return history.some((h) => h.role === "bot" && h.text === reply);
+}
+
+function loopBreakTurn(topicLabel?: string): BotTurn {
+  return {
+    reply: topicLabel
+      ? `Looks like the steps for "${topicLabel}" already came up and didn't fix it — repeating them again isn't going to help. Email us the specifics and we'll dig in personally, or tell me more about exactly what's happening and I'll try a different angle.`
+      : "We're going in circles here — let's try something else. Email us the specifics and we'll dig in personally, or tell me more about exactly what's happening and I'll try a different angle.",
+    quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
+  };
+}
+
+export function respond(input: string, topicId?: string, history: HistoryTurn[] = []): BotTurn {
   const trimmed = input.trim();
 
   if (LIVE_AGENT_PATTERN.test(trimmed)) {
@@ -89,10 +121,12 @@ export function respond(input: string, topicId?: string): BotTurn {
 
   const topic = TOPICS.find((t) => t.id === topicId) ?? matchTopic(trimmed);
   if (topic) {
+    const reply = `Here's what usually fixes "${topic.label}":\n\n${topic.steps
+      .map((s, i) => `${i + 1}. ${s}`)
+      .join("\n")}\n\nDid that solve it?`;
+    if (wasAlreadySaid(reply, history)) return loopBreakTurn(topic.label);
     return {
-      reply: `Here's what usually fixes "${topic.label}":\n\n${topic.steps
-        .map((s, i) => `${i + 1}. ${s}`)
-        .join("\n")}\n\nDid that solve it?`,
+      reply,
       quickReplies: [
         { id: "resolved", label: "That fixed it 🎉" },
         { id: "still-stuck", label: "Still stuck" },
@@ -108,16 +142,20 @@ export function respond(input: string, topicId?: string): BotTurn {
   }
 
   if (/^still-stuck$/i.test(trimmed)) {
+    const reply =
+      "Sorry that didn't do it. I don't have a live chat team behind me, but you can email the details and we'll dig in personally.";
+    if (wasAlreadySaid(reply, history)) return loopBreakTurn();
     return {
-      reply:
-        "Sorry that didn't do it. I don't have a live chat team behind me, but you can email the details and we'll dig in personally.",
+      reply,
       quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
     };
   }
 
+  const fallbackReply =
+    "I want to make sure I point you to the right fix — is your issue closest to one of these?";
+  if (wasAlreadySaid(fallbackReply, history)) return loopBreakTurn();
   return {
-    reply:
-      "I want to make sure I point you to the right fix — is your issue closest to one of these?",
+    reply: fallbackReply,
     quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
   };
 }
