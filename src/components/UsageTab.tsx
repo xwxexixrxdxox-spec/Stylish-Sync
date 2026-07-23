@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { HelpCircle } from "lucide-react";
-import { InventoryItem, StockMovement } from "@/lib/types";
+import { InventoryItem, StockMovement, UsageRangeValue, USAGE_RANGE_OPTIONS } from "@/lib/types";
 import { loadMovements } from "@/lib/storage";
 import UsageImportPanel from "./UsageImportPanel";
 import Tooltip from "./Tooltip";
@@ -12,15 +12,6 @@ interface Props {
   onSave: (item: InventoryItem) => void;
 }
 
-const RANGE_OPTIONS: { label: string; value: RangeValue }[] = [
-  { label: "7d", value: 7 },
-  { label: "14d", value: 14 },
-  { label: "30d", value: 30 },
-  { label: "90d", value: 90 },
-  { label: "1y", value: 365 },
-  { label: "All", value: "all" },
-];
-type RangeValue = 7 | 14 | 30 | 90 | 365 | "all";
 type Granularity = "day" | "week" | "month";
 
 interface Bucket {
@@ -121,7 +112,7 @@ const REORDER_BUFFER_DAYS = 7;
 export default function UsageTab({ items, onSave }: Props) {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
-  const [rangeValue, setRangeValue] = useState<RangeValue>(30);
+  const [rangeValue, setRangeValue] = useState<UsageRangeValue>(30);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -134,6 +125,20 @@ export default function UsageTab({ items, onSave }: Props) {
   }, [items, selectedId]);
 
   const selectedItem = items.find((it) => it.id === selectedId) || null;
+
+  // Apply this item's own configured "track usage by" default (set from
+  // the pencil icon in Inventory — see ItemEditModal.tsx) the moment the
+  // dropdown switches to it, so a fast mover you've set to open on 7d
+  // doesn't require re-clicking the range picker every single time you
+  // land on it, while a rarely-restocked item can default to a longer
+  // window that actually shows a pattern. Keyed only on selectedId (not on
+  // selectedItem/items, which change on every unrelated inventory edit) so
+  // this only fires on an actual item switch, never fighting a range button
+  // the customer just clicked by hand while looking at the same item.
+  useEffect(() => {
+    setRangeValue(selectedItem?.usageTrackingDays ?? 30);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   const earliestMovementDate = useMemo(() => {
     if (!selectedItem) return null;
@@ -256,6 +261,12 @@ export default function UsageTab({ items, onSave }: Props) {
             effect until you pull. Adding a brand-new row (leave the "Sync ID" column blank) works too — it's picked
             up as a new usage entry on the next pull, matched to an item by its Barcode column.
           </p>
+          <p>
+            <span className="font-medium text-neutral-800">Default range per item:</span> the 7d/14d/30d/etc. buttons
+            below apply to whichever item is selected, and reset to 30d every time you switch items — unless that
+            item has its own default set. Set one from the pencil icon in Inventory (&quot;Track usage by&quot;) for
+            an item you always want to see over a shorter or longer window than the rest of your inventory.
+          </p>
         </div>
       )}
 
@@ -280,7 +291,7 @@ export default function UsageTab({ items, onSave }: Props) {
               ))}
             </select>
             <div className="flex flex-wrap gap-1.5">
-              {RANGE_OPTIONS.map((r) => (
+              {USAGE_RANGE_OPTIONS.map((r) => (
                 <button
                   key={r.label}
                   onClick={() => setRangeValue(r.value)}
@@ -295,6 +306,14 @@ export default function UsageTab({ items, onSave }: Props) {
               ))}
             </div>
           </div>
+
+          {selectedItem?.usageTrackingDays !== undefined && (
+            <p className="-mt-2 mb-4 text-[11px] text-neutral-400">
+              Opened to {selectedItem.name}&apos;s own default (
+              {USAGE_RANGE_OPTIONS.find((r) => r.value === selectedItem.usageTrackingDays)?.label}) — change it
+              anytime with the buttons above, or update the default itself from the pencil icon in Inventory.
+            </p>
+          )}
 
           {!hasAnyMovementsForItem ? (
             <p className="rounded-xl2 border border-dashed border-surface-border bg-white p-6 text-center text-sm text-neutral-400">

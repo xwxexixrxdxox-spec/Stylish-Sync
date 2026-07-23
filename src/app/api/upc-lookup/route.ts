@@ -22,6 +22,17 @@ import { isRateLimited } from "@/lib/rateLimit";
 // browser use.
 
 const MAX_BARCODE_LEN = 64;
+// UPCitemdb can legitimately return several listings for one UPC (the same
+// barcode gets reused/relabeled across regions, sellers, or product
+// variants) - only ever using items[0] silently committed to whichever one
+// happened to sort first, even when it was the wrong one. Capped at 5 so
+// the Scan tab's picker stays a quick glance, not a wall of near-duplicates.
+const MAX_CANDIDATES = 5;
+
+interface Candidate {
+  name: string;
+  price: number | null;
+}
 
 export async function GET(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
@@ -42,32 +53,49 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`);
-    if (!res.ok) return NextResponse.json({ name: null, price: null });
+    if (!res.ok) return NextResponse.json({ candidates: [] });
     const data = await res.json();
-    const item = data?.items?.[0];
-    const title: string | undefined = item?.title;
+    const items: unknown[] = Array.isArray(data?.items) ? data.items : [];
 
-    // Best-effort "latest price": UPCitemdb returns an offers[] array of
-    // per-merchant listings, each stamped with updated_t — the most
-    // recently updated one with a real price is the closest thing the
-    // provider has to current pricing. The recorded-price floor is the
-    // fallback for products whose offers have all gone stale/zero. Either
-    // way this is an online-listing estimate, not the customer's shelf
-    // tag — the Scan UI shows a disclaimer to that effect whenever it
-    // auto-fills.
-    let price: number | null = null;
-    const offers = Array.isArray(item?.offers) ? (item.offers as { price?: unknown; updated_t?: unknown }[]) : [];
-    const latestOffer = offers
-      .filter((o) => Number(o?.price) > 0)
-      .sort((a, b) => (Number(b?.updated_t) || 0) - (Number(a?.updated_t) || 0))[0];
-    if (latestOffer) price = Number(latestOffer.price);
-    else if (Number(item?.lowest_recorded_price) > 0) price = Number(item.lowest_recorded_price);
-    if (price !== null) price = Math.round(price * 100) / 100;
+    const candidates: Candidate[] = [];
+    const seenTitles = new Set<string>();
+    for (const raw of items) {
+      if (candidates.length >= MAX_CANDIDATES) break;
+      const item = raw as { title?: unknown; offers?: unknown; lowest_recorded_price?: unknown };
+      const title = typeof item.title === "string" ? item.title.trim() : "";
+      if (!title) continue;
+      // Same product listed twice (e.g. identical title from two
+      // merchants) shouldn't show up as two "different" choices in the
+      // picker — dedupe case-insensitively on the title.
+      const dedupeKey = title.toLowerCase();
+      if (seenTitles.has(dedupeKey)) continue;
+      seenTitles.add(dedupeKey);
 
-    return NextResponse.json({ name: title ?? null, price });
+      // Best-effort "latest price": UPCitemdb returns an offers[] array of
+      // per-merchant listings, each stamped with updated_t — the most
+      // recently updated one with a real price is the closest thing the
+      // provider has to current pricing. The recorded-price floor is the
+      // fallback for products whose offers have all gone stale/zero. Either
+      // way this is an online-listing estimate, not the customer's shelf
+      // tag — the Scan UI shows a disclaimer to that effect whenever it
+      // auto-fills.
+      let price: number | null = null;
+      const offers = Array.isArray(item.offers) ? (item.offers as { price?: unknown; updated_t?: unknown }[]) : [];
+      const latestOffer = offers
+        .filter((o) => Number(o?.price) > 0)
+        .sort((a, b) => (Number(b?.updated_t) || 0) - (Number(a?.updated_t) || 0))[0];
+      if (latestOffer) price = Number(latestOffer.price);
+      else if (Number(item.lowest_recorded_price) > 0) price = Number(item.lowest_recorded_price);
+      if (price !== null) price = Math.round(price * 100) / 100;
+
+      candidates.push({ name: title, price });
+    }
+
+    return NextResponse.json({ candidates });
   } catch {
     // Provider unreachable/erroring — same as "nothing found," callers
-    // already treat a null name as a silent miss, not an error state.
-    return NextResponse.json({ name: null, price: null });
+    // already treat an empty candidates array as a silent miss, not an
+    // error state.
+    return NextResponse.json({ candidates: [] });
   }
 }

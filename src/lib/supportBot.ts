@@ -82,6 +82,15 @@ const TOPICS: TroubleshootTopic[] = [
 
 const LIVE_AGENT_PATTERN = /\b(human|live agent|real person|representative|talk to (a |an )?(person|someone|human)|agent please|speak to)\b/i;
 
+// The one real "talk to a person" fallback this whole bot ever points
+// customers at. NOTE: this is a placeholder address — it isn't a live
+// mailbox yet (nothing forwards it to a real inbox), so wiring it in here
+// is step one of two; someone still needs to actually set up mail for
+// support@weirdsync.com (e.g. a free forwarding alias through whoever
+// weirdsync.com's DNS is hosted with, pointed at a real inbox) before a
+// customer's email actually reaches anyone.
+export const SUPPORT_EMAIL = "support@weirdsync.com";
+
 export function getGreeting(): BotTurn {
   return {
     reply:
@@ -106,8 +115,8 @@ function wasAlreadySaid(reply: string, history: HistoryTurn[]): boolean {
 function loopBreakTurn(topicLabel?: string): BotTurn {
   return {
     reply: topicLabel
-      ? `Looks like the steps for "${topicLabel}" already came up and didn't fix it — repeating them again isn't going to help. Email us the specifics and we'll dig in personally, or tell me more about exactly what's happening and I'll try a different angle.`
-      : "We're going in circles here — let's try something else. Email us the specifics and we'll dig in personally, or tell me more about exactly what's happening and I'll try a different angle.",
+      ? `Looks like the steps for "${topicLabel}" already came up and didn't fix it — repeating them again isn't going to help. Email ${SUPPORT_EMAIL} with the specifics and we'll dig in personally, or tell me more about exactly what's happening and I'll try a different angle.`
+      : `We're going in circles here — let's try something else. Email ${SUPPORT_EMAIL} with the specifics and we'll dig in personally, or tell me more about exactly what's happening and I'll try a different angle.`,
     quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
   };
 }
@@ -157,8 +166,7 @@ export function respond(input: string, topicId?: string, history: HistoryTurn[] 
   }
 
   if (topicId === "still-stuck" || /^still-stuck$/i.test(trimmed)) {
-    const reply =
-      "Sorry that didn't do it. I don't have a live chat team behind me, but you can email the details and we'll dig in personally.";
+    const reply = `Sorry that didn't do it. I don't have a live chat team behind me, but you can email the details to ${SUPPORT_EMAIL} and we'll dig in personally.`;
     if (wasAlreadySaid(reply, history)) return loopBreakTurn();
     return {
       reply,
@@ -194,8 +202,7 @@ export function checkEscalationRequest(input: string): BotTurn | null {
 
 function noLiveAgentTurn(): BotTurn {
   return {
-    reply:
-      "I don't have a live chat team to connect you to — it's just me! I can usually walk you through most issues, or if you'd rather have someone physically set up your inventory, there's a paid in-store setup option under Account.",
+    reply: `I don't have a live chat team to connect you to — it's just me! I can usually walk you through most issues, or you can email ${SUPPORT_EMAIL} and a person will follow up. If you'd rather have someone physically set up your inventory, there's also a paid in-store setup option under Account.`,
     quickReplies: TOPICS.map((t) => ({ id: t.id, label: t.label })),
   };
 }

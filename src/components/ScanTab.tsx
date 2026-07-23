@@ -7,7 +7,8 @@ import { InventoryItem, Unit, AccessCheckResponse } from "@/lib/types";
 import { getKnownLocations } from "@/lib/locations";
 import ReceiptScanTab from "@/components/ReceiptScanTab";
 import LocationField from "@/components/LocationField";
-import { lookupBarcode } from "@/lib/productLookup";
+import { lookupBarcodeCandidates, BarcodeLookupResult } from "@/lib/productLookup";
+import ItemEditModal from "@/components/ItemEditModal";
 import { contributeCommunityBarcode, lookupCommunityBarcode } from "@/lib/communityLookup";
 import { expandUpcEtoUpcA } from "@/lib/barcodeFormat";
 import { playChime } from "@/lib/chime";
@@ -39,6 +40,13 @@ interface Props {
   }) => void;
   onRemoveStock: (input: { barcode: string; quantity: number }) => void;
   access: AccessCheckResponse | null;
+  // Lets a customer fix a wrong name/price/unit on an item already sitting
+  // in their inventory right from the Scan tab the moment they notice it's
+  // off (see the "existing" lookup status below), instead of only via the
+  // pencil icon over on the Inventory tab. Reuses the exact same save/delete
+  // plumbing page.tsx already wires into InventoryTab.
+  onSaveItem: (item: InventoryItem) => void;
+  onDeleteItem: (id: string) => void;
 }
 
 // Surfaced next to the Barcode field so a lookup - whether triggered by the
@@ -48,8 +56,10 @@ interface Props {
 // are both successes, kept separate because they mean different things:
 // "existing" matched an item already in this inventory, "found" pulled a
 // product name from the external lookup for a barcode seen for the first
-// time.
-type LookupStatus = "idle" | "checking" | "existing" | "found" | "not-found";
+// time. "multiple" means the external lookup came back with more than one
+// plausible product for this barcode - see candidates state below - so
+// nothing gets auto-committed as confidently as a single hit would be.
+type LookupStatus = "idle" | "checking" | "existing" | "found" | "multiple" | "not-found";
 
 // Fallback for devices whose browser camera stream never reports a usable
 // focus capability at all (confirmed via the diagnostics above: some Android
@@ -63,7 +73,7 @@ type LookupStatus = "idle" | "checking" | "existing" | "found" | "not-found";
 // via <input type="file" capture>, then decodes that single still photo.
 
 
-export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Props) {
+export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSaveItem, onDeleteItem }: Props) {
   const [mode, setMode] = useState<"barcode" | "receipt">("barcode");
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
@@ -121,6 +131,18 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
   // any time the barcode changes or a lookup finds something, so a stale
   // barcode never gets contributed under a newer one.
   const pendingContributionRef = useRef<string | null>(null);
+  // Populated when the external lookup comes back with more than one
+  // plausible product (see MAX_CANDIDATES in api/upc-lookup) - the picker
+  // below lets the customer choose instead of silently trusting whichever
+  // one happened to sort first.
+  const [candidates, setCandidates] = useState<BarcodeLookupResult[]>([]);
+  // The inventory item currently matched by the barcode field (lookupStatus
+  // === "existing") - kept as its own piece of state (rather than
+  // re-deriving it inline at render time) so the "Something wrong? Fix it"
+  // shortcut below always opens the modal for exactly what was matched,
+  // even if `items` changes in between.
+  const [editingExisting, setEditingExisting] = useState<InventoryItem | null>(null);
+  const [fixModalOpen, setFixModalOpen] = useState(false);
 
   useEffect(
     () => () => {
@@ -307,12 +329,15 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     const existing = items.find((it) => it.barcode === canonical || it.barcode === trimmed);
     if (existing) {
       setLookupStatus("existing");
+      setEditingExisting(existing);
+      setCandidates([]);
       setName(existing.name);
       setUnit(existing.unit);
       setPrice(existing.pricePerUnit);
       setLocation(existing.location || "");
       return;
     }
+    setEditingExisting(null);
 
     setLookupStatus("checking");
 
@@ -323,26 +348,31 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     const community = await lookupCommunityBarcode(canonical);
     if (community) {
       setLookupStatus("found");
+      setCandidates([]);
       setName(community.name);
       if (community.unit) setUnit(community.unit as Unit);
       return;
     }
 
-    const found = await lookupBarcode(canonical);
-    if (found) {
+    // A single lookup can genuinely return more than one plausible product
+    // for the same barcode (reused/relabeled across sellers or regions) -
+    // see lookupBarcodeCandidates. One candidate auto-fills exactly like
+    // before; more than one hands the choice to the customer instead of
+    // silently trusting whichever sorted first.
+    const found = await lookupBarcodeCandidates(canonical);
+    if (found.length === 1) {
       setLookupStatus("found");
-      setName(found.name);
-      // A successful lookup fills in everything it has data for — name and
-      // (when the provider returned one) price — the same way it already
-      // did for name, so the form always reflects what was just found
-      // rather than leftovers from whatever was typed or scanned before
-      // it. The customer can still edit any field by hand afterward; typing
-      // in the price field retires the "estimated" disclaimer below (see
-      // its onChange) exactly like before.
-      if (found.price !== null) {
-        setPrice(found.price);
-        setPriceFromLookup(true);
-      }
+      setCandidates([]);
+      applyCandidate(found[0]);
+      return;
+    }
+    if (found.length > 1) {
+      setLookupStatus("multiple");
+      setCandidates(found);
+      // Pre-fill with the first as a reasonable starting point so the form
+      // is never left blank while they look over the alternates - still
+      // fully overridable by tapping a different candidate or just typing.
+      applyCandidate(found[0]);
       return;
     }
 
@@ -353,6 +383,22 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     // this customer or anyone else - resolves to the same shared entry.
     pendingContributionRef.current = canonical;
     setLookupStatus("not-found");
+    setCandidates([]);
+  };
+
+  // Fills the form from one external-lookup candidate. Name always
+  // overwrites (same "lookup wins, editing happens after" behavior as
+  // everything else here); price only overwrites - and only then shows the
+  // "online estimate" disclaimer - when this particular candidate actually
+  // has one, since not every listing does.
+  const applyCandidate = (candidate: BarcodeLookupResult) => {
+    setName(candidate.name);
+    if (candidate.price !== null) {
+      setPrice(candidate.price);
+      setPriceFromLookup(true);
+    } else {
+      setPriceFromLookup(false);
+    }
   };
 
   const handleBarcodeDetected = (code: string) => {
@@ -368,6 +414,8 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     setLookupStatus("idle");
     setExpandedFromUpcE(null);
     setPriceFromLookup(false);
+    setCandidates([]);
+    setEditingExisting(null);
     pendingContributionRef.current = null;
   };
 
@@ -393,6 +441,8 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     setLookupStatus("idle");
     setExpandedFromUpcE(null);
     setPriceFromLookup(false);
+    setCandidates([]);
+    setEditingExisting(null);
     lastLookedUpRef.current = null;
     pendingContributionRef.current = null;
   };
@@ -596,10 +646,26 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
             <p className="mt-1 text-[11px] text-neutral-400">🔎 Looking up barcode…</p>
           )}
           {lookupStatus === "existing" && (
-            <p className="mt-1 text-[11px] text-green-700">✓ Matches an item already in your inventory</p>
+            <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-green-700">
+              <span>✓ Matches an item already in your inventory</span>
+              {editingExisting && (
+                <button
+                  type="button"
+                  onClick={() => setFixModalOpen(true)}
+                  className="font-medium text-neutral-500 underline underline-offset-2 hover:text-neutral-800"
+                >
+                  Something wrong? Fix it
+                </button>
+              )}
+            </p>
           )}
           {lookupStatus === "found" && (
             <p className="mt-1 text-[11px] text-green-700">✓ Product found — details filled in below</p>
+          )}
+          {lookupStatus === "multiple" && (
+            <p className="mt-1 text-[11px] text-amber-700">
+              {candidates.length} possible matches found — pick the closest one below, or just type your own.
+            </p>
           )}
           {lookupStatus === "not-found" && (
             <p className="mt-1 text-[11px] text-amber-700">
@@ -607,6 +673,27 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
             </p>
           )}
         </Field>
+        {lookupStatus === "multiple" && (
+          <div className="space-y-1.5 rounded-lg border border-surface-border bg-surface-muted p-2">
+            <p className="text-[11px] font-medium text-neutral-600">Which one is it?</p>
+            {candidates.map((c, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => applyCandidate(c)}
+                className={`block w-full rounded-md border px-2 py-1.5 text-left text-xs ${
+                  name === c.name
+                    ? "border-neutral-900 bg-white font-medium text-neutral-900"
+                    : "border-surface-border bg-white text-neutral-600 hover:bg-surface-muted"
+                }`}
+              >
+                {c.name}
+                {c.price !== null && <span className="ml-1.5 text-neutral-400">· ${c.price.toFixed(2)} est.</span>}
+              </button>
+            ))}
+            <p className="text-[11px] text-neutral-400">None of these? Just edit the description below by hand.</p>
+          </div>
+        )}
         <Field label="Item Description">
           <input
             className="input"
@@ -747,6 +834,36 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
       )}
 
       {mode === "receipt" && <ReceiptScanTab items={items} onAddStock={onAddStock} />}
+
+      {fixModalOpen && editingExisting && (
+        <ItemEditModal
+          item={editingExisting}
+          items={items}
+          locations={knownLocations}
+          onClose={() => setFixModalOpen(false)}
+          onSave={(it) => {
+            onSaveItem(it);
+            setFixModalOpen(false);
+            setEditingExisting(it);
+            // Reflect the correction immediately in the form below rather
+            // than leaving the stale pre-fix values sitting there - the
+            // whole point of this shortcut is fixing bad data before
+            // adding more stock under it.
+            setName(it.name);
+            setUnit(it.unit);
+            setPrice(it.pricePerUnit);
+            setLocation(it.location || "");
+          }}
+          onDelete={(id) => {
+            onDeleteItem(id);
+            setFixModalOpen(false);
+            // The item this barcode matched no longer exists - nothing
+            // sensible to keep pre-filled, so start clean rather than
+            // leaving now-orphaned data in the form.
+            reset();
+          }}
+        />
+      )}
 
       <style jsx global>{`
         .input {

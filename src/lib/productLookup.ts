@@ -25,19 +25,44 @@ export interface BarcodeLookupResult {
   price: number | null;
 }
 
-export async function lookupBarcode(barcode: string): Promise<BarcodeLookupResult | null> {
+// UPCitemdb (the default provider) can return several listings for one
+// barcode — the same UPC gets reused/relabeled across regions, sellers, or
+// product variants — so a lookup is genuinely a list of candidates, not one
+// guaranteed-right answer. This always returns an array (possibly empty on
+// a miss) so callers decide how to handle 0 / 1 / many themselves, rather
+// than this module silently picking "the first one" on their behalf.
+export async function lookupBarcodeCandidates(barcode: string): Promise<BarcodeLookupResult[]> {
   const customUrl = process.env.NEXT_PUBLIC_UPC_LOOKUP_URL;
   try {
-    const url = customUrl
-      ? `${customUrl}?upc=${encodeURIComponent(barcode)}`
-      : `/api/upc-lookup?upc=${encodeURIComponent(barcode)}`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
+    // A self-hosted/paid NEXT_PUBLIC_UPC_LOOKUP_URL provider is a documented
+    // external contract (single { name, price? } per barcode) — changing
+    // that shape would break anyone who's already pointed their own
+    // deployment at a custom provider, so it's kept as single-result and
+    // just wrapped into a one-item (or empty) candidates array here. Only
+    // our own default /api/upc-lookup route (below) speaks the newer
+    // multi-candidate shape.
+    if (customUrl) {
+      const res = await fetch(`${customUrl}?upc=${encodeURIComponent(barcode)}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!data.name) return [];
+      const price = Number(data.price);
+      return [{ name: data.name, price: Number.isFinite(price) && price > 0 ? price : null }];
+    }
+
+    const res = await fetch(`/api/upc-lookup?upc=${encodeURIComponent(barcode)}`);
+    if (!res.ok) return [];
     const data = await res.json();
-    if (!data.name) return null;
-    const price = Number(data.price);
-    return { name: data.name, price: Number.isFinite(price) && price > 0 ? price : null };
+    const candidates: unknown[] = Array.isArray(data?.candidates) ? data.candidates : [];
+    return candidates
+      .map((c) => {
+        const item = c as { name?: unknown; price?: unknown };
+        if (typeof item.name !== "string" || !item.name) return null;
+        const price = Number(item.price);
+        return { name: item.name, price: Number.isFinite(price) && price > 0 ? price : null };
+      })
+      .filter((c): c is BarcodeLookupResult => c !== null);
   } catch {
-    return null;
+    return [];
   }
 }

@@ -1,4 +1,4 @@
-import { TOPICS, BotTurn, HistoryTurn, checkEscalationRequest, respond as fallbackRespond } from "./supportBot";
+import { TOPICS, BotTurn, HistoryTurn, SUPPORT_EMAIL, checkEscalationRequest, respond as fallbackRespond } from "./supportBot";
 
 // Clyde is WS Inventory Management's AI support assistant - a "pocket" version of an
 // AI assistant wired up to Ollama Cloud (a free-tier-friendly hosted model
@@ -33,7 +33,7 @@ You can't take real actions (you can't change billing, sync data, or access anyo
 
 There is no live human chat team backing this app - you're the only support available in-app. If a customer explicitly asks for a live human/agent, say so plainly and don't pretend to connect them to anyone. The one paid, human option is the in-store inventory setup service (a technician physically comes and sets up their inventory on-site, booked from Account - the gear icon in the header) - mention that only if it's actually relevant to what they're asking.
 
-The conversation history below is the real transcript so far - actually read it before replying. If you already gave the customer troubleshooting steps for this same issue and they're telling you (again) that it's still not fixed, do NOT repeat the same steps verbatim - that just loops them in circles. Instead acknowledge that those steps already came up, ask one sharp clarifying question to narrow down what's different, or suggest emailing the specifics so a person can dig in directly.
+The conversation history below is the real transcript so far - actually read it before replying. If you already gave the customer troubleshooting steps for this same issue and they're telling you (again) that it's still not fixed, do NOT repeat the same steps verbatim - that just loops them in circles. Instead acknowledge that those steps already came up, ask one sharp clarifying question to narrow down what's different, or suggest emailing the specifics so a person can dig in directly - the address is ${SUPPORT_EMAIL}. Only give that address out when you're actually pointing someone toward emailing (an escalation, or they ask how to contact support) - don't sign off every reply with it.
 
 Reference troubleshooting steps for WS Inventory Management:
 

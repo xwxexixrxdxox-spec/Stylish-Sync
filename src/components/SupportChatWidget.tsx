@@ -1,12 +1,38 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, ReactNode } from "react";
 import { Send } from "lucide-react";
-import { QuickReply } from "@/lib/supportBot";
+import { QuickReply, SUPPORT_EMAIL } from "@/lib/supportBot";
 
 interface ChatMessage {
   role: "bot" | "user";
   text: string;
+}
+
+// Bot replies mention an email address by name (see supportBot.ts/clyde.ts)
+// but that's just plain text sitting in a chat bubble - a customer who
+// actually wants to use it has to select and copy it by hand. This turns
+// any email address appearing in a BOT message into a real tap-to-email
+// link. Deliberately not dangerouslySetInnerHTML: a bot reply on the AI
+// path is LLM output, and rendering arbitrary HTML from that would be a
+// self-inflicted XSS hole - splitting into plain-text/anchor React nodes
+// keeps everything except the recognized address as inert text.
+const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+function renderWithMailtoLinks(text: string): ReactNode[] {
+  const parts = text.split(EMAIL_PATTERN);
+  const matches = text.match(EMAIL_PATTERN) ?? [];
+  const nodes: ReactNode[] = [];
+  parts.forEach((part, i) => {
+    if (part) nodes.push(part);
+    if (matches[i]) {
+      nodes.push(
+        <a key={i} href={`mailto:${matches[i]}`} className="underline underline-offset-2">
+          {matches[i]}
+        </a>
+      );
+    }
+  });
+  return nodes;
 }
 
 // Clyde-only support widget. There used to be a "live agent" escalation
@@ -69,7 +95,12 @@ export default function SupportChatWidget() {
     <div className="flex h-[70vh] max-h-[560px] flex-col overflow-hidden rounded-xl2 border border-surface-border bg-white shadow-card">
       <div className="border-b border-surface-border bg-neutral-900 px-4 py-3 text-white">
         <p className="text-sm font-semibold">Clyde</p>
-        <p className="text-xs text-white/60">Usually replies instantly</p>
+        <p className="text-xs text-white/60">
+          Usually replies instantly · or email{" "}
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="underline underline-offset-2 hover:text-white">
+            {SUPPORT_EMAIL}
+          </a>
+        </p>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -81,7 +112,7 @@ export default function SupportChatWidget() {
                   m.role === "user" ? "bg-brand text-brand-foreground" : "bg-surface-muted text-neutral-800"
                 }`}
               >
-                {m.text}
+                {m.role === "bot" ? renderWithMailtoLinks(m.text) : m.text}
               </div>
             </div>
           </div>

@@ -42,7 +42,33 @@ export interface InventoryItem {
   // How many of the linked each-item one unit of *this* item yields when
   // broken down (e.g. 12).
   breaksDownIntoQty?: number;
+  // Which usage-history window (UsageTab.tsx) this specific item should
+  // open to whenever it's picked from the Usage tab's item dropdown, rather
+  // than always landing on the app's blanket 30-day default. A fast-moving
+  // item and one that's only restocked a couple times a year don't want the
+  // same default lens, and re-clicking the range picker every time you
+  // switch to a particular item gets old. Undefined (the case for every
+  // item that existed before this field shipped, and any new one where the
+  // customer hasn't set a preference) just means "use the app default" —
+  // nothing about existing stored items changes on its own.
+  usageTrackingDays?: UsageRangeValue;
 }
+
+// Shared between UsageTab.tsx (the range-picker buttons) and
+// ItemEditModal.tsx (the per-item default above) so both stay in sync on
+// what values are actually valid — "all" is span-based (from the earliest
+// recorded movement) rather than a fixed day count, which is why this
+// isn't just `number`.
+export type UsageRangeValue = 7 | 14 | 30 | 90 | 365 | "all";
+
+export const USAGE_RANGE_OPTIONS: { label: string; value: UsageRangeValue }[] = [
+  { label: "7d", value: 7 },
+  { label: "14d", value: 14 },
+  { label: "30d", value: 30 },
+  { label: "90d", value: 90 },
+  { label: "1y", value: 365 },
+  { label: "All", value: "all" },
+];
 
 export interface StockMovement {
   id: string;

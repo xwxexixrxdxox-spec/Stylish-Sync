@@ -287,7 +287,16 @@ export default function HomePage() {
             onBreakCase={breakCase}
           />
         )}
-        {tab === "scan" && <ScanTab items={items} onAddStock={addStock} onRemoveStock={removeStock} access={access} />}
+        {tab === "scan" && (
+          <ScanTab
+            items={items}
+            onAddStock={addStock}
+            onRemoveStock={removeStock}
+            access={access}
+            onSaveItem={upsertItem}
+            onDeleteItem={deleteItem}
+          />
+        )}
         {tab === "reorder" && <ReorderTab items={items} />}
         {tab === "usage" && <UsageTab items={items} onSave={upsertItem} />}
         {tab === "support" && <SupportTab />}

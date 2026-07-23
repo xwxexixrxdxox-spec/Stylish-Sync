@@ -3,7 +3,7 @@
 import { InventoryItem } from "./types";
 import { expandUpcEtoUpcA } from "./barcodeFormat";
 import { lookupCommunityBarcode } from "./communityLookup";
-import { lookupBarcode } from "./productLookup";
+import { lookupBarcodeCandidates } from "./productLookup";
 
 // Bulk imports (a full inventory spreadsheet, or a barcode database being
 // shared to the community lookup — see ImportExportPanel.tsx and
@@ -109,9 +109,9 @@ export async function repairImportedBarcodes(
       }
       if (upcItemDbCallsUsed >= MAX_UPCITEMDB_CALLS) continue; // budget spent - community-only for the rest
       await sleep(UPC_LOOKUP_SPACING_MS);
-      const found = await lookupBarcode(candidate);
+      const found = await lookupBarcodeCandidates(candidate);
       upcItemDbCallsUsed += 1;
-      if (found) {
+      if (found.length > 0) {
         resolved.set(original, candidate);
         break;
       }

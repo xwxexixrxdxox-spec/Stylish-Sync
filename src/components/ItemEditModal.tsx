@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { InventoryItem } from "@/lib/types";
+import { InventoryItem, UsageRangeValue, USAGE_RANGE_OPTIONS } from "@/lib/types";
 import { X, Trash2 } from "lucide-react";
 import LocationField from "@/components/LocationField";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -140,6 +140,30 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
               />
             </Field>
           )}
+
+          <Field label="Track usage by (optional)">
+            <select
+              className="input"
+              value={draft.usageTrackingDays === undefined ? "" : String(draft.usageTrackingDays)}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const value: UsageRangeValue | undefined =
+                  raw === "" ? undefined : raw === "all" ? "all" : (Number(raw) as UsageRangeValue);
+                setDraft({ ...draft, usageTrackingDays: value });
+              }}
+            >
+              <option value="">App default (30d)</option>
+              {USAGE_RANGE_OPTIONS.map((r) => (
+                <option key={r.label} value={String(r.value)}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-neutral-400">
+              Sets which window the Usage tab opens to whenever this item is picked there — useful if a fast mover
+              needs a short recent view, or a rarely-restocked item needs a longer one to show any pattern at all.
+            </p>
+          </Field>
         </div>
 
         <div className="mt-5 flex items-center justify-between gap-3">
