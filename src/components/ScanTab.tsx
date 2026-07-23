@@ -332,12 +332,14 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access }: Pr
     if (found) {
       setLookupStatus("found");
       setName(found.name);
-      // Only pre-fill the price when the provider actually returned one and
-      // the customer hasn't already typed their own — never clobber a
-      // hand-entered price with an online estimate. The disclaimer flag
-      // goes up alongside it so the customer knows where the number came
-      // from.
-      if (found.price !== null && price === 0) {
+      // A successful lookup fills in everything it has data for — name and
+      // (when the provider returned one) price — the same way it already
+      // did for name, so the form always reflects what was just found
+      // rather than leftovers from whatever was typed or scanned before
+      // it. The customer can still edit any field by hand afterward; typing
+      // in the price field retires the "estimated" disclaimer below (see
+      // its onChange) exactly like before.
+      if (found.price !== null) {
         setPrice(found.price);
         setPriceFromLookup(true);
       }
