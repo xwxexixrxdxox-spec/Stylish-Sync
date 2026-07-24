@@ -1,6 +1,6 @@
 "use client";
 
-import { InventoryItem, StockMovement } from "./types";
+import { InventoryItem, StockMovement, PackageTracking } from "./types";
 
 // Local-first storage: the app works fully offline using localStorage as
 // the always-available cache, with Google Sheets as an optional
@@ -168,6 +168,7 @@ export function startFreshInventory(): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(ITEMS_KEY, JSON.stringify([]));
   window.localStorage.removeItem(MOVEMENTS_KEY);
+  window.localStorage.removeItem(PACKAGE_TRACKING_KEY);
 }
 
 export function getLinkedSheetId(): string | null {
@@ -278,6 +279,54 @@ export function replaceMovements(movements: StockMovement[]): void {
   const trimmed =
     movements.length > MAX_MOVEMENTS ? movements.slice(movements.length - MAX_MOVEMENTS) : movements;
   window.localStorage.setItem(MOVEMENTS_KEY, JSON.stringify(trimmed));
+}
+
+// EXPERIMENTAL — package tracking log (see PackageTracking in types.ts for
+// what "experimental" means here). Same local-first, itemId-keyed-array
+// shape as the movement log above, and the same MAX cap reasoning: this is
+// a customer-entered convenience log, not a database, so it's fine (and
+// simpler) to just drop the oldest entries rather than paginate/archive.
+const PACKAGE_TRACKING_KEY = "isc_package_tracking_v1";
+const MAX_PACKAGE_TRACKING = 200;
+
+export function loadPackageTracking(): PackageTracking[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PACKAGE_TRACKING_KEY);
+    return raw ? (JSON.parse(raw) as PackageTracking[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addPackageTracking(entry: Omit<PackageTracking, "id" | "addedAt">): PackageTracking {
+  const record: PackageTracking = {
+    id: `trk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    addedAt: new Date().toISOString(),
+    ...entry,
+  };
+  if (typeof window === "undefined") return record;
+  const all = loadPackageTracking();
+  all.push(record);
+  const trimmed = all.length > MAX_PACKAGE_TRACKING ? all.slice(all.length - MAX_PACKAGE_TRACKING) : all;
+  window.localStorage.setItem(PACKAGE_TRACKING_KEY, JSON.stringify(trimmed));
+  return record;
+}
+
+// Hides a tracking entry from view (received, cancelled, entered wrong)
+// without deleting it outright — see the `dismissed` field's comment in
+// types.ts for why. Use deletePackageTracking below for a real, permanent
+// removal.
+export function setPackageTrackingDismissed(id: string, dismissed: boolean): void {
+  if (typeof window === "undefined") return;
+  const all = loadPackageTracking().map((t) => (t.id === id ? { ...t, dismissed } : t));
+  window.localStorage.setItem(PACKAGE_TRACKING_KEY, JSON.stringify(all));
+}
+
+export function deletePackageTracking(id: string): void {
+  if (typeof window === "undefined") return;
+  const all = loadPackageTracking().filter((t) => t.id !== id);
+  window.localStorage.setItem(PACKAGE_TRACKING_KEY, JSON.stringify(all));
 }
 
 // --- Google Sheets sync state (per linked spreadsheet) ------------------
@@ -395,6 +444,7 @@ export async function clearAppCache(): Promise<void> {
   window.localStorage.removeItem(ITEMS_KEY);
   window.localStorage.removeItem(SHEET_LINK_KEY);
   window.localStorage.removeItem(MOVEMENTS_KEY);
+  window.localStorage.removeItem(PACKAGE_TRACKING_KEY);
   // Removing ITEMS_KEY here is also what makes isFreshInstall() true again
   // on the next load (reseeding the demo items) - clearing the tutorial
   // flag alongside it keeps those two "brand new customer" signals in

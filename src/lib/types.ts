@@ -88,6 +88,47 @@ export interface StockMovement {
   at: string;
 }
 
+// EXPERIMENTAL — see PackageTracking below for what "experimental" means
+// here specifically. Kept as its own type (rather than folded into
+// InventoryItem) the same way StockMovement is: a parallel, itemId-keyed
+// array, since one item can plausibly have more than one package in
+// flight (a second reorder placed before the first arrives).
+export type Carrier = "amazon" | "ups" | "fedex" | "usps";
+
+export const CARRIER_OPTIONS: { label: string; value: Carrier }[] = [
+  { label: "Amazon", value: "amazon" },
+  { label: "UPS", value: "ups" },
+  { label: "FedEx", value: "fedex" },
+  { label: "USPS", value: "usps" },
+];
+
+// EXPERIMENTAL: a customer-entered tracking number logged against a
+// reorder, purely so the Reorder tab can show "you already ordered this"
+// and hand back a link to the carrier's own public tracking page. This is
+// deliberately NOT live package-status polling — there's no carrier API
+// integration behind it (Amazon in particular has no public consumer
+// tracking API at all, same limitation already noted on the "Find on
+// Amazon" search link in ReorderTab.tsx), so nothing here ever tells you
+// a package shipped, is out for delivery, or arrived on its own; it just
+// remembers the number and the same link a customer would look up by
+// hand. Shown with an "Experimental" label in the UI until real usage
+// shows whether a manual log like this is actually useful as-is, or
+// whether it's worth the added complexity of real carrier-status
+// integration later.
+export interface PackageTracking {
+  id: string;
+  itemId: string; // the InventoryItem this package was ordered for
+  carrier: Carrier;
+  trackingNumber: string;
+  addedAt: string; // ISO
+  // Customer marked this as no longer relevant (received, cancelled,
+  // entered wrong) without permanently deleting the record outright —
+  // mainly so there's room for an "undo" later if that turns out to
+  // matter; storage.ts still caps total records the same way movements
+  // are capped, so this isn't unbounded growth either way.
+  dismissed?: boolean;
+}
+
 export type SupportAccessState = "unknown" | "locked" | "unlocked";
 
 export interface AccessCheckResponse {
