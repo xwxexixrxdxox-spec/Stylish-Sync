@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, CornerDownRight } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { getKnownLocations } from "@/lib/locations";
 import { stockDeficit } from "@/lib/reorderStatus";
@@ -122,6 +122,16 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, query, sort, busyVersion]);
 
+  // Purely a rendering-order transform — doesn't touch `filtered` itself,
+  // so the value banner, item count, and the freeze/stable-order mechanism
+  // above all keep working exactly as before against the flat sorted list.
+  // This just decides where each card *draws*: a break-down child that
+  // matches the current sort/search is pulled out of wherever it would
+  // otherwise land and re-inserted directly under its parent case, so the
+  // relationship reads as a visual group instead of two unrelated cards
+  // that might be far apart (e.g. under "Low stock first" or "Name A-Z").
+  const grouped = useMemo(() => groupBreakDownChildren(filtered), [filtered]);
+
   const locations = useMemo(() => getKnownLocations(items), [items]);
 
   // Estimated total dollar value of everything on hand: sum of quantity ×
@@ -184,19 +194,37 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
       {filtered.length > 0 && <InventoryValueBanner value={formattedValue} isFiltered={isFiltered} placement="top" />}
 
       <div className="space-y-2.5">
-        {filtered.map((item, index) => (
-          <ItemCard
-            key={item.id}
-            item={item}
-            items={items}
-            onAdjust={onAdjust}
-            onEdit={setEditing}
-            onDelete={onDelete}
-            onBreakCase={onBreakCase}
-            tutorialTarget={index === 0}
-            onActivity={handleActivity}
-          />
-        ))}
+        {grouped.map((entry, index) =>
+          entry.isChild ? (
+            <div key={entry.item.id} className="ml-6 border-l-2 border-dashed border-surface-border pl-3">
+              <p className="mb-1 flex items-center gap-1 text-[11px] font-medium text-neutral-400">
+                <CornerDownRight size={11} /> broken down from {entry.parentName}
+              </p>
+              <ItemCard
+                item={entry.item}
+                items={items}
+                onAdjust={onAdjust}
+                onEdit={setEditing}
+                onDelete={onDelete}
+                onBreakCase={onBreakCase}
+                tutorialTarget={false}
+                onActivity={handleActivity}
+              />
+            </div>
+          ) : (
+            <ItemCard
+              key={entry.item.id}
+              item={entry.item}
+              items={items}
+              onAdjust={onAdjust}
+              onEdit={setEditing}
+              onDelete={onDelete}
+              onBreakCase={onBreakCase}
+              tutorialTarget={index === 0}
+              onActivity={handleActivity}
+            />
+          )
+        )}
         {filtered.length === 0 && (
           <p className="rounded-xl2 border border-dashed border-surface-border bg-white p-6 text-center text-sm text-neutral-400">
             No items match "{query}".
@@ -227,6 +255,43 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
       )}
     </div>
   );
+}
+
+interface GroupedEntry {
+  item: InventoryItem;
+  isChild: boolean;
+  // Only set on a child entry — the case/pack item's name, shown as the
+  // "broken down from ___" caption above the nested card.
+  parentName?: string;
+}
+
+// Re-orders a flat (already filtered/sorted) list so each break-down child
+// renders immediately after its parent case item, instead of wherever it
+// happened to land in the name/recency/low-stock sort. Both items still
+// need to be *in* `list` for this to apply — a child hidden by the current
+// search, or a parent that's been filtered out, just renders on its own,
+// same as before this existed.
+function groupBreakDownChildren(list: InventoryItem[]): GroupedEntry[] {
+  const byBarcode = new Map(list.map((it) => [it.barcode, it] as const));
+  // Every child id that a parent in this list will place inline below —
+  // skipped at its own sorted position so it isn't rendered twice.
+  const childIds = new Set<string>();
+  for (const it of list) {
+    if (!it.breaksDownIntoBarcode) continue;
+    const child = byBarcode.get(it.breaksDownIntoBarcode);
+    if (child && child.id !== it.id) childIds.add(child.id);
+  }
+
+  const out: GroupedEntry[] = [];
+  for (const it of list) {
+    if (childIds.has(it.id)) continue;
+    out.push({ item: it, isChild: false });
+    if (it.breaksDownIntoBarcode) {
+      const child = byBarcode.get(it.breaksDownIntoBarcode);
+      if (child && child.id !== it.id) out.push({ item: child, isChild: true, parentName: it.name });
+    }
+  }
+  return out;
 }
 
 function InventoryValueBanner({

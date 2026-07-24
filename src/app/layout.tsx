@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import CookieConsentBanner from "@/components/CookieConsentBanner";
+import GoogleAnalytics from "@/components/GoogleAnalytics";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 import InstallPromptListener from "@/components/InstallPromptListener";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans antialiased">
         {children}
         <CookieConsentBanner />
+        <GoogleAnalytics />
         <ServiceWorkerRegistrar />
         <InstallPromptListener />
         <SpeedInsights />

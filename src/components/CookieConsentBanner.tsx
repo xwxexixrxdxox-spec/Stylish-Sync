@@ -8,7 +8,8 @@ import { getCookieConsent, setCookieConsent } from "@/lib/storage";
 // unlock support) with the customer's knowledge. Strictly-necessary items
 // (like the payment-verification cookie) work regardless of this choice —
 // declining only affects optional local memory such as remembering your
-// last-used import format.
+// last-used import format, plus (see GoogleAnalytics.tsx) whether Google
+// Analytics loads at all.
 export default function CookieConsentBanner() {
   const [visible, setVisible] = useState(false);
 
@@ -34,7 +35,8 @@ export default function CookieConsentBanner() {
     >
       <div className="mx-auto flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-neutral-600">
-          We use essential cookies to keep you signed in and remember your preferences on this device.{" "}
+          We use essential cookies to keep you signed in and remember your preferences on this device. Accepting
+          also turns on optional analytics that help us understand how the app is used.{" "}
           <a href="/privacy" className="underline underline-offset-2 hover:text-neutral-900">
             Privacy Policy
           </a>

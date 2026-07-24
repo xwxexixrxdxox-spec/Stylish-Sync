@@ -62,6 +62,7 @@ See `.env.example` for the full list with comments. Summary:
 | `SESSION_SECRET` | Signing the "verified paying customer" cookie | `openssl rand -hex 32` |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google Sheets sync | Google Cloud Console > Credentials |
 | `NEXT_PUBLIC_UPC_LOOKUP_URL` | Optional: paid barcode lookup | Your chosen provider |
+| `NEXT_PUBLIC_GA_MEASUREMENT_ID` | Optional: Google Analytics (consent-gated) | Google Analytics > Admin > Data Streams |
 | `NEXT_PUBLIC_STRIPE_PORTAL_URL` | "Manage billing" link | Stripe Dashboard > Settings > Billing |
 | `SUPPORT_TIMEZONE` / `SUPPORT_START_HOUR` / `SUPPORT_END_HOUR` | Live-agent hours | Defaults to America/Chicago 9–5 |
 

@@ -16,7 +16,7 @@ export default function PrivacyPage() {
           ← Back to app
         </a>
         <h1>Privacy Policy</h1>
-        <p className="text-sm text-neutral-500">Last updated: July 21, 2026</p>
+        <p className="text-sm text-neutral-500">Last updated: July 24, 2026</p>
 
         <h2>Who we are</h2>
         <p>
@@ -65,6 +65,14 @@ export default function PrivacyPage() {
           <li>
             <strong>Essential cookies</strong> used to keep you signed in and to remember that you're a verified,
             paying subscriber so the support feature stays unlocked across visits.
+          </li>
+          <li>
+            <strong>Optional analytics, only if you accept cookies</strong>: if you choose "Accept" on the cookie
+            banner, we load Google Analytics to see aggregate usage patterns (which pages get used, how often,
+            roughly what kind of device) so we know what to improve. It's configured with IP anonymization and with
+            Google's ad-personalization and Google Signals features turned off, so it's a plain usage-analytics
+            tool, not an advertising tracker. Declining, or not answering the banner yet, means it never loads at
+            all.
           </li>
         </ul>
 
@@ -192,12 +200,21 @@ export default function PrivacyPage() {
             . Stripe receives your payment details; it never receives your inventory or Google user data.
           </li>
           <li>
-            <strong>Google</strong> — optional Sheets sync, if you connect it. See{" "}
+            <strong>Google Sheets</strong> — optional Sheets sync, if you connect it. See{" "}
             <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">
               Google's Privacy Policy
             </a>
             . Google is the storage provider for your own spreadsheet; we do not transfer your data to Google — you
             sync it into your own account.
+          </li>
+          <li>
+            <strong>Google Analytics</strong> — optional usage analytics, only if you accept cookies on the banner.
+            A separate product from Sheets sync above: this one sends Google aggregate, anonymized-IP usage data
+            (not your inventory or Google account data). See{" "}
+            <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">
+              Google's Privacy Policy
+            </a>
+            .
           </li>
           <li>
             <strong>Vercel</strong> — hosts this website. Vercel serves the app's code and, like any web host, sees

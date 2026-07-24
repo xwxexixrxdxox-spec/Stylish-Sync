@@ -193,6 +193,13 @@ export async function getGoogleEmail(token: string): Promise<string | null> {
   }
 }
 
+// How long to wait for the picker to actually call back before giving up.
+// Exists purely as a safety net (see the timeout race below) — 25s is
+// generous for someone actively browsing their Drive, short enough that a
+// picker that's silently failed to connect doesn't leave the customer
+// staring at a stuck "Connecting…"/"Pulling…" button indefinitely.
+const PICKER_CALLBACK_TIMEOUT_MS = 25_000;
+
 // Opens Google's own "pick a file from your Drive" popup, scoped to
 // spreadsheets. Resolves with the picked spreadsheet's ID, or null if the
 // customer closes the picker without choosing anything (a normal, expected
@@ -206,7 +213,7 @@ export async function openSpreadsheetPicker(token: string): Promise<string | nul
   }
   await loadPickerApi();
 
-  return new Promise((resolve, reject) => {
+  const pickerPromise = new Promise<string | null>((resolve, reject) => {
     try {
       const view = new window.google.picker.DocsView(window.google.picker.ViewId.SPREADSHEETS)
         .setIncludeFolders(true)
@@ -215,6 +222,14 @@ export async function openSpreadsheetPicker(token: string): Promise<string | nul
       const picker = new window.google.picker.PickerBuilder()
         .setOAuthToken(token)
         .setDeveloperKey(apiKey)
+        // Mobile Safari (iOS) enforces stricter postMessage-origin checks
+        // between the picker's iframe and this page than desktop browsers
+        // do. Without an explicit origin, the picker can render fully open
+        // but never actually connect back to this window — every tap
+        // inside it silently does nothing, which is exactly what reads as
+        // the picker (and the page behind it, since it's a full-screen
+        // overlay) being "frozen." This is Google's own documented fix.
+        .setOrigin(window.location.origin)
         .setTitle("Choose your inventory spreadsheet")
         .addView(view)
         .setCallback((data: any) => {
@@ -230,6 +245,23 @@ export async function openSpreadsheetPicker(token: string): Promise<string | nul
       reject(e as Error);
     }
   });
+
+  // Belt-and-suspenders against the freeze bug above (or any other reason
+  // the picker's callback never fires — a flaky network mid-load, a popup
+  // blocked without an obvious error, etc.): every caller of this function
+  // awaits it while a button shows "Connecting…"/"Pulling…" and is
+  // disabled. Without a timeout, a picker that never calls back leaves
+  // that button stuck in its busy state forever, with no way for the
+  // customer to retry short of reloading the page. Racing against a clear,
+  // actionable timeout turns that dead end into a normal, recoverable error.
+  const timeout = new Promise<never>((_, reject) => {
+    window.setTimeout(
+      () => reject(new Error("The file picker didn't respond. Try again, or reload the page if it doesn't open.")),
+      PICKER_CALLBACK_TIMEOUT_MS
+    );
+  });
+
+  return Promise.race([pickerPromise, timeout]);
 }
 
 async function sheetsFetch(path: string, token: string, init?: RequestInit) {

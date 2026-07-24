@@ -329,6 +329,14 @@ export function setLastSyncedAt(spreadsheetId: string, iso: string): void {
 
 export type CookieConsent = "accepted" | "declined" | null;
 
+// Fired on window whenever the customer's choice changes, so anything else
+// mounted in the tree that gates behavior on consent (see
+// GoogleAnalytics.tsx) can react immediately without needing a reload —
+// CookieConsentBanner and a consent-gated component like that one are
+// siblings under layout.tsx, not parent/child, so a plain callback prop
+// can't reach across; a window event is the simplest thing that can.
+const COOKIE_CONSENT_EVENT = "isc-cookie-consent-changed";
+
 export function getCookieConsent(): CookieConsent {
   if (typeof window === "undefined") return null;
   return (window.localStorage.getItem(COOKIE_CONSENT_KEY) as CookieConsent) || null;
@@ -337,6 +345,16 @@ export function getCookieConsent(): CookieConsent {
 export function setCookieConsent(value: Exclude<CookieConsent, null>): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(COOKIE_CONSENT_KEY, value);
+  window.dispatchEvent(new CustomEvent<CookieConsent>(COOKIE_CONSENT_EVENT, { detail: value }));
+}
+
+// Subscribes to consent changes; returns an unsubscribe function so callers
+// can clean up in a useEffect the normal way.
+export function onCookieConsentChange(handler: (value: CookieConsent) => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const listener = (e: Event) => handler((e as CustomEvent<CookieConsent>).detail);
+  window.addEventListener(COOKIE_CONSENT_EVENT, listener);
+  return () => window.removeEventListener(COOKIE_CONSENT_EVENT, listener);
 }
 
 // Clears everything this app has cached locally: the Cache Storage API
