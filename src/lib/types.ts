@@ -230,8 +230,11 @@ export const BUSINESS_TIMEZONE = "America/New_York";
 
 // Lifecycle of the on-site visit itself, separate from the booking
 // request lifecycle above. Driven entirely by the admin (the technician
-// doing the visit); the customer-facing status page just reflects it.
-export type VisitStatus = "not_started" | "clocked_in" | "on_break" | "finished";
+// doing the visit) for every value except "cancelled", which the customer
+// (or the admin) can reach directly from any other state via cancelBooking.
+// The customer-facing status page just reflects whichever of these is
+// current.
+export type VisitStatus = "not_started" | "clocked_in" | "on_break" | "finished" | "cancelled";
 
 // A single break window during a visit. `minutes` is the actual elapsed
 // length, filled in once the break ends (on resume, or when the visit is
@@ -282,6 +285,15 @@ export interface BookingRecord {
   // (see deleteBooking in booking.ts), which is for mistaken/duplicate
   // entries that shouldn't exist at all.
   archived: boolean;
+  // Set once by the Stripe webhook when a real payment for this visit
+  // completes (see markBookingPaid in booking.ts) — null until then. Keyed
+  // off Stripe's own Checkout Session id (paidStripeSessionId) so the
+  // webhook firing more than once for the same session (Stripe's delivery
+  // is at-least-once, not exactly-once) can't double-charge the customer
+  // or double-count revenue.
+  paidAt: string | null;
+  paidStripeSessionId: string | null;
+  paidAmountCents: number | null;
 }
 
 // What the public status page (linked from the confirmation email, keyed
@@ -297,4 +309,11 @@ export interface PublicBookingStatus {
   visitStatus: VisitStatus;
   statusUpdatedAt: string;
   autoClockedOut: boolean;
+  // Real hours this visit is actually billed for (see billableHours in
+  // booking.ts) — distinct from `hours` above, which is only ever the
+  // originally *scheduled* length. A visit that ran long or wrapped up
+  // early bills off this number, not the scheduled one, so the customer-
+  // facing "Pay now" amount always matches what actually gets charged.
+  billableHours: number;
+  paidAt: string | null;
 }

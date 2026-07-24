@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CircleDot, Coffee, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { CircleDot, Coffee, CheckCircle2, Clock, AlertCircle, XCircle } from "lucide-react";
 import { PublicBookingStatus, VisitStatus } from "@/lib/types";
 import { computeVisitCharge } from "@/lib/stripeTiers";
 
@@ -10,6 +10,7 @@ const STATUS_COPY: Record<VisitStatus, { label: string; sub: string; icon: typeo
   clocked_in: { label: "In progress", sub: "The technician is on-site and working.", icon: CircleDot },
   on_break: { label: "On a break", sub: "The technician is taking a short break and will resume shortly.", icon: Coffee },
   finished: { label: "Finished", sub: "Your visit is complete.", icon: CheckCircle2 },
+  cancelled: { label: "Cancelled", sub: "This visit request was cancelled.", icon: XCircle },
 };
 
 function formatTime(hhmm: string): string {
@@ -84,14 +85,22 @@ export default function VisitStatusCard({ bookingId }: Props) {
         )}
       </section>
 
-      {status.visitStatus === "finished" && (
-        <a
-          href={`/api/book-appointment/checkout?id=${encodeURIComponent(status.id)}`}
-          className="block rounded-xl2 border border-neutral-900 bg-neutral-900 py-2.5 text-center text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:opacity-90"
-        >
-          Pay now — {computeVisitCharge(status.hours).label}
-        </a>
-      )}
+      {status.visitStatus === "finished" &&
+        (status.paidAt ? (
+          <div className="flex items-center justify-center gap-1.5 rounded-xl2 border border-green-200 bg-green-50 py-2.5 text-center text-sm font-semibold text-green-800">
+            <CheckCircle2 size={16} /> Paid — {computeVisitCharge(status.billableHours).label}
+          </div>
+        ) : (
+          <a
+            href={`/api/book-appointment/checkout?id=${encodeURIComponent(status.id)}`}
+            className="block rounded-xl2 border border-neutral-900 bg-neutral-900 py-2.5 text-center text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:opacity-90"
+          >
+            {/* Billed off real clocked time (billableHours), not the
+                originally scheduled `hours` — a visit that ran long or
+                wrapped up early bills accurately either way. */}
+            Pay now — {computeVisitCharge(status.billableHours).label}
+          </a>
+        ))}
     </div>
   );
 }

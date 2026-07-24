@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 interface Props {
   title: string;
   message: string;
@@ -29,14 +31,67 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Focus the dialog as soon as it mounts, so keyboard/screen-reader users
+  // land inside it rather than staying on whatever triggered it underneath.
+  useEffect(() => {
+    cardRef.current?.focus();
+  }, []);
+
+  // Escape cancels, same as tapping the backdrop - but not while `busy`,
+  // since a confirm is already in flight and letting Escape fire onCancel
+  // mid-request would contradict the disabled Cancel/Confirm buttons right
+  // next to it.
+  useEffect(() => {
+    if (busy) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, onCancel]);
+
+  // Minimal focus trap, matching TutorialOverlay's callout: Tab/Shift+Tab
+  // cycles only between this dialog's own two buttons instead of escaping
+  // to whatever's behind the backdrop.
+  const onCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !cardRef.current) return;
+    const focusable = cardRef.current.querySelectorAll<HTMLElement>("button");
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
       onClick={onCancel}
     >
-      <div className="w-full max-w-sm rounded-xl2 bg-white p-5 shadow-card" onClick={(e) => e.stopPropagation()}>
-        <p className="mb-1.5 text-sm font-semibold text-neutral-900">{title}</p>
-        <p className="mb-4 text-sm text-neutral-600">{message}</p>
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        aria-describedby="confirm-dialog-message"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onCardKeyDown}
+        className="w-full max-w-sm rounded-xl2 bg-white p-5 shadow-card outline-none"
+      >
+        <p id="confirm-dialog-title" className="mb-1.5 text-sm font-semibold text-neutral-900">
+          {title}
+        </p>
+        <p id="confirm-dialog-message" className="mb-4 text-sm text-neutral-600">
+          {message}
+        </p>
         <div className="flex gap-2">
           <button
             disabled={busy}

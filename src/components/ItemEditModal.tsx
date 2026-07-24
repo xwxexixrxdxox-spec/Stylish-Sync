@@ -32,6 +32,19 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
   // trash icon on the inventory card itself.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
+  // Neither of these was validated before: a blank name produced an
+  // untitled, indistinguishable card, and a barcode duplicating another
+  // item's silently broke that other barcode's scan matching, restock, and
+  // "breaks down into" link (all of which resolve the first match only).
+  // Checked live so the customer sees the problem before tapping Save
+  // rather than after.
+  const trimmedName = draft.name.trim();
+  const nameError = trimmedName.length === 0;
+  const trimmedBarcode = draft.barcode.trim();
+  const duplicateBarcode =
+    trimmedBarcode.length > 0 && items.some((it) => it.id !== item.id && it.barcode === trimmedBarcode);
+  const canSave = !nameError && !duplicateBarcode;
+
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
       <div
@@ -52,6 +65,7 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
               value={draft.name}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             />
+            {nameError && <p className="mt-1 text-[11px] text-accent-low">Name can&apos;t be blank.</p>}
           </Field>
           <Field label="Barcode">
             <input
@@ -59,6 +73,12 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
               value={draft.barcode}
               onChange={(e) => setDraft({ ...draft, barcode: e.target.value })}
             />
+            {duplicateBarcode && (
+              <p className="mt-1 text-[11px] text-accent-low">
+                Another item already uses this barcode — scans and restocks would only ever reach whichever one
+                matches first.
+              </p>
+            )}
           </Field>
           <Field label="Location">
             <LocationField
@@ -174,8 +194,11 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
             <Trash2 size={16} /> Delete
           </button>
           <button
-            onClick={() => onSave({ ...draft, updatedAt: new Date().toISOString() })}
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90"
+            disabled={!canSave}
+            onClick={() =>
+              onSave({ ...draft, name: trimmedName, barcode: trimmedBarcode, updatedAt: new Date().toISOString() })
+            }
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Save
           </button>

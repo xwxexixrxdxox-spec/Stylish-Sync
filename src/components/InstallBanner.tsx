@@ -22,7 +22,15 @@ import { getInstallBannerDismissed, setInstallBannerDismissed } from "@/lib/stor
 // never stacks on top of the consent banner (which owns the very bottom of
 // the screen for a brand-new visitor); it appears only once that's out of
 // the way.
-export default function InstallBanner() {
+interface Props {
+  // While true, this banner stays hidden even if it would otherwise want to
+  // show (e.g. the onboarding tutorial is active and already owns the
+  // screen's attention). It keeps polling/evaluating underneath so it can
+  // appear immediately once unsuppressed, rather than losing its state.
+  suppressed?: boolean;
+}
+
+export default function InstallBanner({ suppressed = false }: Props) {
   const [visible, setVisible] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [showIosSteps, setShowIosSteps] = useState(false);
@@ -75,7 +83,7 @@ export default function InstallBanner() {
     }
   };
 
-  if (!visible) return null;
+  if (!visible || suppressed) return null;
 
   return (
     <div className="fixed inset-x-0 bottom-16 z-40 px-3">

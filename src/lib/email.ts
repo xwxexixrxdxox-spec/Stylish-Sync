@@ -1,4 +1,6 @@
 import { VISIT_OFFER, computeVisitCharge } from "./stripeTiers";
+import { billableHours } from "./booking";
+import { BookingRecord } from "./types";
 
 // Thin wrapper around Resend's REST API (https://resend.com) for the
 // transactional emails the booking flow sends: notifications to the
@@ -197,8 +199,12 @@ export async function sendAdminPasswordResetEmail(token: string): Promise<{ ok: 
   return sendEmail({ to: ownerEmail, subject: "Reset your admin password", html });
 }
 
-export async function sendVisitFinishedEmail(details: CancellationEmailDetails): Promise<void> {
-  const charge = computeVisitCharge(details.hours);
+export async function sendVisitFinishedEmail(details: BookingRecord): Promise<void> {
+  // Billed off real clocked time (billableHours), not the originally
+  // scheduled `hours` - see billableHours' own comment in booking.ts for
+  // why. Both call sites of this function pass a full BookingRecord, so
+  // the real clock-in/break data billableHours needs is always present.
+  const charge = computeVisitCharge(billableHours(details));
   const payUrl = `${SITE_URL}/api/book-appointment/checkout?id=${encodeURIComponent(details.id)}`;
   const html = `
     <h2>Your visit is complete</h2>

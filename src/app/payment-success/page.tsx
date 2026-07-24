@@ -5,6 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, XCircle, Loader2, CalendarDays } from "lucide-react";
 import { VISIT_OFFER } from "@/lib/stripeTiers";
 
+// NOTE (audit, 2026-07): no code left in this repo creates a Checkout
+// Session that redirects here in "subscription" mode - the current booking
+// flow only ever creates "payment"-mode sessions (createVisitCheckoutSession
+// in stripeServer.ts), which land on the "ok-install" branch below. The
+// "ok-subscription" branch is a holdover from the old recurring-plan pricing
+// model and, as far as this repo can tell, is now unreachable *unless* a
+// legacy Stripe Payment Link (see VISIT_OFFER.paymentLinkUrl's comment in
+// stripeTiers.ts) is still configured in the live Stripe Dashboard to
+// redirect here - that can't be verified from the codebase alone. Left in
+// place rather than deleted so an old link (if still live anywhere) doesn't
+// break; safe to remove once that's confirmed dead.
 type State = "verifying" | "ok-subscription" | "ok-install" | "error";
 
 function PaymentSuccessInner() {

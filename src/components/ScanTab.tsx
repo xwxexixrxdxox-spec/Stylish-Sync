@@ -22,6 +22,7 @@ import {
 } from "@/lib/cameraTuning";
 import { SCAN_HINTS, MAX_PHOTO_DIMENSION, decodePhotoToCanvas } from "@/lib/photoBarcodeScan";
 import { setActiveCameraStream } from "@/lib/activeCameraStream";
+import { isTestToolsEnabled } from "@/lib/devMode";
 
 const UNITS: Unit[] = [
   "ea", "box", "case", "pack", "bag", "bottle", "can", "roll", "dozen", "pair",
@@ -38,7 +39,11 @@ interface Props {
     pricePerUnit: number;
     location?: string;
   }) => void;
-  onRemoveStock: (input: { barcode: string; quantity: number }) => void;
+  // Returns whether a matching item was actually found and had stock
+  // removed - lets the caller (this component) tell a real removal apart
+  // from a no-op tap on a barcode that isn't in inventory, so it isn't
+  // reported to the customer as a success either way.
+  onRemoveStock: (input: { barcode: string; quantity: number }) => boolean;
   access: AccessCheckResponse | null;
   // Lets a customer fix a wrong name/price/unit on an item already sitting
   // in their inventory right from the Scan tab the moment they notice it's
@@ -118,6 +123,12 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
   // stock buttons, shown here on Add Stock / Remove after a successful tap.
   const [burst, setBurst] = useState<{ sign: 1 | -1; key: number; qty: number } | null>(null);
   const burstKeyRef = useRef(0);
+  // Surfaces a real "nothing happened" message when Remove is tapped for a
+  // barcode that doesn't match anything already in inventory - onRemoveStock
+  // reports back whether it actually matched (see page.tsx), so this only
+  // fires the success chime/animation for a real removal instead of always
+  // firing it regardless of whether stock actually moved.
+  const [actionError, setActionError] = useState<string | null>(null);
   // Dedupes lookups so blur + Enter on the same unchanged barcode (or a
   // scan of a barcode someone already typed) doesn't fire a second
   // network request for a result we already have.
@@ -441,6 +452,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
     setLookupStatus("idle");
     setExpandedFromUpcE(null);
     setPriceFromLookup(false);
+    setActionError(null);
     setCandidates([]);
     setEditingExisting(null);
     lastLookedUpRef.current = null;
@@ -539,7 +551,13 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
           Cancel scan
         </button>
       </div>
-      {(scanning || diagnostics.attempts > 0) && (
+      {/* Dev/QA-only: this was always meant to be temporary instrumentation
+          for chasing camera-focus issues, not something a real customer
+          should see mid-scan. Gated the same way the dev access toggle and
+          check-access route already gate their own test-only affordances,
+          so it never ships to production but still works under `next dev`
+          or NEXT_PUBLIC_ENABLE_TEST_TOOLS=true. */}
+      {isTestToolsEnabled() && (scanning || diagnostics.attempts > 0) && (
         <div className="mt-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-3">
           <p className="mb-1.5 text-xs font-semibold text-neutral-500">Scan diagnostics (temporary)</p>
           <div className="space-y-0.5 font-mono text-[11px] leading-relaxed text-neutral-600">
@@ -714,9 +732,18 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
           <Field label="Quantity">
             <input
               type="number"
+              min="0"
+              step="1"
               className="input"
               value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
+              // Clamped to a non-negative integer at the input itself - a
+              // typed "-3" or "1.5" would otherwise flow straight into
+              // Add/Remove Stock below (a negative "add" actually reduces
+              // stock while logging itself as an add, and a negative
+              // "remove" would try to increase stock through the remove
+              // path) instead of being caught here where the customer can
+              // see it got corrected.
+              onChange={(e) => setQuantity(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
             />
           </Field>
           <Field label="Unit">
@@ -757,9 +784,10 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
         <div className="flex gap-2 pt-1">
           <div className="relative flex-1">
             <button
+              disabled={!name.trim() || quantity <= 0}
               onClick={() => {
                 const trimmedName = name.trim();
-                if (!trimmedName) return;
+                if (!trimmedName || quantity <= 0) return;
                 // Only contribute to the shared database when this exact
                 // barcode just came back "not-found" - never for a match
                 // against an existing item or an external-lookup result,
@@ -780,7 +808,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
                 setBurst({ sign: 1, key: burstKeyRef.current, qty: quantity });
                 reset();
               }}
-              className="w-full rounded-lg bg-green-600 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+              className="w-full rounded-lg bg-green-600 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span
                 key={burst?.sign === 1 ? burst.key : "idle-add"}
@@ -801,15 +829,23 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
           </div>
           <div className="relative flex-1">
             <button
+              disabled={!barcode.trim() || quantity <= 0}
               onClick={() => {
-                if (!barcode.trim()) return;
-                onRemoveStock({ barcode, quantity });
+                if (!barcode.trim() || quantity <= 0) return;
+                const removed = onRemoveStock({ barcode, quantity });
+                if (!removed) {
+                  // A real "nothing happened" - no chime, no burst
+                  // animation, no reset, so the customer isn't told stock
+                  // moved when it didn't (see onRemoveStock's contract).
+                  setActionError("No item in your inventory matches this barcode yet, so nothing was removed.");
+                  return;
+                }
                 playChime("remove");
                 burstKeyRef.current += 1;
                 setBurst({ sign: -1, key: burstKeyRef.current, qty: quantity });
                 reset();
               }}
-              className="w-full rounded-lg bg-red-500 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+              className="w-full rounded-lg bg-red-500 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span
                 key={burst?.sign === -1 ? burst.key : "idle-remove"}
@@ -829,6 +865,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
             )}
           </div>
         </div>
+        {actionError && <p className="mt-2 text-xs text-accent-low">{actionError}</p>}
       </div>
         </>
       )}

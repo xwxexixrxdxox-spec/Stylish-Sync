@@ -43,7 +43,11 @@ export async function GET(req: NextRequest) {
     // "payment" = a one-time charge (e.g. the in-store install booking
     // fee); "subscription" = one of the legacy recurring plans. The
     // frontend uses this to decide whether to show the install-scheduling
-    // calendar or the old "welcome to Premium" confirmation.
+    // calendar or the old "welcome to Premium" confirmation. Nothing in
+    // this repo currently creates a "subscription"-mode Checkout Session
+    // that lands here - see the NOTE atop payment-success/page.tsx. This
+    // route itself stays generic (it just reports back whatever mode
+    // Stripe says the session was), so no change needed here either way.
     const res = NextResponse.json({ ok: true, mode: checkoutSession.mode });
     res.cookies.set(SESSION_COOKIE_NAME, cookieValue, {
       httpOnly: true,

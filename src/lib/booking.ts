@@ -91,6 +91,9 @@ function parseBookingRecord(raw: string): BookingRecord {
     breaks: Array.isArray(record.breaks) ? record.breaks : [],
     autoClockedOut: record.autoClockedOut ?? false,
     archived: record.archived ?? false,
+    paidAt: record.paidAt ?? null,
+    paidStripeSessionId: record.paidStripeSessionId ?? null,
+    paidAmountCents: record.paidAmountCents ?? null,
   };
 }
 
@@ -188,6 +191,9 @@ export async function claimSlots(
     | "breaks"
     | "autoClockedOut"
     | "archived"
+    | "paidAt"
+    | "paidStripeSessionId"
+    | "paidAmountCents"
   >
 ): Promise<ClaimResult> {
   const redis = await getRedis();
@@ -212,6 +218,9 @@ export async function claimSlots(
     breaks: [],
     autoClockedOut: false,
     archived: false,
+    paidAt: null,
+    paidStripeSessionId: null,
+    paidAmountCents: null,
     ...details,
   };
   const payload = JSON.stringify(record);
@@ -297,12 +306,40 @@ function totalBreakMinutes(breaks: BreakRecord[]): number {
 // actually been worked" matters — deliberately based on real timestamps,
 // not the visit's scheduled `hours`, since that's what an hours cap should
 // actually be measuring.
-function actualOrInProgressMinutes(record: BookingRecord): number {
+export function actualOrInProgressMinutes(record: BookingRecord): number {
   if (!record.clockInAt) return 0;
   const startMs = new Date(record.clockInAt).getTime();
   const endMs = record.visitStatus === "finished" ? new Date(record.statusUpdatedAt).getTime() : Date.now();
   const rawMinutes = Math.max(0, (endMs - startMs) / 60_000);
   return Math.max(0, rawMinutes - totalBreakMinutes(record.breaks));
+}
+
+// What this visit is actually charged for — real clocked time, not the
+// originally *scheduled* `hours`. Previously every billing path
+// (createVisitCheckoutSession, the customer status card, the
+// finished-visit email) charged off record.hours regardless of how long
+// the visit actually ran: a 4h booking that ran 12h and got force-clocked-
+// out still only charged for 4, and a visit that wrapped up early still
+// charged the full scheduled amount.
+//
+// Rounds UP to the next whole hour ("any part of an hour counts as a full
+// hour," standard trade-service billing) rather than to the nearest one -
+// partly because that's a defensible norm, but mainly because it keeps
+// this a whole number: the hourly Stripe Price is billed as
+// quantity-of-whole-units, which the Stripe API rejects as an invalid
+// integer for anything fractional (a 4h07m visit would otherwise try to
+// check out at quantity 4.12 and fail outright).
+//
+// Falls back to the scheduled hours when there's genuinely no clock-in on
+// record (an admin marked a visit finished without ever clocking in, or a
+// visit that got clocked in and out within the same minute) — a missing
+// real number is a better-than-nothing approximation, not a reason to
+// bill $0 for a visit that happened.
+export function billableHours(record: BookingRecord): number {
+  if (!record.clockInAt) return record.hours;
+  const minutes = actualOrInProgressMinutes(record);
+  if (minutes <= 0) return record.hours;
+  return Math.max(1, Math.ceil(minutes / 60));
 }
 
 // Sunday 00:00 through the following Sunday 00:00, in BUSINESS_TIMEZONE,
@@ -448,8 +485,8 @@ export async function getBooking(id: string): Promise<BookingRecord | null> {
 // Stripped-down view for the public, token-less status page — see
 // PublicBookingStatus's own comment for why these specific fields.
 export function toPublicStatus(record: BookingRecord): PublicBookingStatus {
-  const { id, name, date, start, hours, visitStatus, statusUpdatedAt, autoClockedOut } = record;
-  return { id, name, date, start, hours, visitStatus, statusUpdatedAt, autoClockedOut };
+  const { id, name, date, start, hours, visitStatus, statusUpdatedAt, autoClockedOut, paidAt } = record;
+  return { id, name, date, start, hours, visitStatus, statusUpdatedAt, autoClockedOut, paidAt, billableHours: billableHours(record) };
 }
 
 export interface BookingMutationResult {
@@ -574,12 +611,53 @@ export async function updateVisitStatus(id: string, status: VisitStatus): Promis
   return { ok: true, record };
 }
 
+// Called from the Stripe webhook once a real payment for this visit
+// completes. Idempotent against Stripe's at-least-once webhook delivery:
+// if this exact Checkout Session id has already been recorded as the one
+// that paid this booking, the second (or third...) delivery is a no-op
+// rather than double-processing anything. A booking id with no matching
+// record (deleted/mistyped) or a payment for a session id that doesn't
+// match what's already on file for an *already-paid* booking both return
+// ok:false so the caller can log it rather than silently drop it.
+export async function markBookingPaid(
+  id: string,
+  opts: { stripeSessionId: string; amountCents: number }
+): Promise<BookingMutationResult> {
+  const redis = await getRedis();
+  const raw = await redis.get(bookingKey(id));
+  if (!raw) return { ok: false, error: "That booking no longer exists." };
+
+  const record = parseBookingRecord(raw);
+  if (record.paidStripeSessionId === opts.stripeSessionId) {
+    // Same session already recorded — a Stripe webhook retry, not a new
+    // payment. Report success without writing again.
+    return { ok: true, record };
+  }
+
+  const updated: BookingRecord = {
+    ...record,
+    paidAt: new Date().toISOString(),
+    paidStripeSessionId: opts.stripeSessionId,
+    paidAmountCents: opts.amountCents,
+  };
+  await redis.set(bookingKey(id), JSON.stringify(updated));
+  return { ok: true, record: updated };
+}
+
 // Cancels a booking, freeing up every hour-slot it claimed. Two callers:
 //  - the customer, via a link in their confirmation email — must supply
 //    the matching cancelToken, since they never authenticate.
 //  - the admin screen, already gated behind the admin cookie — passes
 //    skipTokenCheck instead, since re-deriving/exposing the token there
 //    would be pointless (the admin can already see/cancel everything).
+// How long a cancelled booking's record sticks around after cancellation,
+// purely so its id-based status link (the one thing that still resolves
+// by id after cancellation - see getBooking) can tell a customer "this was
+// cancelled" instead of the generic "couldn't find that visit" a fully
+// deleted record would show. Well past any realistic window a customer
+// would revisit an old status link, short of forever.
+const CANCELLED_BOOKING_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days
+
 export async function cancelBooking(
   id: string,
   token: string,
@@ -593,14 +671,26 @@ export async function cancelBooking(
   if (!opts?.skipTokenCheck && record.cancelToken !== token) {
     return { ok: false, error: "That cancel link isn't valid." };
   }
+  if (record.visitStatus === "cancelled") {
+    return { ok: true, record };
+  }
 
   const startMin = toMinutes(record.start);
   const slotKeys = Array.from({ length: record.hours }, (_, i) => bookedKey(record.date, toHHMM(startMin + i * SLOT_MINUTES)));
   await Promise.all(slotKeys.map((k) => redis.del(k)));
-  await redis.del(bookingKey(id));
+
+  // Tombstoned, not deleted: a hard delete used to make a stale "Track
+  // status" link indistinguishable from a bad id or a booking that never
+  // existed - a customer who cancelled and later rechecks their saved
+  // link deserves "this was cancelled," not the same generic not-found
+  // message either of those other cases shows. Removed from the booking
+  // index either way, so it still disappears from the default admin list
+  // exactly like before.
+  const cancelled: BookingRecord = { ...record, visitStatus: "cancelled", statusUpdatedAt: new Date().toISOString() };
+  await redis.set(bookingKey(id), JSON.stringify(cancelled), { EX: CANCELLED_BOOKING_TTL_SECONDS });
   await redis.lRem(BOOKING_INDEX_KEY, 0, id);
 
-  return { ok: true, record };
+  return { ok: true, record: cancelled };
 }
 
 // Admin-only, hard delete of a mistaken/duplicate booking — any status,

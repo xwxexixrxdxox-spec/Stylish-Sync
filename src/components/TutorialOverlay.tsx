@@ -35,6 +35,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const targetElRef = useRef<HTMLElement | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   // Frozen once at mount (useState initializer, not useMemo) on purpose:
   // the cookie-consent step only belongs in the tour while consent is still
   // undecided, but consent gets decided DURING that very step — recomputing
@@ -137,6 +138,45 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
+  // Escape backs all the way out of the tour, same as "Skip tour" - matches
+  // ClearCacheButton's existing Escape-to-cancel pattern for this app's
+  // other full-screen overlay.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") finish("skipped");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Send focus into the callout card each time a new step appears, so
+  // keyboard/screen-reader users land somewhere inside the dialog instead
+  // of wherever focus happened to be on the underlying page (which, for a
+  // spotlighted step, might not even be visible under the dim mask).
+  useEffect(() => {
+    cardRef.current?.focus();
+  }, [stepIndex]);
+
+  // A minimal focus trap: Tab/Shift+Tab cycles only among this card's own
+  // focusable elements (its two buttons) rather than escaping into whatever
+  // sits behind the dimmed mask - standard expected behavior for anything
+  // marked aria-modal.
+  const onCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !cardRef.current) return;
+    const focusable = cardRef.current.querySelectorAll<HTMLElement>("button");
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   if (typeof document === "undefined") return null;
 
   const nextLabel = step.nextLabel ?? "Next";
@@ -194,7 +234,15 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
           !rect ? "inset-y-0 items-center" : cardNearTop ? "top-[76px]" : "bottom-24"
         }`}
       >
-        <div role="dialog" aria-label={step.title} className="w-full max-w-sm animate-tutorial-card-in rounded-xl2 bg-white p-4 shadow-card">
+        <div
+          ref={cardRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={step.title}
+          tabIndex={-1}
+          onKeyDown={onCardKeyDown}
+          className="w-full max-w-sm animate-tutorial-card-in rounded-xl2 bg-white p-4 shadow-card outline-none"
+        >
           <p className="text-sm font-semibold text-neutral-900">{step.title}</p>
           <p className="mt-1.5 text-sm leading-relaxed text-neutral-600">{step.body}</p>
           <div className="mt-3 flex items-center justify-between gap-2">

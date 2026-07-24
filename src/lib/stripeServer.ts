@@ -1,8 +1,9 @@
 import Stripe from "stripe";
 import { computeVisitCharge } from "./stripeTiers";
 import { BookingRecord } from "./types";
+import { billableHours } from "./booking";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://weirdsync.com";
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://weirdsync.com";
 
 let _stripe: Stripe | null = null;
 
@@ -87,7 +88,11 @@ export async function findActiveSubscriptionByEmail(email: string): Promise<{
 // create or modify any Stripe Product/Price/Payment Link.
 export async function createVisitCheckoutSession(record: BookingRecord): Promise<{ url: string }> {
   const stripe = getStripe();
-  const charge = computeVisitCharge(record.hours);
+  // Charged off real clocked time, not the originally *scheduled* hours -
+  // see billableHours' own comment for why (in short: a visit that ran
+  // long or wrapped up early used to always bill the scheduled amount
+  // regardless of how long it actually took).
+  const charge = computeVisitCharge(billableHours(record));
   const statusUrl = `${SITE_URL}/book_appointment/status?id=${encodeURIComponent(record.id)}`;
 
   const session = await stripe.checkout.sessions.create({
@@ -99,7 +104,8 @@ export async function createVisitCheckoutSession(record: BookingRecord): Promise
     metadata: {
       bookingId: record.id,
       rateType: charge.rateType,
-      hours: String(record.hours),
+      scheduledHours: String(record.hours),
+      billedHours: String(billableHours(record)),
     },
   });
 

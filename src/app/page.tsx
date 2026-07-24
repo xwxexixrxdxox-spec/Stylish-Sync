@@ -120,17 +120,24 @@ export default function HomePage() {
   };
 
   const adjust = (id: string, delta: number) => {
-    const current = items.find((it) => it.id === id);
+    // The logged delta is computed from `prev` inside the updater itself,
+    // not from the `items` closed over when adjust() was called - a rapid
+    // burst of taps (hold-to-repeat on +/-) fires several adjust() calls
+    // before React re-renders, so every call after the first would
+    // otherwise see the same stale pre-burst quantity and log the wrong
+    // (or a duplicate) delta instead of the one actually applied on top of
+    // whatever the previous call in the burst just did.
+    let applied = 0;
     setItems((prev) =>
-      prev.map((it) =>
-        it.id === id ? { ...it, quantity: Math.max(0, it.quantity + delta), updatedAt: new Date().toISOString() } : it
-      )
+      prev.map((it) => {
+        if (it.id !== id) return it;
+        const nextQuantity = Math.max(0, it.quantity + delta);
+        applied = nextQuantity - it.quantity;
+        return { ...it, quantity: nextQuantity, updatedAt: new Date().toISOString() };
+      })
     );
-    if (current) {
-      const applied = Math.max(0, current.quantity + delta) - current.quantity;
-      if (applied !== 0) {
-        logMovement({ itemId: id, delta: applied, reason: "manual-adjust", at: new Date().toISOString() });
-      }
+    if (applied !== 0) {
+      logMovement({ itemId: id, delta: applied, reason: "manual-adjust", at: new Date().toISOString() });
     }
   };
 
@@ -158,6 +165,28 @@ export default function HomePage() {
     });
   };
 
+  // Shared merge key for addStock below: prefer matching by barcode (the
+  // normal path), but a scan that never got a barcode - camera failed,
+  // manual receipt entry, an item that just doesn't have one - still needs
+  // *some* way to accumulate into the same row on repeat adds instead of
+  // spawning a fresh duplicate every time. Falling back to an exact
+  // name+location match (case-insensitive) covers the common "typed the
+  // same item in twice" case without risking merging two genuinely
+  // different barcodeless items that just happen to share a name in
+  // different locations.
+  const findMatchingItem = (
+    list: InventoryItem[],
+    input: { barcode: string; name: string; location?: string }
+  ): InventoryItem | undefined => {
+    if (input.barcode) return list.find((it) => it.barcode === input.barcode);
+    const name = input.name.trim().toLowerCase();
+    if (!name) return undefined;
+    const location = (input.location || "").trim().toLowerCase();
+    return list.find(
+      (it) => !it.barcode && it.name.trim().toLowerCase() === name && (it.location || "").trim().toLowerCase() === location
+    );
+  };
+
   const addStock = (input: {
     barcode: string;
     name: string;
@@ -166,10 +195,10 @@ export default function HomePage() {
     pricePerUnit: number;
     location?: string;
   }) => {
-    const existing = items.find((it) => it.barcode === input.barcode && input.barcode);
+    const existing = findMatchingItem(items, input);
     const itemId = existing ? existing.id : `item-${Date.now()}`;
     setItems((prev) => {
-      const existingInPrev = prev.find((it) => it.barcode === input.barcode && input.barcode);
+      const existingInPrev = findMatchingItem(prev, input);
       if (existingInPrev) {
         return prev.map((it) =>
           it.id === existingInPrev.id
@@ -232,21 +261,26 @@ export default function HomePage() {
     logMovement({ itemId: eachItem.id, delta: addedEaches, reason: "break-case", at: now });
   };
 
-  const removeStock = (input: { barcode: string; quantity: number }) => {
+  // Returns whether anything was actually removed - false for "no item in
+  // this inventory has that barcode" (the caller uses this to decide
+  // whether removal actually happened, rather than always reporting
+  // success back to the customer regardless of whether stock moved).
+  const removeStock = (input: { barcode: string; quantity: number }): boolean => {
+    const requested = Math.max(0, Math.floor(input.quantity));
     const existing = items.find((it) => it.barcode === input.barcode);
+    if (!existing || requested <= 0) return false;
     setItems((prev) =>
       prev.map((it) =>
         it.barcode === input.barcode
-          ? { ...it, quantity: Math.max(0, it.quantity - (input.quantity || 1)), updatedAt: new Date().toISOString() }
+          ? { ...it, quantity: Math.max(0, it.quantity - requested), updatedAt: new Date().toISOString() }
           : it
       )
     );
-    if (existing) {
-      const removed = Math.min(input.quantity || 1, existing.quantity);
-      if (removed > 0) {
-        logMovement({ itemId: existing.id, delta: -removed, reason: "scan-remove", at: new Date().toISOString() });
-      }
+    const removed = Math.min(requested, existing.quantity);
+    if (removed > 0) {
+      logMovement({ itemId: existing.id, delta: -removed, reason: "scan-remove", at: new Date().toISOString() });
     }
+    return true;
   };
 
   return (
@@ -314,7 +348,13 @@ export default function HomePage() {
           onReplayTutorial={replayTutorial}
         />
 
-        <InstallBanner />
+        {/* Suppressed while the tutorial is active - the overlay already
+            dims/spotlights the screen, and the install banner popping up
+            mid-tour (it polls independently on its own timer) would either
+            get hidden behind the tutorial's dimming layer or sit awkwardly
+            on top of a callout, competing for the same bottom-of-screen
+            attention as the tour's own "Next" card. */}
+        <InstallBanner suppressed={tutorialActive} />
 
         <BottomNav active={tab} onChange={setTab} showStatusTab={!!trackedBookingId} />
 

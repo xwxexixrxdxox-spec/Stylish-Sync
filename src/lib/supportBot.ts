@@ -12,7 +12,6 @@ export interface QuickReply {
 export interface BotTurn {
   reply: string;
   quickReplies: QuickReply[];
-  escalateOffered?: boolean;
 }
 
 // Mirrors clyde.ts's chat history shape (a bot turn's text is stored here

@@ -316,11 +316,39 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         return "conflict";
       }
     }
-    await pushItemsToSheet(targetId, items);
-    await pushUsageToSheet(targetId, loadMovements(), items);
-    const token = newSyncToken();
-    await setRemoteSyncToken(targetId, token);
-    setLastSyncToken(targetId, token);
+    // Each stage below can fail independently (network blip, a sheet
+    // manually edited into a shape the API rejects, hitting a size limit),
+    // and previously any failure just bubbled up as a bare "Push failed."
+    // with no indication of which stage got through. Inventory and Usage
+    // are pushed sequentially with no rollback, so a mid-sequence failure
+    // really can leave the sheet in a half-written state (e.g. Usage's own
+    // batchClear succeeding right before its write fails, leaving that tab
+    // blank) - local data is never at risk either way, since nothing here
+    // reads back into `items`, but the customer glancing at the sheet
+    // deserves to know what state it's actually in rather than guessing.
+    try {
+      await pushItemsToSheet(targetId, items);
+    } catch (e: any) {
+      throw new Error(
+        `Couldn't write your inventory to the sheet (${e?.message ?? "unknown error"}). Nothing there was changed — try Push again.`
+      );
+    }
+    try {
+      await pushUsageToSheet(targetId, loadMovements(), items);
+    } catch (e: any) {
+      throw new Error(
+        `Inventory synced, but usage history failed to write (${e?.message ?? "unknown error"}). The sheet's Usage tab may be empty right now — try Push again to fix it.`
+      );
+    }
+    try {
+      const token = newSyncToken();
+      await setRemoteSyncToken(targetId, token);
+      setLastSyncToken(targetId, token);
+    } catch (e: any) {
+      throw new Error(
+        `Inventory and usage synced, but the sync marker failed to write (${e?.message ?? "unknown error"}). This device may show a false "someone else updated the sheet" warning next time — Push again to clear it.`
+      );
+    }
     stampSynced(targetId);
     return "done";
   };

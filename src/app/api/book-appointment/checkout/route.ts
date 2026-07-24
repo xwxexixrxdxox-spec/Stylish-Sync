@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBooking } from "@/lib/booking";
-import { createVisitCheckoutSession } from "@/lib/stripeServer";
+import { createVisitCheckoutSession, SITE_URL } from "@/lib/stripeServer";
 import { isRateLimited } from "@/lib/rateLimit";
 
 // Public — gated only by knowing the (unguessable, UUID) booking id, same
@@ -22,6 +22,23 @@ export async function GET(req: NextRequest) {
   try {
     const record = await getBooking(id);
     if (!record) return NextResponse.json({ error: "That visit couldn't be found." }, { status: 404 });
+
+    // The UI only ever shows a "Pay now" link once a visit is finished and
+    // unpaid, but this endpoint is a public GET keyed on nothing but the
+    // (unguessable) booking id — a forwarded confirmation email would
+    // otherwise let anyone start checkout before the work is even done, or
+    // start a brand-new Checkout Session on an already-paid visit with no
+    // record anywhere of whether it was paid once or twice. Both send the
+    // customer back to the status page instead of failing outright — it
+    // now correctly reflects "not finished yet" or "Paid" rather than
+    // showing the Pay button, so landing back there is self-explanatory.
+    const statusUrl = `${SITE_URL}/book_appointment/status?id=${encodeURIComponent(id)}`;
+    if (record.visitStatus !== "finished") {
+      return NextResponse.redirect(statusUrl, { status: 303 });
+    }
+    if (record.paidAt) {
+      return NextResponse.redirect(statusUrl, { status: 303 });
+    }
 
     const { url } = await createVisitCheckoutSession(record);
     return NextResponse.redirect(url, { status: 303 });

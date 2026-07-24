@@ -44,11 +44,29 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
+        // Only cache real, successful responses - caching a 404/500 would
+        // mean the very first (broken) response to a URL gets served back
+        // as "the" cached copy on every future offline hit, permanently
+        // baking in whatever transient error happened to be returned first.
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
+        }
         return response;
       })
-      .catch(() => caches.match(request).then((cached) => cached || caches.match("/")))
+      .catch(() =>
+        caches.match(request).then((cached) => {
+          if (cached) return cached;
+          // Only fall back to the cached app shell ("/") for full-page
+          // navigations. Falling back to it for a failed asset request (a
+          // JS chunk, a stylesheet, an image) used to mean the browser got
+          // back index.html's markup instead of a real network error, then
+          // tried (and failed) to parse it as whatever asset type it asked
+          // for - a confusing failure mode masquerading as success.
+          if (request.mode === "navigate") return caches.match("/");
+          return undefined;
+        })
+      )
   );
 });
 

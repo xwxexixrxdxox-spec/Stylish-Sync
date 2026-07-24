@@ -32,7 +32,8 @@ export default function PrivacyPage() {
             <strong>Inventory data you enter</strong> (item names, barcodes, quantities, prices, locations) — stored
             locally on your device, and optionally in a Google Sheet you own and control if you connect Google
             Sheets sync. We do not copy this data to our own servers, with one opt-in exception: reorder reminders,
-            described next.
+            described next. (Separately, if you request an on-site visit, we do store the booking details you submit
+            for that — see below. That's a distinct thing from your inventory data.)
           </li>
           <li>
             <strong>A reorder-reminder summary, only if you turn on reminders</strong>: enabling daily reorder
@@ -54,17 +55,29 @@ export default function PrivacyPage() {
             have one). We never request access to your Gmail, contacts, or the rest of your Drive.
           </li>
           <li>
-            <strong>Payment information</strong> is collected and processed entirely by Stripe when you subscribe.
-            We never see or store your card number. We store only your Stripe customer ID and subscription status,
-            used solely to confirm your subscription and unlock customer support.
+            <strong>If you request an on-site visit</strong>, we collect and store the details you submit — name,
+            email, phone number, preferred contact method, any notes, and the requested date/time — so we can
+            schedule, staff, and follow up on the visit. This is stored on our server (in Redis), not just on your
+            device, since it has to be visible to us to actually schedule and bill for the visit. We also record the
+            visit's own status/timeline (requested, clocked in, on a break, finished, cancelled) and, once paid, the
+            amount and Stripe session id. A cancelled visit's details are kept for 90 days (in case you or we need to
+            reference it) and then automatically deleted; a completed visit's record is kept as our billing history.
           </li>
           <li>
-            <strong>Support chat messages</strong> you send to the in-app assistant, used only to generate a
-            response and, if you ask for a live agent, to hand off context to that agent.
+            <strong>Payment information</strong> for an on-site visit is collected and processed entirely by Stripe,
+            through a one-time Checkout link sent after the visit is complete. We never see or store your card
+            number — we store only the Stripe session id and the amount charged, tied to that specific visit, used
+            to confirm it was paid and avoid billing it twice.
           </li>
           <li>
-            <strong>Essential cookies</strong> used to keep you signed in and to remember that you're a verified,
-            paying subscriber so the support feature stays unlocked across visits.
+            <strong>Support chat messages</strong> you send to the in-app assistant ("Clyde"), used only to generate
+            a response. If AI-backed replies are enabled, your message and recent chat history are sent to our AI
+            provider (Ollama Cloud) to generate that response — see "Third parties we rely on" below. There is no
+            live human agent behind this chat; nothing is "handed off" to a person unless you separately email us.
+          </li>
+          <li>
+            <strong>Essential cookies</strong> used for things like remembering your cookie-consent choice and, if
+            you sign into the admin panel (staff only, not customers), keeping that sign-in active.
           </li>
           <li>
             <strong>Optional analytics, only if you accept cookies</strong>: if you choose "Accept" on the cookie
@@ -178,8 +191,8 @@ export default function PrivacyPage() {
           <li>
             <strong>On request:</strong> email{" "}
             <a href="mailto:xwxexixrxdxox@gmail.com">xwxexixrxdxox@gmail.com</a> and we will delete any data we do
-            hold about you (your Stripe customer ID, subscription status, and any reminder summary) within 30
-            days.
+            hold about you (booking/visit details and any reminder summary) within 30 days, except where we need to
+            keep a completed visit's billing record for our own accounting/tax purposes.
           </li>
         </ul>
 
@@ -193,11 +206,30 @@ export default function PrivacyPage() {
         <h2>Third parties we rely on</h2>
         <ul>
           <li>
-            <strong>Stripe</strong> — payment processing. See{" "}
+            <strong>Stripe</strong> — payment processing for an on-site visit, if you request and pay for one. See{" "}
             <a href="https://stripe.com/privacy" target="_blank" rel="noreferrer">
               Stripe's Privacy Policy
             </a>
             . Stripe receives your payment details; it never receives your inventory or Google user data.
+          </li>
+          <li>
+            <strong>Resend</strong> — sends the transactional emails this app generates (visit request
+            confirmations, cancellation notices, payment prompts, and, for our admin, password-reset links).
+            Resend processes the recipient address and message content needed to deliver each email. See{" "}
+            <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noreferrer">
+              Resend's Privacy Policy
+            </a>
+            .
+          </li>
+          <li>
+            <strong>Ollama Cloud</strong> — optional AI backend for the in-app support assistant. When enabled, your
+            chat messages and recent chat history are sent to Ollama to generate a reply. If this isn't configured
+            (or a request to it fails), the assistant falls back to a scripted, non-AI response and nothing is sent
+            to Ollama for that message. See{" "}
+            <a href="https://ollama.com/privacy" target="_blank" rel="noreferrer">
+              Ollama's Privacy Policy
+            </a>
+            .
           </li>
           <li>
             <strong>Google Sheets</strong> — optional Sheets sync, if you connect it. See{" "}
@@ -238,14 +270,15 @@ export default function PrivacyPage() {
             page.
           </li>
           <li>
-            <strong>Cancel your subscription:</strong> use the "Manage billing" link in Account, which opens
-            Stripe's secure customer portal.
+            <strong>Cancel a visit request:</strong> use the cancel link in your confirmation email, or email us —
+            either works before the visit happens.
           </li>
           <li>
             <strong>Delete your data:</strong> email{" "}
-            <a href="mailto:xwxexixrxdxox@gmail.com">xwxexixrxdxox@gmail.com</a> and we will delete any data
-            associated with your Stripe customer ID within 30 days. Because inventory data lives in your own Google
-            Sheet and on your own device, you're also always free to delete it directly, without us.
+            <a href="mailto:xwxexixrxdxox@gmail.com">xwxexixrxdxox@gmail.com</a> and we will delete any booking
+            data we hold about you (name, contact info, visit history) within 30 days, except where we need to keep
+            a completed visit's billing record for our own accounting/tax purposes. Because inventory data lives in
+            your own Google Sheet and on your own device, you're also always free to delete it directly, without us.
           </li>
         </ul>
 

@@ -12,6 +12,7 @@ const STATUS_LABEL: Record<VisitStatus, string> = {
   clocked_in: "Clocked in",
   on_break: "On a break",
   finished: "Finished",
+  cancelled: "Cancelled",
 };
 
 const STATUS_BADGE: Record<VisitStatus, string> = {
@@ -19,6 +20,7 @@ const STATUS_BADGE: Record<VisitStatus, string> = {
   clocked_in: "bg-green-100 text-green-800",
   on_break: "bg-amber-100 text-amber-800",
   finished: "bg-neutral-900 text-white",
+  cancelled: "bg-red-100 text-red-700",
 };
 
 // Mirrors the server-side sum in booking.ts's totalBreakMinutes — only
@@ -252,9 +254,16 @@ export default function AdminVisits() {
                   </p>
                 )}
               </div>
-              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${STATUS_BADGE[b.visitStatus]}`}>
-                {b.archived ? "Archived" : STATUS_LABEL[b.visitStatus]}
-              </span>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${STATUS_BADGE[b.visitStatus]}`}>
+                  {b.archived ? "Archived" : STATUS_LABEL[b.visitStatus]}
+                </span>
+                {b.paidAt && (
+                  <span className="rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-medium text-green-800">
+                    Paid{typeof b.paidAmountCents === "number" ? ` · $${(b.paidAmountCents / 100).toFixed(0)}` : ""}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -305,7 +314,7 @@ export default function AdminVisits() {
                   </button>
                 </>
               )}
-              {b.visitStatus !== "finished" && (
+              {b.visitStatus !== "finished" && b.visitStatus !== "cancelled" && (
                 <button
                   disabled={busy}
                   onClick={() => cancel(b.id)}

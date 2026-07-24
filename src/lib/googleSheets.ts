@@ -332,6 +332,17 @@ export async function pushItemsToSheet(spreadsheetId: string, items: InventoryIt
     HEADER_ROW,
     ...items.map((it) => [it.barcode, it.name, it.quantity, it.unit, it.pricePerUnit, it.reorderAt, it.location || ""]),
   ];
+  // A plain values.update (PUT) only overwrites the cells within the exact
+  // dimensions of what's written - same "does NOT clear rows beyond that"
+  // behavior noted on the Usage tab's batchUpdate below - so without
+  // clearing SHEET_RANGE first, deleting items locally and pushing left
+  // their old rows sitting in the sheet forever (and a later Pull would
+  // bring the "deleted" items right back). Clear the whole open-ended range
+  // first, same pattern pushUsageToSheet already uses.
+  await sheetsFetch(`/${spreadsheetId}/values:batchClear`, token, {
+    method: "POST",
+    body: JSON.stringify({ ranges: [SHEET_RANGE] }),
+  });
   await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(SHEET_RANGE)}?valueInputOption=RAW`, token, {
     method: "PUT",
     body: JSON.stringify({ values: rows }),
@@ -502,16 +513,28 @@ export async function pullItemsFromSheet(spreadsheetId: string): Promise<Invento
   });
   const rows: string[][] = data.values ?? [];
   const [, ...dataRows] = rows; // drop header
+  // A cell manually edited into non-numeric text (e.g. "n/a" typed into the
+  // Quantity column while cleaning up) used to come through here as plain
+  // Number(...), which turns that into NaN - and NaN then silently
+  // corrupts every downstream comparison (reorder-point math, totals,
+  // sorting) with no error anywhere. Falling back to 0 instead keeps a bad
+  // cell from poisoning the rest of the import; it shows up as "0 in
+  // stock," which is at least a visibly wrong, fixable number rather than
+  // a NaN that breaks comparisons app-wide.
+  const safeNumber = (raw: string | undefined, fallback = 0): number => {
+    const n = Number(raw ?? fallback);
+    return Number.isFinite(n) ? n : fallback;
+  };
   return dataRows
     .filter((r) => r.length && r[0])
     .map((r, idx) => ({
       id: `sheet-${idx}-${r[0]}`,
       barcode: r[0] ?? "",
       name: r[1] ?? "",
-      quantity: Number(r[2] ?? 0),
+      quantity: safeNumber(r[2]),
       unit: r[3] ?? "ea",
-      pricePerUnit: Number(r[4] ?? 0),
-      reorderAt: Number(r[5] ?? 0),
+      pricePerUnit: safeNumber(r[4]),
+      reorderAt: safeNumber(r[5]),
       updatedAt: new Date().toISOString(),
       location: r[6] || undefined,
     }));

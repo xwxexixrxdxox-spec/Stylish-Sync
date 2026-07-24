@@ -199,6 +199,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search items..."
+            aria-label="Search items"
             className="w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
           />
         </div>
