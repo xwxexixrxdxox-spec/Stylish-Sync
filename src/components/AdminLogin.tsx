@@ -8,6 +8,28 @@ export default function AdminLogin() {
   const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState<"idle" | "checking" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotStatus, setForgotStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [forgotMessage, setForgotMessage] = useState<string | null>(null);
+
+  const sendResetLink = async () => {
+    setForgotStatus("sending");
+    setForgotMessage(null);
+    try {
+      const res = await fetch("/api/admin/forgot-password", { method: "POST" });
+      const body = await res.json();
+      if (res.ok && body.ok) {
+        setForgotStatus("sent");
+        setForgotMessage("Check your email for a link to set a new password.");
+      } else {
+        setForgotStatus("error");
+        setForgotMessage(body.error ?? "Couldn't send a reset link right now.");
+      }
+    } catch {
+      setForgotStatus("error");
+      setForgotMessage("Something went wrong. Try again.");
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +88,45 @@ export default function AdminLogin() {
         </button>
       </form>
       {error && <p className="mt-2 text-xs font-medium text-accent-low">{error}</p>}
+
+      <div className="mt-3 border-t border-surface-border pt-3">
+        {!forgotOpen ? (
+          <button
+            type="button"
+            onClick={() => setForgotOpen(true)}
+            className="text-xs font-medium text-blue-600 hover:underline"
+          >
+            Forgot password?
+          </button>
+        ) : (
+          <div>
+            {forgotStatus !== "sent" && (
+              <>
+                <p className="mb-2 text-xs text-neutral-500">
+                  We'll email a one-time reset link to your recovery address.
+                </p>
+                <button
+                  type="button"
+                  onClick={sendResetLink}
+                  disabled={forgotStatus === "sending"}
+                  className="rounded-lg border border-surface-border px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+                >
+                  {forgotStatus === "sending" ? "Sending…" : "Send reset link"}
+                </button>
+              </>
+            )}
+            {forgotMessage && (
+              <p
+                className={`mt-2 text-xs font-medium ${
+                  forgotStatus === "error" ? "text-accent-low" : "text-accent-ok"
+                }`}
+              >
+                {forgotMessage}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

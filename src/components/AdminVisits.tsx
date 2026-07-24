@@ -33,6 +33,16 @@ function breakMinutesRequired(b: BookingRecord): number {
   return BREAK_REQUIRED_MINUTES[b.hours as BookingDuration] ?? 0;
 }
 
+// Plain browser-local YYYY-MM-DD, matching the format booking dates are
+// already stored/compared in elsewhere (see book_appointment/page.tsx) -
+// good enough for "is this visit today or later" without pulling in a
+// timezone library, since the owner views this from the same locale the
+// business operates in.
+function todayDateString(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function AdminVisits() {
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +50,8 @@ export default function AdminVisits() {
   const [error, setError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"upcoming" | "all">("upcoming");
+  const todayStr = todayDateString();
 
   const load = () => {
     setLoading(true);
@@ -56,7 +68,14 @@ export default function AdminVisits() {
   useEffect(load, []);
 
   const archivedCount = useMemo(() => bookings.filter((b) => b.archived).length, [bookings]);
-  const visible = useMemo(() => bookings.filter((b) => showArchived || !b.archived), [bookings, showArchived]);
+  const pastCount = useMemo(
+    () => bookings.filter((b) => !b.archived && b.date < todayStr).length,
+    [bookings, todayStr]
+  );
+  const visible = useMemo(() => {
+    const base = bookings.filter((b) => showArchived || !b.archived);
+    return filter === "upcoming" ? base.filter((b) => b.date >= todayStr) : base;
+  }, [bookings, showArchived, filter, todayStr]);
 
   const setStatus = async (id: string, status: VisitStatus) => {
     setBusyId(id);
@@ -153,16 +172,51 @@ export default function AdminVisits() {
     <div className="space-y-3">
       {error && <p className="text-xs font-medium text-accent-low">{error}</p>}
 
-      {archivedCount > 0 && (
-        <button
-          onClick={() => setShowArchived((v) => !v)}
-          className="text-xs font-medium text-blue-600 hover:underline"
-        >
-          {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex overflow-hidden rounded-lg border border-surface-border text-xs font-medium">
+          <button
+            onClick={() => setFilter("upcoming")}
+            className={`px-3 py-1.5 ${
+              filter === "upcoming" ? "bg-neutral-900 text-white" : "bg-white text-neutral-700 hover:bg-surface-muted"
+            }`}
+          >
+            Upcoming visits
+          </button>
+          <button
+            onClick={() => setFilter("all")}
+            className={`border-l border-surface-border px-3 py-1.5 ${
+              filter === "all" ? "bg-neutral-900 text-white" : "bg-white text-neutral-700 hover:bg-surface-muted"
+            }`}
+          >
+            All
+          </button>
+        </div>
+
+        {archivedCount > 0 && (
+          <button
+            onClick={() => setShowArchived((v) => !v)}
+            className="text-xs font-medium text-blue-600 hover:underline"
+          >
+            {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+          </button>
+        )}
+      </div>
+
+      {filter === "upcoming" && pastCount > 0 && (
+        <p className="text-xs text-neutral-400">
+          {pastCount} past visit{pastCount === 1 ? "" : "s"} hidden —{" "}
+          <button onClick={() => setFilter("all")} className="text-blue-600 hover:underline">
+            show all
+          </button>
+          .
+        </p>
       )}
 
-      {visible.length === 0 && <p className="text-sm text-neutral-400">No visits yet.</p>}
+      {visible.length === 0 && (
+        <p className="text-sm text-neutral-400">
+          {filter === "upcoming" ? "No upcoming visits." : "No visits yet."}
+        </p>
+      )}
 
       {visible.map((b) => {
         const busy = busyId === b.id;

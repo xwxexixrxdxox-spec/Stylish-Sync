@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, LogOut, Save, CalendarClock } from "lucide-react";
+import { Plus, Trash2, LogOut, Save, CalendarClock, ExternalLink } from "lucide-react";
 import { AvailabilityWindow } from "@/lib/types";
 
 export default function AdminAvailabilityEditor() {
@@ -68,6 +68,15 @@ export default function AdminAvailabilityEditor() {
         <CalendarClock size={14} /> Manage visits, clock in/out & cancellations →
       </a>
 
+      <a
+        href="https://dashboard.stripe.com/payments"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-center gap-1.5 rounded-lg border border-surface-border bg-white py-2.5 text-sm font-medium text-neutral-700 shadow-card hover:bg-surface-muted"
+      >
+        <ExternalLink size={14} /> Open Stripe dashboard
+      </a>
+
       <section className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-3 text-sm font-medium text-neutral-900">Open time windows</p>
         <p className="mb-3 text-xs text-neutral-500">
@@ -92,24 +101,29 @@ export default function AdminAvailabilityEditor() {
           ))}
         </ul>
 
-        <div className="grid grid-cols-3 gap-2">
+        {/* Native date/time inputs have a wider intrinsic minimum width than
+            a third of the card on a phone screen (the calendar/clock icon
+            plus placeholder digits don't shrink), so a flat 3-up grid
+            clipped or overflowed them there. Stack to one column below the
+            `sm` breakpoint, same as the rest of the app's mobile layout. */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <input
             type="date"
             value={draft.date}
             onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
-            className="rounded-lg border border-surface-border px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+            className="w-full min-w-0 rounded-lg border border-surface-border px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
           />
           <input
             type="time"
             value={draft.start}
             onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))}
-            className="rounded-lg border border-surface-border px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+            className="w-full min-w-0 rounded-lg border border-surface-border px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
           />
           <input
             type="time"
             value={draft.end}
             onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))}
-            className="rounded-lg border border-surface-border px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+            className="w-full min-w-0 rounded-lg border border-surface-border px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
           />
         </div>
         <button

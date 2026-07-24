@@ -10,9 +10,21 @@ export default function AdminVisitsPage() {
     <main className="mx-auto min-h-screen max-w-2xl px-4 pb-24 pt-8 sm:px-6">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-neutral-900">Visits</h1>
-        <a href="/admin" className="text-xs font-medium text-blue-600 hover:underline">
-          ← Availability
-        </a>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <a
+              href="https://dashboard.stripe.com/payments"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-blue-600 hover:underline"
+            >
+              Stripe dashboard ↗
+            </a>
+          )}
+          <a href="/admin" className="text-xs font-medium text-blue-600 hover:underline">
+            ← Availability
+          </a>
+        </div>
       </div>
       {isAdmin ? <AdminVisits /> : <AdminLogin />}
     </main>

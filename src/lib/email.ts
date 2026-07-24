@@ -176,6 +176,27 @@ export async function sendCustomerCancellationNotice(details: CancellationEmailD
 // (stripeTiers.ts) rather than the old static, adjustable-quantity Payment
 // Link, so the amount the customer sees here is exactly what they're
 // charged — no self-reported hours.
+// "Forgot password?" on the admin sign-in form - sent to OWNER_NOTIFY_EMAIL
+// (the same address that already receives booking notifications, since
+// this app only ever has one admin) with a single-use link to set a new
+// password. See adminAuth.ts for how the token and the resulting override
+// password are stored.
+export async function sendAdminPasswordResetEmail(token: string): Promise<{ ok: boolean; error?: string }> {
+  const ownerEmail = process.env.OWNER_NOTIFY_EMAIL;
+  if (!ownerEmail) {
+    return { ok: false, error: "OWNER_NOTIFY_EMAIL isn't set, so there's no recovery address to send this to." };
+  }
+  const resetUrl = `${SITE_URL}/admin/reset-password?token=${encodeURIComponent(token)}`;
+  const html = `
+    <h2>Reset your admin password</h2>
+    <p>Someone (hopefully you) asked to reset the admin sign-in password for WS Inventory Management.</p>
+    <p><a href="${resetUrl}">Set a new password →</a></p>
+    <p>This link works once and expires in 30 minutes. If you didn't request this, you can ignore it - your
+    current password still works.</p>
+  `;
+  return sendEmail({ to: ownerEmail, subject: "Reset your admin password", html });
+}
+
 export async function sendVisitFinishedEmail(details: CancellationEmailDetails): Promise<void> {
   const charge = computeVisitCharge(details.hours);
   const payUrl = `${SITE_URL}/api/book-appointment/checkout?id=${encodeURIComponent(details.id)}`;
