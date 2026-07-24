@@ -175,6 +175,19 @@ export function signOutGoogle(): void {
   cachedToken = null;
 }
 
+// Best-effort check for the background "did someone else sync this sheet"
+// poll (see AccountTab) — true only if a token is already cached and not
+// about to expire. That poll must never itself trigger a fresh sign-in: an
+// expired token would otherwise send it through requestAccessToken's
+// silent-reauth path, which can still surface a visible Google popup with
+// no click behind it to justify one. If nothing's cached, the poll just
+// skips that round rather than risking that — the customer still gets the
+// real conflict check (via requestAccessToken as normal) the next time they
+// deliberately press Push or Pull, so nothing protective is lost.
+export function hasValidCachedToken(): boolean {
+  return Boolean(cachedToken && cachedToken.expiresAt > Date.now() + 30_000);
+}
+
 // Best-effort lookup of the signed-in Google account's email, used only to
 // silently check for a matching booking (see AccountTab's connectGoogle).
 // Returns null rather than throwing on any failure — this is a nice-to-have
@@ -215,9 +228,24 @@ export async function openSpreadsheetPicker(token: string): Promise<string | nul
 
   const pickerPromise = new Promise<string | null>((resolve, reject) => {
     try {
-      const view = new window.google.picker.DocsView(window.google.picker.ViewId.SPREADSHEETS)
+      const myDriveView = new window.google.picker.DocsView(window.google.picker.ViewId.SPREADSHEETS)
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false);
+
+      // Shared Drives (Google's newer name for what used to be called Team
+      // Drives — a spreadsheet owned by a group rather than one person)
+      // don't show up in the view above at all; they need their own view
+      // with setEnableDrives(true) added alongside it. Per Google's own
+      // Picker docs this can't be combined with setOwnedByMe/setParent on
+      // the *same* view (neither of which the view above uses), and when
+      // enabled a view shows shared drives only — which is exactly why this
+      // is a second, additional view rather than a flag on the first one:
+      // the customer gets "My Drive" and "Shared drives" as separate tabs
+      // in the same picker, rather than one replacing the other.
+      const sharedDrivesView = new window.google.picker.DocsView(window.google.picker.ViewId.SPREADSHEETS)
+        .setIncludeFolders(true)
+        .setSelectFolderEnabled(false)
+        .setEnableDrives(true);
 
       const picker = new window.google.picker.PickerBuilder()
         .setOAuthToken(token)
@@ -231,7 +259,8 @@ export async function openSpreadsheetPicker(token: string): Promise<string | nul
         // overlay) being "frozen." This is Google's own documented fix.
         .setOrigin(window.location.origin)
         .setTitle("Choose your inventory spreadsheet")
-        .addView(view)
+        .addView(myDriveView)
+        .addView(sharedDrivesView)
         .setCallback((data: any) => {
           if (data.action === window.google.picker.Action.PICKED) {
             resolve(data.docs?.[0]?.id ?? null);

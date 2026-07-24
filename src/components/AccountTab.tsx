@@ -15,12 +15,14 @@ import {
   HelpCircle,
   Eraser,
   Bell,
+  X,
 } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
   createInventorySpreadsheet,
   getGoogleEmail,
   getRemoteSyncToken,
+  hasValidCachedToken,
   isGoogleSheetsConfigured,
   isPickerConfigured,
   newSyncToken,
@@ -174,6 +176,58 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     setLastSyncedAtState(sheetId ? getLastSyncedAt(sheetId) : null);
   }, [sheetId]);
 
+  // Best-effort "someone else has synced since you last did" heads-up —
+  // separate from, and much lighter than, the conflict check pushToSheetId
+  // already runs on every push. That check only ever fires when *this*
+  // device tries to push; without something like this, two people on the
+  // same sheet could each be staring at a stale screen indefinitely, with
+  // no signal anything changed until one of them happens to press Push or
+  // Pull. This polls the same hidden sync-token mechanism in the
+  // background and, if it's moved since this device's last sync, shows a
+  // dismissible banner — never auto-pulls, since silently overwriting
+  // local edits this device hasn't pushed yet would be worse than doing
+  // nothing. Cleared back to false by stampSynced below, the same moment
+  // "Last synced" updates, since a fresh push or pull is exactly what
+  // resolves it.
+  const [remoteChangeAvailable, setRemoteChangeAvailable] = useState(false);
+  const REMOTE_CHANGE_POLL_MS = 45_000;
+
+  useEffect(() => {
+    setRemoteChangeAvailable(false);
+    if (!sheetId) return;
+    let cancelled = false;
+    const check = async () => {
+      // Never let this background check itself trigger a fresh Google
+      // sign-in — see hasValidCachedToken's own comment for why.
+      if (!hasValidCachedToken()) return;
+      try {
+        const remoteToken = await getRemoteSyncToken(sheetId);
+        const localToken = getLastSyncToken(sheetId);
+        if (!cancelled && localToken && remoteToken && remoteToken !== localToken) {
+          setRemoteChangeAvailable(true);
+        }
+      } catch {
+        // Silent — this is a nice-to-have background check, not something
+        // that should ever surface an error of its own. The real,
+        // authoritative check still runs (and can't silently fail the same
+        // way) whenever the customer actually presses Push.
+      }
+    };
+    const interval = window.setInterval(check, REMOTE_CHANGE_POLL_MS);
+    // Also check right away whenever the tab becomes visible again — the
+    // interval alone would otherwise leave someone who just switched back
+    // to this tab waiting up to 45s to find out a coworker already synced.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [sheetId]);
+
   // Re-render whenever a native install prompt becomes available (or gets
   // used up) — see installPrompt.ts. Checked once on mount too, in case the
   // event already fired before this panel mounted.
@@ -238,6 +292,10 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     const iso = new Date().toISOString();
     setLastSyncedAt(targetId, iso);
     setLastSyncedAtState(iso);
+    // A push or pull just brought this device's known token back in sync
+    // with the sheet's — whatever the background poll flagged is resolved
+    // now, whether or not it was the same change.
+    setRemoteChangeAvailable(false);
   };
 
   const pushToSheetId = async (targetId: string, opts?: { force?: boolean }): Promise<"done" | "conflict"> => {
@@ -424,6 +482,25 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     }
   };
 
+  // Used by the "someone else updated this sheet" banner — pulls straight
+  // from the currently linked sheet, skipping the picker pullNow above
+  // always opens. There's nothing to choose here: the banner only ever
+  // appears because *this* linked sheet's token moved, so re-opening a
+  // "pick a different sheet" dialog would just be an extra click in the
+  // way of the thing the customer actually asked for.
+  const pullChangesNow = async () => {
+    if (!sheetId) return;
+    setBusy("pull");
+    try {
+      const result = await pullFromSheetId(sheetId);
+      flash(summarizePull(result));
+    } catch (e: any) {
+      flash(e.message ?? "Pull failed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const resolveConflictByPulling = async () => {
     if (!conflict) return;
     setBusy("pull");
@@ -558,9 +635,15 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
               safe way to check. The "Last synced" line below shows how current this device is.
             </p>
             <p>
-              This protects against two devices taking turns — it isn't real-time. If two people edit at the exact
-              same moment on different devices, whoever pushes second still gets the warning, but their own edits
-              made since their last sync would need a manual merge rather than being combined automatically.
+              While this screen is open, it also quietly checks every so often for changes from someone else and
+              shows a small banner if it finds any — a heads-up, not a guarantee, since it only checks periodically
+              and only while you have the app open. The Push warning above is what actually protects you, every
+              time, even if the banner never shows up.
+            </p>
+            <p>
+              This protects against two devices taking turns — it isn't truly real-time. If two people edit at the
+              exact same moment on different devices, whoever pushes second still gets the warning, but their own
+              edits made since their last sync would need a manual merge rather than being combined automatically.
             </p>
           </div>
         )}
@@ -590,6 +673,29 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
               <span className="flex items-center gap-2">📗 Open My Google Sheet</span>
               <ExternalLink size={14} />
             </a>
+
+            {remoteChangeAvailable && !conflict && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                <span>Someone updated this sheet since you last synced.</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    disabled={busy === "pull"}
+                    onClick={pullChangesNow}
+                    className="font-semibold underline hover:opacity-80 disabled:opacity-50"
+                  >
+                    {busy === "pull" ? "Pulling…" : "Pull now"}
+                  </button>
+                  <button
+                    onClick={() => setRemoteChangeAvailable(false)}
+                    aria-label="Dismiss"
+                    className="text-blue-400 hover:text-blue-600"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
+
             <button
               disabled={busy === "push"}
               onClick={pushNow}
