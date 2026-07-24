@@ -5,7 +5,13 @@ import { Search, CornerDownRight } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { getKnownLocations } from "@/lib/locations";
 import { stockDeficit } from "@/lib/reorderStatus";
-import { InventorySort, getInventorySort, setInventorySort } from "@/lib/storage";
+import {
+  InventorySort,
+  getInventorySort,
+  setInventorySort,
+  getCollapsedBreakdownGroups,
+  setCollapsedBreakdownGroups,
+} from "@/lib/storage";
 import ItemCard from "./ItemCard";
 import ItemEditModal from "./ItemEditModal";
 import ImportExportPanel from "./ImportExportPanel";
@@ -36,6 +42,24 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
     setSortState(value);
     setInventorySort(value);
   };
+
+  // Which break-down groups (Unity-hierarchy-style foldouts — see
+  // groupBreakDownChildren below) are collapsed, keyed by the parent
+  // item's barcode. Same "read the persisted value only after mount"
+  // reasoning as `sort` above.
+  const [collapsedGroups, setCollapsedGroupsState] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setCollapsedGroupsState(getCollapsedBreakdownGroups());
+  }, []);
+  const toggleGroupCollapsed = useCallback((parentBarcode: string) => {
+    setCollapsedGroupsState((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentBarcode)) next.delete(parentBarcode);
+      else next.add(parentBarcode);
+      setCollapsedBreakdownGroups(next);
+      return next;
+    });
+  }, []);
 
   // Any live sort — "Recently changed" most of all, but "Low stock first"
   // shifts under your finger too — can re-rank an item the instant its
@@ -130,7 +154,10 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
   // otherwise land and re-inserted directly under its parent case, so the
   // relationship reads as a visual group instead of two unrelated cards
   // that might be far apart (e.g. under "Low stock first" or "Name A-Z").
-  const grouped = useMemo(() => groupBreakDownChildren(filtered), [filtered]);
+  const grouped = useMemo(
+    () => groupBreakDownChildren(filtered, collapsedGroups),
+    [filtered, collapsedGroups]
+  );
 
   const locations = useMemo(() => getKnownLocations(items), [items]);
 
@@ -222,6 +249,10 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
               onBreakCase={onBreakCase}
               tutorialTarget={index === 0}
               onActivity={handleActivity}
+              collapsed={entry.hasVisibleChild ? collapsedGroups.has(entry.item.barcode) : undefined}
+              onToggleCollapsed={
+                entry.hasVisibleChild ? () => toggleGroupCollapsed(entry.item.barcode) : undefined
+              }
             />
           )
         )}
@@ -263,6 +294,11 @@ interface GroupedEntry {
   // Only set on a child entry — the case/pack item's name, shown as the
   // "broken down from ___" caption above the nested card.
   parentName?: string;
+  // Only set on a parent (non-child) entry that actually has a linked
+  // child present in this list — ItemCard only renders its foldout
+  // triangle when this is present, so a case item with no visible child
+  // to hide/show doesn't get a toggle that does nothing.
+  hasVisibleChild?: boolean;
 }
 
 // Re-orders a flat (already filtered/sorted) list so each break-down child
@@ -270,8 +306,11 @@ interface GroupedEntry {
 // happened to land in the name/recency/low-stock sort. Both items still
 // need to be *in* `list` for this to apply — a child hidden by the current
 // search, or a parent that's been filtered out, just renders on its own,
-// same as before this existed.
-function groupBreakDownChildren(list: InventoryItem[]): GroupedEntry[] {
+// same as before this existed. `collapsed` (parent barcodes) hides the
+// child entirely, Unity-hierarchy-foldout style — the child still counts
+// as "grouped" (so it doesn't reappear at its own sorted position), it
+// just isn't pushed into the output at all while its parent is collapsed.
+function groupBreakDownChildren(list: InventoryItem[], collapsed: Set<string>): GroupedEntry[] {
   const byBarcode = new Map(list.map((it) => [it.barcode, it] as const));
   // Every child id that a parent in this list will place inline below —
   // skipped at its own sorted position so it isn't rendered twice.
@@ -285,10 +324,11 @@ function groupBreakDownChildren(list: InventoryItem[]): GroupedEntry[] {
   const out: GroupedEntry[] = [];
   for (const it of list) {
     if (childIds.has(it.id)) continue;
-    out.push({ item: it, isChild: false });
-    if (it.breaksDownIntoBarcode) {
-      const child = byBarcode.get(it.breaksDownIntoBarcode);
-      if (child && child.id !== it.id) out.push({ item: child, isChild: true, parentName: it.name });
+    const child = it.breaksDownIntoBarcode ? byBarcode.get(it.breaksDownIntoBarcode) : undefined;
+    const hasVisibleChild = Boolean(child && child.id !== it.id);
+    out.push({ item: it, isChild: false, hasVisibleChild });
+    if (hasVisibleChild && !collapsed.has(it.barcode)) {
+      out.push({ item: child!, isChild: true, parentName: it.name });
     }
   }
   return out;

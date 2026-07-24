@@ -200,6 +200,32 @@ export function setInventorySort(sort: InventorySort): void {
   window.localStorage.setItem(INVENTORY_SORT_KEY, sort);
 }
 
+// Which break-down parent groups (Unity-hierarchy-style foldouts in the
+// Inventory tab — see InventoryTab.tsx's groupBreakDownChildren) the
+// customer has collapsed, so a case item they've already tucked away
+// stays tucked away across visits instead of re-expanding every reload.
+// Keyed by the *parent's own barcode* rather than its id, matching how the
+// break-down relationship itself is stored (see InventoryItem.
+// breaksDownIntoBarcode in types.ts) — an id is only stable on the device
+// that generated it, a barcode survives an import or a second device.
+const COLLAPSED_BREAKDOWN_GROUPS_KEY = "isc_collapsed_breakdown_groups_v1";
+
+export function getCollapsedBreakdownGroups(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_BREAKDOWN_GROUPS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function setCollapsedBreakdownGroups(barcodes: Set<string>): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(COLLAPSED_BREAKDOWN_GROUPS_KEY, JSON.stringify(Array.from(barcodes)));
+}
+
 // Stock movement log, used by the Usage tab to chart how fast a product is
 // actually being consumed. Every scan-in, scan-out, manual adjustment, and
 // import that changes an item's quantity appends one entry here. This only

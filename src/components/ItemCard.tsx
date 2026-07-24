@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Minus, Plus, Pencil, Trash2, PackageOpen } from "lucide-react";
+import { Minus, Plus, Pencil, Trash2, PackageOpen, ChevronRight } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { playChime } from "@/lib/chime";
 import { isLowStock } from "@/lib/reorderStatus";
@@ -28,6 +28,14 @@ interface Props {
   // for a moment so a live re-sort (e.g. "Recently changed") never yanks
   // the card you're actively touching out from under your finger.
   onActivity?: () => void;
+  // Whether this item's break-down group (see InventoryTab.tsx's
+  // groupBreakDownChildren) is currently collapsed — only meaningful, and
+  // only ever rendered, when this item actually has a linked child (see
+  // `eachItem` below). Undefined onToggleCollapsed means "don't show the
+  // foldout at all," used for a child card, which never gets one of its
+  // own (no nested-nested groups in this data model).
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 export default function ItemCard({
@@ -39,6 +47,8 @@ export default function ItemCard({
   onBreakCase,
   tutorialTarget,
   onActivity,
+  collapsed,
+  onToggleCollapsed,
 }: Props) {
   // Low-stock accounts for a linked break-down child's remaining stock (see
   // reorderStatus.ts) — rawLow is the old plain "just this item's own
@@ -208,7 +218,20 @@ export default function ItemCard({
   return (
     <div className="flex items-center justify-between rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          {eachItem && onToggleCollapsed && (
+            <Tooltip label={collapsed ? "Expand broken-down item" : "Collapse broken-down item"}>
+              <button
+                type="button"
+                onClick={onToggleCollapsed}
+                aria-label={collapsed ? "Expand broken-down item" : "Collapse broken-down item"}
+                aria-expanded={!collapsed}
+                className="-ml-1 flex h-5 w-5 shrink-0 items-center justify-center text-neutral-400 hover:text-neutral-700"
+              >
+                <ChevronRight size={14} className={`transition-transform ${collapsed ? "" : "rotate-90"}`} />
+              </button>
+            </Tooltip>
+          )}
           <p className="truncate font-medium text-neutral-900">{item.name}</p>
         </div>
         <p className="mt-0.5 text-xs text-neutral-500">
