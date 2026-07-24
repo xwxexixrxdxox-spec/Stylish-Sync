@@ -16,6 +16,7 @@ import {
   Eraser,
   Bell,
   X,
+  Users,
 } from "lucide-react";
 import { InventoryItem, AccessCheckResponse } from "@/lib/types";
 import {
@@ -166,6 +167,11 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   // being explicit here avoids a subtle bug if that ever changes).
   const [conflict, setConflict] = useState<{ targetId: string } | null>(null);
   const [showSyncHelp, setShowSyncHelp] = useState(false);
+  // Toggles the "get your whole team on the same inventory" guide below —
+  // separate from showSyncHelp (which only makes sense once a sheet is
+  // already linked) since this one is just as relevant to someone who
+  // hasn't connected Google yet and is deciding whether to.
+  const [showTeamGuide, setShowTeamGuide] = useState(false);
   // Purely informational "Last synced" line — see storage.ts's
   // getLastSyncedAt/setLastSyncedAt. Re-read whenever sheetId changes (a
   // fresh link, or switching sheets via the picker) and stamped fresh
@@ -606,18 +612,85 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-sm font-medium text-neutral-900">Google Sheets</p>
-          {isGoogleSheetsConfigured() && sheetId && (
-            <Tooltip label="What's the difference between Push and Pull?">
-              <button
-                onClick={() => setShowSyncHelp((v) => !v)}
-                aria-label="What's the difference between Push and Pull?"
-                className="text-neutral-400 hover:text-neutral-600"
-              >
-                <HelpCircle size={16} />
-              </button>
-            </Tooltip>
-          )}
+          <div className="flex items-center gap-2">
+            {isGoogleSheetsConfigured() && (
+              <Tooltip label="How do I share this with my team?">
+                <button
+                  onClick={() => setShowTeamGuide((v) => !v)}
+                  aria-label="How do I share this with my team?"
+                  className="text-neutral-400 hover:text-neutral-600"
+                >
+                  <Users size={16} />
+                </button>
+              </Tooltip>
+            )}
+            {isGoogleSheetsConfigured() && sheetId && (
+              <Tooltip label="What's the difference between Push and Pull?">
+                <button
+                  onClick={() => setShowSyncHelp((v) => !v)}
+                  aria-label="What's the difference between Push and Pull?"
+                  className="text-neutral-400 hover:text-neutral-600"
+                >
+                  <HelpCircle size={16} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
         </div>
+
+        {showTeamGuide && (
+          <div className="mb-3 space-y-2 rounded-lg bg-surface-muted p-3 text-xs text-neutral-600">
+            <p className="font-medium text-neutral-800">Get your whole team on the same live inventory</p>
+            <p>
+              Signing in with Google here only connects <span className="italic">this device</span> to{" "}
+              <span className="italic">your</span> spreadsheet. To have coworkers see and update the same counts,
+              share that spreadsheet with them the way you&apos;d share any Google Sheet — right from Google Sheets
+              itself, not from this app.
+            </p>
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>
+                {sheetId ? (
+                  <>
+                    Open{" "}
+                    <a href={sheetUrl(sheetId)} target="_blank" rel="noreferrer" className="font-medium underline">
+                      your spreadsheet
+                    </a>{" "}
+                    (or the &quot;Open My Google Sheet&quot; link above).
+                  </>
+                ) : (
+                  <>Sign in with Google above first, so a spreadsheet exists to share.</>
+                )}
+              </li>
+              <li>
+                Click the blue <span className="font-medium text-neutral-800">Share</span> button in the top-right
+                corner of Google Sheets.
+              </li>
+              <li>
+                Type each teammate&apos;s Google account email and set their access to{" "}
+                <span className="font-medium text-neutral-800">Editor</span> — Viewer only lets them look, not
+                update stock — then click Send. They&apos;ll get an email with a link to the sheet.
+              </li>
+              <li>
+                On their own phone or computer, they open this app, tap{" "}
+                <span className="font-medium text-neutral-800">Sign in with Google</span>, and pick that same
+                spreadsheet from the list that comes up (it shows up there as soon as it&apos;s shared with them —
+                they don&apos;t need to create anything new).
+              </li>
+            </ol>
+            <p>
+              From there, everyone pushes and pulls the same sheet on their own schedule
+              {sheetId ? (
+                <>
+                  {" "}
+                  — see &quot;What&apos;s the difference between Push and Pull?&quot; above for how this app keeps
+                  two people from silently overwriting each other.
+                </>
+              ) : (
+                <>. Once you&apos;re connected, a second help icon here explains how pushing and pulling avoids two people overwriting each other.</>
+              )}
+            </p>
+          </div>
+        )}
 
         {showSyncHelp && (
           <div className="mb-3 space-y-2 rounded-lg bg-surface-muted p-3 text-xs text-neutral-600">
@@ -654,14 +727,21 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
             section.
           </p>
         ) : !sheetId ? (
-          <button
-            disabled={busy === "connect"}
-            onClick={connectGoogle}
-            data-tutorial="google-signin"
-            className="w-full rounded-lg border border-surface-border py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
-          >
-            {busy === "connect" ? "Connecting…" : "Sign in with Google"}
-          </button>
+          <>
+            <button
+              disabled={busy === "connect"}
+              onClick={connectGoogle}
+              data-tutorial="google-signin"
+              className="w-full rounded-lg border border-surface-border py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+            >
+              {busy === "connect" ? "Connecting…" : "Sign in with Google"}
+            </button>
+            <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+              This connects your own spreadsheet to this device. For your whole team to see and update the same
+              live inventory, sign in here, then share that spreadsheet with them in Google Sheets — tap{" "}
+              <Users size={11} className="inline-block align-text-bottom" /> above for a quick guide.
+            </p>
+          </>
         ) : (
           <div className="space-y-2">
             <a
