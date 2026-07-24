@@ -3,6 +3,7 @@ import { getOpenSlots, claimSlots, isValidTimeZone } from "@/lib/booking";
 import { sendOwnerNotification, sendCustomerConfirmation } from "@/lib/email";
 import { isRateLimited } from "@/lib/rateLimit";
 import { ContactMethod, isBookingDuration, BOOKING_WINDOW_START, BOOKING_WINDOW_END } from "@/lib/types";
+import { VISITS_ENABLED } from "@/lib/stripeTiers";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -38,6 +39,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Defense-in-depth alongside the client-side gate in book_appointment/page.tsx
+  // and PricingTiers.tsx — a direct POST to this route (bookmarked form,
+  // stale tab, or someone hitting the API directly) shouldn't be able to
+  // create a real booking while visit requests are paused. See VISITS_ENABLED.
+  if (!VISITS_ENABLED) {
+    return NextResponse.json(
+      { ok: false, error: "Visit requests are currently paused. Check back soon." },
+      { status: 503 }
+    );
+  }
+
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (isRateLimited(`book-submit:${ip}`, 10, 60_000)) {
     return NextResponse.json({ ok: false, error: "Too many requests. Slow down a bit." }, { status: 429 });

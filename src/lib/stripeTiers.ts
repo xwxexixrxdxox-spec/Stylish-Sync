@@ -40,6 +40,15 @@ export const VISIT_OFFER = {
   paymentLinkUrl: "https://buy.stripe.com/fZuaEZcsg5bpcOc6LH48008",
 };
 
+// Temporarily paused: the app itself is live for customers, but the
+// admin/technician side (availability management, clock-in/out, visit
+// status tooling) still needs more testing before new visit requests are
+// reopened. PricingTiers, the /book_appointment page, and the booking
+// API's POST handler all key off this single flag, so there's exactly one
+// place to flip back to `true` when visits are ready to resume — nothing
+// here is deleted, just switched off.
+export const VISITS_ENABLED = false;
+
 export const VISIT_HOURLY_PRICE_ID = "price_1TuiuHRs7xq2Oh7UjPEKngj6"; // $30.00/hr
 export const VISIT_DAILY_PRICE_ID = "price_1Tuk9HRs7xq2Oh7UZG6RNfqW"; // $300.00/day flat
 const HOURLY_RATE_CENTS = 3000;

@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Wrench } from "lucide-react";
-import { VISIT_OFFER } from "@/lib/stripeTiers";
+import { VISIT_OFFER, VISITS_ENABLED } from "@/lib/stripeTiers";
 
 const FREE_FEATURES = [
   "Clyde, our AI support assistant",
@@ -47,15 +47,28 @@ export default function PricingTiers() {
           </div>
         </div>
 
-        <a
-          href={VISIT_OFFER.bookingUrl}
-          className="mt-3 block rounded-xl2 border border-neutral-900 bg-neutral-900 py-2.5 text-center text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:opacity-90"
-        >
-          Request a Visit
-        </a>
-        <p className="mt-2 text-center text-[11px] text-neutral-400">
-          No payment now — pick a time that works and we'll bill you after the visit based on actual time spent.
-        </p>
+        {VISITS_ENABLED ? (
+          <>
+            <a
+              href={VISIT_OFFER.bookingUrl}
+              className="mt-3 block rounded-xl2 border border-neutral-900 bg-neutral-900 py-2.5 text-center text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:opacity-90"
+            >
+              Request a Visit
+            </a>
+            <p className="mt-2 text-center text-[11px] text-neutral-400">
+              No payment now — pick a time that works and we'll bill you after the visit based on actual time spent.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="mt-3 block cursor-not-allowed rounded-xl2 border border-surface-border bg-surface-muted py-2.5 text-center text-sm font-semibold text-neutral-400">
+              Coming soon
+            </div>
+            <p className="mt-2 text-center text-[11px] text-neutral-400">
+              We're not taking new visit requests just yet — check back soon.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

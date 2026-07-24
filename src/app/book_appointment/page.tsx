@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, Clock } from "lucide-react";
 import { OpenSlot, ContactMethod, BOOKING_DURATIONS, BookingDuration, BOOKING_WINDOW_END } from "@/lib/types";
-import { VISIT_OFFER } from "@/lib/stripeTiers";
+import { VISIT_OFFER, VISITS_ENABLED } from "@/lib/stripeTiers";
 
 function toMinutesLocal(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
@@ -37,6 +37,10 @@ export default function BookAppointmentPage() {
   const [booking, setBooking] = useState<{ id: string; cancelToken: string } | null>(null);
 
   useEffect(() => {
+    // Requests are paused (see VISITS_ENABLED) — skip fetching availability
+    // entirely rather than loading real open slots into a page that won't
+    // let anyone actually book them.
+    if (!VISITS_ENABLED) return;
     fetch("/api/book-appointment")
       .then((r) => r.json())
       .then((body) => setSlots(body.slots ?? []))
@@ -51,6 +55,22 @@ export default function BookAppointmentPage() {
     }
     return map;
   }, [slots]);
+
+  if (!VISITS_ENABLED) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
+        <CalendarDays className="mb-3 text-neutral-400" size={40} />
+        <h1 className="text-lg font-semibold text-neutral-900">Visit requests are paused</h1>
+        <p className="mt-2 text-sm text-neutral-600">
+          We're not accepting new in-person visit requests right now while we finish testing the admin/technician
+          side. Check back soon — the rest of the app is free to use in the meantime.
+        </p>
+        <a href="/" className="mt-5 rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted">
+          Back to app
+        </a>
+      </main>
+    );
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
