@@ -92,7 +92,21 @@ export interface StockMovement {
   // no-op transfer) so its own reorder threshold and usage history reflect
   // that cases actually left the "still sealed" count, per the customer's
   // explicit ask.
-  reason: "scan-add" | "scan-remove" | "manual-adjust" | "import" | "usage-import" | "break-case";
+  // "transfer-out"/"transfer-in" are the Move-stock counterpart to
+  // "break-case" above: also logged twice per move (negative on the source
+  // location-row, positive on the destination), so a transfer between two
+  // locations of the same product reads as a deliberate move in Usage
+  // history rather than an unexplained adjustment on one side and an
+  // unexplained restock on the other. See moveStock in page.tsx.
+  reason:
+    | "scan-add"
+    | "scan-remove"
+    | "manual-adjust"
+    | "import"
+    | "usage-import"
+    | "break-case"
+    | "transfer-out"
+    | "transfer-in";
   at: string;
   // Same lightweight per-device name tag as InventoryItem.lastEditedBy —
   // see that field's comment. Kept local-only for now (not pushed to the

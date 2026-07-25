@@ -24,9 +24,10 @@ interface Props {
   onDelete: (id: string) => void;
   onImport: (items: InventoryItem[]) => void;
   onBreakCase: (caseItemId: string, casesToBreak: number) => void;
+  onMoveStock: (itemId: string, destinationLocation: string, quantity: number) => void;
 }
 
-export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImport, onBreakCase }: Props) {
+export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImport, onBreakCase, onMoveStock }: Props) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   // Starts at the same "recent" default the persisted-preference reader
@@ -235,6 +236,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
                 onEdit={setEditing}
                 onDelete={onDelete}
                 onBreakCase={onBreakCase}
+                onMoveStock={onMoveStock}
                 tutorialTarget={false}
                 onActivity={handleActivity}
               />
@@ -248,6 +250,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
               onEdit={setEditing}
               onDelete={onDelete}
               onBreakCase={onBreakCase}
+              onMoveStock={onMoveStock}
               tutorialTarget={index === 0}
               onActivity={handleActivity}
               collapsed={entry.hasVisibleChild ? collapsedGroups.has(entry.item.barcode) : undefined}

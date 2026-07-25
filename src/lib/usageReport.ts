@@ -15,6 +15,8 @@ const REASON_LABEL: Record<StockMovement["reason"], string> = {
   import: "Inventory import",
   "usage-import": "Imported usage history",
   "break-case": "Broke down case",
+  "transfer-out": "Moved to another location",
+  "transfer-in": "Moved from another location",
 };
 
 // Reverse of REASON_LABEL — used when reading usage rows back out of a

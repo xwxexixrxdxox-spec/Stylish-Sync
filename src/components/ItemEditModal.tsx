@@ -44,8 +44,22 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
   const trimmedName = draft.name.trim();
   const nameError = trimmedName.length === 0;
   const trimmedBarcode = draft.barcode.trim();
+  const trimmedLocation = (draft.location ?? "").trim();
+  // A shared barcode is fine — expected, even — as long as it's paired
+  // with a different, real Location on each side (Phase 4: the same
+  // product tracked separately at more than one location, e.g. milk in the
+  // walk-in fridge vs. the front fridge). What's still blocked is a true
+  // accidental duplicate: the same barcode with no location set on either
+  // side (nothing to tell scans/restocks which row to use), or the same
+  // barcode at the same location (an actual duplicate row, not a second
+  // location).
   const duplicateBarcode =
-    trimmedBarcode.length > 0 && items.some((it) => it.id !== item.id && it.barcode === trimmedBarcode);
+    trimmedBarcode.length > 0 &&
+    items.some((it) => {
+      if (it.id === item.id || it.barcode !== trimmedBarcode) return false;
+      const otherLocation = (it.location || "").trim();
+      return !trimmedLocation || !otherLocation || otherLocation.toLowerCase() === trimmedLocation.toLowerCase();
+    });
   const canSave = !nameError && !duplicateBarcode;
 
   // "Someone just changed this" overwrite guard (see recentEdit.ts) —
@@ -102,8 +116,10 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
             />
             {duplicateBarcode && (
               <p className="mt-1 text-[11px] text-accent-low">
-                Another item already uses this barcode — scans and restocks would only ever reach whichever one
-                matches first.
+                Another item already uses this barcode{trimmedLocation ? " at the same location" : ""} — scans and
+                restocks would only ever reach whichever one matches first. Give this one a different Location below
+                to track the same product separately there instead (e.g. the same item stocked in two spots), or fix
+                the barcode if this is a genuine duplicate.
               </p>
             )}
           </Field>

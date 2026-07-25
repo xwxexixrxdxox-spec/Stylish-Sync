@@ -42,8 +42,10 @@ interface Props {
   // Returns whether a matching item was actually found and had stock
   // removed - lets the caller (this component) tell a real removal apart
   // from a no-op tap on a barcode that isn't in inventory, so it isn't
-  // reported to the customer as a success either way.
-  onRemoveStock: (input: { barcode: string; quantity: number }) => boolean;
+  // reported to the customer as a success either way. `location` matters
+  // once a barcode maps to more than one row (Phase 4 - see the
+  // "existing-multi" lookup status below) - ignored otherwise.
+  onRemoveStock: (input: { barcode: string; quantity: number; location?: string }) => boolean;
   access: AccessCheckResponse | null;
   // Lets a customer fix a wrong name/price/unit on an item already sitting
   // in their inventory right from the Scan tab the moment they notice it's
@@ -64,7 +66,12 @@ interface Props {
 // time. "multiple" means the external lookup came back with more than one
 // plausible product for this barcode - see candidates state below - so
 // nothing gets auto-committed as confidently as a single hit would be.
-type LookupStatus = "idle" | "checking" | "existing" | "found" | "multiple" | "not-found";
+// "existing-multi" is a different kind of multiple from "multiple" above:
+// this barcode already matches more than one row already in inventory -
+// Phase 4's per-location quantity tracking lets the same barcode
+// legitimately appear at two-plus locations, so a bare barcode alone can no
+// longer say which row a scan means. See locationChoices below.
+type LookupStatus = "idle" | "checking" | "existing" | "existing-multi" | "found" | "multiple" | "not-found";
 
 // Fallback for devices whose browser camera stream never reports a usable
 // focus capability at all (confirmed via the diagnostics above: some Android
@@ -154,6 +161,13 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
   // even if `items` changes in between.
   const [editingExisting, setEditingExisting] = useState<InventoryItem | null>(null);
   const [fixModalOpen, setFixModalOpen] = useState(false);
+  // Populated when a scanned/typed barcode matches more than one row
+  // already in inventory (lookupStatus === "existing-multi") - one per
+  // location currently tracking this barcode. The picker below lets the
+  // customer say which one this scan is actually for, same UI idea as
+  // `candidates` above but for an ambiguous *existing* match rather than an
+  // ambiguous *external* lookup.
+  const [locationChoices, setLocationChoices] = useState<InventoryItem[]>([]);
 
   useEffect(
     () => () => {
@@ -337,18 +351,39 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
     // the Barcode field (see above), so scanning the compressed code for
     // a product previously stored under its full UPC-A will add it as a
     // separate line rather than merging into that existing one.
-    const existing = items.find((it) => it.barcode === canonical || it.barcode === trimmed);
-    if (existing) {
+    const matches = items.filter((it) => it.barcode === canonical || it.barcode === trimmed);
+    if (matches.length === 1) {
+      const existing = matches[0];
       setLookupStatus("existing");
       setEditingExisting(existing);
       setCandidates([]);
+      setLocationChoices([]);
       setName(existing.name);
       setUnit(existing.unit);
       setPrice(existing.pricePerUnit);
       setLocation(existing.location || "");
       return;
     }
+    if (matches.length > 1) {
+      // This barcode already tracks stock at more than one location (Phase
+      // 4) - deliberately does NOT auto-pick one, since silently guessing
+      // which location a scan means is exactly the wrong move here; the
+      // customer has to say. Pre-fills name/unit/price from the first as a
+      // reasonable starting point (they're the same product either way),
+      // but leaves Location blank so Add Stock/Remove stay disabled-by-
+      // intent until a location is actually chosen or typed.
+      setLookupStatus("existing-multi");
+      setLocationChoices(matches);
+      setEditingExisting(null);
+      setCandidates([]);
+      setName(matches[0].name);
+      setUnit(matches[0].unit);
+      setPrice(matches[0].pricePerUnit);
+      setLocation("");
+      return;
+    }
     setEditingExisting(null);
+    setLocationChoices([]);
 
     setLookupStatus("checking");
 
@@ -427,7 +462,19 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
     setPriceFromLookup(false);
     setCandidates([]);
     setEditingExisting(null);
+    setLocationChoices([]);
     pendingContributionRef.current = null;
+  };
+
+  // Picking a location from the "existing-multi" disambiguation list below
+  // - fills the form from that specific row and marks it as the one "Fix
+  // it" would edit, same as a plain single-match "existing" lookup does.
+  const chooseLocationMatch = (match: InventoryItem) => {
+    setLocation(match.location || "");
+    setName(match.name);
+    setUnit(match.unit);
+    setPrice(match.pricePerUnit);
+    setEditingExisting(match);
   };
 
   const handleBarcodeBlur = () => {
@@ -455,6 +502,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
     setActionError(null);
     setCandidates([]);
     setEditingExisting(null);
+    setLocationChoices([]);
     lastLookedUpRef.current = null;
     pendingContributionRef.current = null;
   };
@@ -677,6 +725,12 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
               )}
             </p>
           )}
+          {lookupStatus === "existing-multi" && (
+            <p className="mt-1 text-[11px] text-amber-700">
+              This barcode is stocked in {locationChoices.length} locations — pick which one below before adding or
+              removing stock.
+            </p>
+          )}
           {lookupStatus === "found" && (
             <p className="mt-1 text-[11px] text-green-700">✓ Product found — details filled in below</p>
           )}
@@ -691,6 +745,31 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
             </p>
           )}
         </Field>
+        {lookupStatus === "existing-multi" && (
+          <div className="space-y-1.5 rounded-lg border border-surface-border bg-surface-muted p-2">
+            <p className="text-[11px] font-medium text-neutral-600">Which location?</p>
+            {locationChoices.map((match) => (
+              <button
+                key={match.id}
+                type="button"
+                onClick={() => chooseLocationMatch(match)}
+                className={`block w-full rounded-md border px-2 py-1.5 text-left text-xs ${
+                  (location || "").trim().toLowerCase() === (match.location || "").trim().toLowerCase()
+                    ? "border-neutral-900 bg-white font-medium text-neutral-900"
+                    : "border-surface-border bg-white text-neutral-600 hover:bg-surface-muted"
+                }`}
+              >
+                📍 {match.location || "No location set"}
+                <span className="ml-1.5 text-neutral-400">
+                  · {match.quantity} {match.unit}
+                </span>
+              </button>
+            ))}
+            <p className="text-[11px] text-neutral-400">
+              None of these? Type a new one in the Location field below to start tracking it there too.
+            </p>
+          </div>
+        )}
         {lookupStatus === "multiple" && (
           <div className="space-y-1.5 rounded-lg border border-surface-border bg-surface-muted p-2">
             <p className="text-[11px] font-medium text-neutral-600">Which one is it?</p>
@@ -784,10 +863,11 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
         <div className="flex gap-2 pt-1">
           <div className="relative flex-1">
             <button
-              disabled={!name.trim() || quantity <= 0}
+              disabled={!name.trim() || quantity <= 0 || (lookupStatus === "existing-multi" && !location.trim())}
               onClick={() => {
                 const trimmedName = name.trim();
                 if (!trimmedName || quantity <= 0) return;
+                if (lookupStatus === "existing-multi" && !location.trim()) return;
                 // Only contribute to the shared database when this exact
                 // barcode just came back "not-found" - never for a match
                 // against an existing item or an external-lookup result,
@@ -829,10 +909,11 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
           </div>
           <div className="relative flex-1">
             <button
-              disabled={!barcode.trim() || quantity <= 0}
+              disabled={!barcode.trim() || quantity <= 0 || (lookupStatus === "existing-multi" && !location.trim())}
               onClick={() => {
                 if (!barcode.trim() || quantity <= 0) return;
-                const removed = onRemoveStock({ barcode, quantity });
+                if (lookupStatus === "existing-multi" && !location.trim()) return;
+                const removed = onRemoveStock({ barcode, quantity, location: location.trim() || undefined });
                 if (!removed) {
                   // A real "nothing happened" - no chime, no burst
                   // animation, no reset, so the customer isn't told stock

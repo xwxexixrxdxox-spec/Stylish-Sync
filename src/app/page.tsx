@@ -14,6 +14,7 @@ import {
   resetTutorialCompleted,
   getEditorName,
 } from "@/lib/storage";
+import { itemMergeKey, countByBarcode } from "@/lib/itemMatch";
 import { syncPushDigest } from "@/lib/pushReminders";
 import BottomNav, { TabId } from "@/components/BottomNav";
 import InventoryTab from "@/components/InventoryTab";
@@ -150,24 +151,46 @@ export default function HomePage() {
   };
 
   const bulkImport = (imported: InventoryItem[]) => {
-    const before = new Map(items.map((it) => [it.barcode || it.id, it]));
+    // Merge key: barcode alone when it's unambiguous on both sides (0 or 1
+    // row using it, in the current inventory AND in the incoming batch) -
+    // this is the common case, and it's what lets a customer relocate an
+    // item by editing its Location field (or the cell directly in their
+    // Google Sheet) and have it still merge into the same row rather than
+    // spawn a duplicate. Only once a barcode genuinely has 2+ rows on
+    // either side (Phase 4 - the same product tracked at more than one
+    // location) does location become part of the key, so those rows merge
+    // into their own matching row instead of one collapsing into the
+    // other - the exact "does the pull/merge logic silently collapse two
+    // same-barcode rows into one" risk flagged when this feature was
+    // planned.
+    const localCounts = countByBarcode(items);
+    const importedCounts = countByBarcode(imported);
+    const keyFor = (it: Pick<InventoryItem, "barcode" | "location" | "id">) => {
+      const bc = it.barcode.trim();
+      if (!bc) return it.id;
+      const ambiguous = (localCounts.get(bc) ?? 0) > 1 || (importedCounts.get(bc) ?? 0) > 1;
+      return ambiguous ? itemMergeKey(bc, it.location) : bc;
+    };
+
+    const before = new Map(items.map((it) => [keyFor(it), it]));
     const editorName = getEditorName() ?? undefined;
     setItems((prev) => {
-      const byBarcode = new Map(prev.map((it) => [it.barcode || it.id, it]));
-      imported.forEach((it) =>
-        byBarcode.set(it.barcode || it.id, {
-          ...byBarcode.get(it.barcode || it.id),
+      const byKey = new Map(prev.map((it) => [keyFor(it), it]));
+      imported.forEach((it) => {
+        const key = keyFor(it);
+        byKey.set(key, {
+          ...byKey.get(key),
           ...it,
           lastEditedBy: editorName,
-        })
-      );
-      return Array.from(byBarcode.values());
+        });
+      });
+      return Array.from(byKey.values());
     });
     // Only log a movement for items that already existed - a freshly
     // imported item has no prior quantity to diff against, so usage
     // tracking for it just starts from here.
     imported.forEach((it) => {
-      const prevItem = before.get(it.barcode || it.id);
+      const prevItem = before.get(keyFor(it));
       if (!prevItem) return;
       const delta = it.quantity - prevItem.quantity;
       if (delta !== 0) {
@@ -189,7 +212,20 @@ export default function HomePage() {
     list: InventoryItem[],
     input: { barcode: string; name: string; location?: string }
   ): InventoryItem | undefined => {
-    if (input.barcode) return list.find((it) => it.barcode === input.barcode);
+    if (input.barcode) {
+      const matches = list.filter((it) => it.barcode === input.barcode);
+      // The common case: this barcode maps to exactly one row, so match on
+      // it regardless of location - unchanged from before Phase 4. Once a
+      // second row for this same barcode exists (the same product tracked
+      // at more than one location), a bare barcode alone can no longer say
+      // which row to update, so it only resolves when the location also
+      // matches one of them; otherwise the caller (addStock) creates a
+      // fresh row for what reads as a new location rather than guessing
+      // which existing one was meant.
+      if (matches.length <= 1) return matches[0];
+      const loc = (input.location || "").trim().toLowerCase();
+      return matches.find((it) => (it.location || "").trim().toLowerCase() === loc);
+    }
     const name = input.name.trim().toLowerCase();
     if (!name) return undefined;
     const location = (input.location || "").trim().toLowerCase();
@@ -281,14 +317,29 @@ export default function HomePage() {
   // this inventory has that barcode" (the caller uses this to decide
   // whether removal actually happened, rather than always reporting
   // success back to the customer regardless of whether stock moved).
-  const removeStock = (input: { barcode: string; quantity: number }): boolean => {
+  const removeStock = (input: { barcode: string; quantity: number; location?: string }): boolean => {
     const requested = Math.max(0, Math.floor(input.quantity));
-    const existing = items.find((it) => it.barcode === input.barcode);
-    if (!existing || requested <= 0) return false;
+    if (requested <= 0) return false;
+    const matches = items.filter((it) => it.barcode === input.barcode);
+    if (matches.length === 0) return false;
+    // Same disambiguation rule as findMatchingItem above: a barcode with
+    // only one row removes from it regardless of location (unchanged
+    // behavior); a barcode shared by 2+ rows (Phase 4) needs the location
+    // to say which one - and if it doesn't match any of them, this is a
+    // genuine "don't know which row" case, not a silent guess.
+    const existing = matches.length === 1 ? matches[0] : matches.find((it) => (it.location || "").trim().toLowerCase() === (input.location || "").trim().toLowerCase());
+    if (!existing) return false;
+    const targetId = existing.id;
     const editorName = getEditorName() ?? undefined;
     setItems((prev) =>
+      // Keyed on the specific row's id, not "every row with this barcode" -
+      // before Phase 4 those were always the same set of exactly one row,
+      // but once a barcode can legitimately have 2+ rows (different
+      // locations), matching on barcode alone here would have silently
+      // deducted stock from every location sharing it instead of just the
+      // one this removal was actually for.
       prev.map((it) =>
-        it.barcode === input.barcode
+        it.id === targetId
           ? { ...it, quantity: Math.max(0, it.quantity - requested), updatedAt: new Date().toISOString(), lastEditedBy: editorName }
           : it
       )
@@ -298,6 +349,65 @@ export default function HomePage() {
       logMovement({ itemId: existing.id, delta: -removed, reason: "scan-remove", at: new Date().toISOString(), by: editorName });
     }
     return true;
+  };
+
+  // Transfers N units of an item from its current row to another location
+  // for the same barcode - the "Move stock" action (ItemCard's Move
+  // button). Creates the destination row automatically, pre-filled from
+  // the source (unit, price, reorder threshold - all editable after), if
+  // no row for that location already exists; otherwise adds onto the
+  // existing one. See moveStockDestinationId below for why the destination
+  // id is resolved before setItems runs.
+  const moveStock = (sourceItemId: string, destinationLocationInput: string, quantity: number) => {
+    const source = items.find((it) => it.id === sourceItemId);
+    if (!source || !source.barcode) return;
+    const n = Math.max(0, Math.min(Math.round(quantity) || 0, source.quantity));
+    const destLocation = destinationLocationInput.trim();
+    if (n <= 0 || !destLocation) return;
+    if (destLocation.toLowerCase() === (source.location || "").trim().toLowerCase()) return;
+
+    const destExisting = items.find(
+      (it) =>
+        it.id !== source.id &&
+        it.barcode === source.barcode &&
+        (it.location || "").trim().toLowerCase() === destLocation.toLowerCase()
+    );
+    // Resolved once, up front, the same way addStock resolves itemId -
+    // setItems's updater can run more than once in some React modes, and
+    // logMovement below needs one stable id to log against regardless.
+    const destId = destExisting ? destExisting.id : `item-${Date.now()}`;
+    const now = new Date().toISOString();
+    const editorName = getEditorName() ?? undefined;
+
+    setItems((prev) => {
+      const next = prev.map((it) =>
+        it.id === source.id
+          ? { ...it, quantity: Math.max(0, it.quantity - n), updatedAt: now, lastEditedBy: editorName }
+          : it
+      );
+      if (next.some((it) => it.id === destId)) {
+        return next.map((it) =>
+          it.id === destId ? { ...it, quantity: it.quantity + n, updatedAt: now, lastEditedBy: editorName } : it
+        );
+      }
+      return [
+        ...next,
+        {
+          id: destId,
+          barcode: source.barcode,
+          name: source.name,
+          quantity: n,
+          unit: source.unit,
+          pricePerUnit: source.pricePerUnit,
+          reorderAt: source.reorderAt,
+          updatedAt: now,
+          location: destLocation,
+          lastEditedBy: editorName,
+        },
+      ];
+    });
+    logMovement({ itemId: source.id, delta: -n, reason: "transfer-out", at: now, by: editorName });
+    logMovement({ itemId: destId, delta: n, reason: "transfer-in", at: now, by: editorName });
   };
 
   return (
@@ -341,6 +451,7 @@ export default function HomePage() {
             onDelete={deleteItem}
             onImport={bulkImport}
             onBreakCase={breakCase}
+            onMoveStock={moveStock}
           />
         )}
         {tab === "scan" && (

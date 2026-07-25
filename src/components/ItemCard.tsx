@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Minus, Plus, Pencil, Trash2, PackageOpen, ChevronRight } from "lucide-react";
+import { Minus, Plus, Pencil, Trash2, PackageOpen, ChevronRight, ArrowLeftRight } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { playChime } from "@/lib/chime";
 import { isLowStock } from "@/lib/reorderStatus";
 import { isRecentOtherEdit } from "@/lib/recentEdit";
 import { formatRelativeTime } from "@/lib/time";
+import { locationSiblings } from "@/lib/itemMatch";
+import { getKnownLocations } from "@/lib/locations";
 import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
 import BreakCaseDialog from "./BreakCaseDialog";
+import MoveStockDialog from "./MoveStockDialog";
 
 interface Props {
   item: InventoryItem;
@@ -18,6 +21,11 @@ interface Props {
   onEdit: (item: InventoryItem) => void;
   onDelete: (id: string) => void;
   onBreakCase: (caseItemId: string, casesToBreak: number) => void;
+  // Transfers stock from this row to another location for the same
+  // barcode (Phase 4 - per-location quantity tracking). See moveStock in
+  // page.tsx. Only ever offered when the item has a barcode - a
+  // barcode-less item has nothing to link a destination row to.
+  onMoveStock: (itemId: string, destinationLocation: string, quantity: number) => void;
   // Marks this card's stock controls as the new-customer tutorial's
   // spotlight target (see TutorialOverlay.tsx / InventoryTab.tsx, which
   // only sets this on whichever item happens to render first) - not tied
@@ -47,6 +55,7 @@ export default function ItemCard({
   onEdit,
   onDelete,
   onBreakCase,
+  onMoveStock,
   tutorialTarget,
   onActivity,
   collapsed,
@@ -62,6 +71,13 @@ export default function ItemCard({
   const rawLow = item.quantity <= item.reorderAt;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [breakingCase, setBreakingCase] = useState(false);
+  const [movingStock, setMovingStock] = useState(false);
+  // Other rows already tracking this same barcode at a different location
+  // (Phase 4) - drives both the "Also at" line below and the Move dialog's
+  // quick-pick chips. Recomputed every render from the live `items` list
+  // rather than cached, same as eachItem below, so it stays correct as
+  // siblings are added/removed/renamed.
+  const siblings = locationSiblings(item, items);
   // Tap-to-edit the quantity directly (the number between the +/- buttons),
   // as a fast path to "set it to exactly N" without holding +/- or opening
   // the full edit modal — the pencil button still does the latter. Commits
@@ -270,6 +286,14 @@ export default function ItemCard({
             Edited by {item.lastEditedBy} · {formatRelativeTime(item.updatedAt)}
           </p>
         )}
+        {siblings.length > 0 && (
+          <p className="mt-0.5 text-[11px] text-neutral-400">
+            🔗 Also at{" "}
+            {siblings
+              .map((s) => `${s.location || "no location"} (${s.quantity} ${s.unit})`)
+              .join(", ")}
+          </p>
+        )}
         <div className="mt-2 flex items-center gap-2" data-tutorial={tutorialTarget ? "item-stock-controls" : undefined}>
           <div className="relative">
             <Tooltip label="Hold to decrease stock">
@@ -378,6 +402,17 @@ export default function ItemCard({
               </button>
             </Tooltip>
           )}
+          {item.barcode && (
+            <Tooltip label="Move stock to another location">
+              <button
+                aria-label="Move stock to another location"
+                onClick={() => setMovingStock(true)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-surface-muted"
+              >
+                <ArrowLeftRight size={14} />
+              </button>
+            </Tooltip>
+          )}
           <Tooltip label="Edit item">
             <button
               aria-label="Edit item"
@@ -422,6 +457,19 @@ export default function ItemCard({
           onConfirm={() => {
             setConfirmingDelete(false);
             onDelete(item.id);
+          }}
+        />
+      )}
+
+      {movingStock && (
+        <MoveStockDialog
+          item={item}
+          siblingLocations={siblings.map((s) => s.location || "").filter(Boolean)}
+          knownLocations={getKnownLocations(items)}
+          onCancel={() => setMovingStock(false)}
+          onConfirm={(destination, quantity) => {
+            setMovingStock(false);
+            onMoveStock(item.id, destination, quantity);
           }}
         />
       )}
