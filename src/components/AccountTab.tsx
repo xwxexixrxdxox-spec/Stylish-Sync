@@ -65,7 +65,7 @@ import {
   getExistingPushSubscription,
   isPushSupported,
 } from "@/lib/pushReminders";
-import PricingTiers from "./PricingTiers";
+import LiveInStoreCard from "./LiveInStoreCard";
 import DevAccessToggle from "./DevAccessToggle";
 
 // Coarse "how long ago" for the Last synced line — doesn't need
@@ -844,35 +844,6 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         )}
       </section>
 
-      {remindersState !== "unsupported" && (
-        <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-          <p className="mb-3 text-sm font-medium text-neutral-900">Reorder Reminders</p>
-          <button
-            disabled={remindersBusy || remindersState === "unknown"}
-            onClick={toggleReminders}
-            className={`flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
-              remindersState === "on"
-                ? "border border-surface-border text-neutral-700 hover:bg-surface-muted"
-                : "bg-neutral-900 text-white hover:opacity-90"
-            }`}
-          >
-            <Bell size={14} />
-            {remindersBusy
-              ? "Working…"
-              : remindersState === "on"
-                ? "Turn off daily reminders"
-                : "Turn on daily reminders"}
-          </button>
-          <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
-            A daily notification naming the exact items worth acting on — what&apos;s below its reorder point, and
-            which fast-moving items are on pace to run out — with real quantities from your own usage. If nothing
-            needs attention, no notification is sent. Turning this on stores a small summary of those items (names
-            and counts only) on our server so reminders work while the app is closed; turning it off deletes it.
-            {isIosSafari() && " On iPhone/iPad, install the app to your home screen first — iOS only delivers web notifications to installed apps."}
-          </p>
-        </section>
-      )}
-
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-3 text-sm font-medium text-neutral-900">Inventory Data</p>
         <button
@@ -910,6 +881,35 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
           onCancel={() => setConfirmingLocalFresh(false)}
           onConfirm={startFreshLocalInventory}
         />
+      )}
+
+      {remindersState !== "unsupported" && (
+        <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+          <p className="mb-3 text-sm font-medium text-neutral-900">Reorder Reminders</p>
+          <button
+            disabled={remindersBusy || remindersState === "unknown"}
+            onClick={toggleReminders}
+            className={`flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+              remindersState === "on"
+                ? "border border-surface-border text-neutral-700 hover:bg-surface-muted"
+                : "bg-neutral-900 text-white hover:opacity-90"
+            }`}
+          >
+            <Bell size={14} />
+            {remindersBusy
+              ? "Working…"
+              : remindersState === "on"
+                ? "Turn off daily reminders"
+                : "Turn on daily reminders"}
+          </button>
+          <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+            A daily notification naming the exact items worth acting on — what&apos;s below its reorder point, and
+            which fast-moving items are on pace to run out — with real quantities from your own usage. If nothing
+            needs attention, no notification is sent. Turning this on stores a small summary of those items (names
+            and counts only) on our server so reminders work while the app is closed; turning it off deletes it.
+            {isIosSafari() && " On iPhone/iPad, install the app to your home screen first — iOS only delivers web notifications to installed apps."}
+          </p>
+        </section>
       )}
 
       {conflict && (
@@ -950,38 +950,6 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         </div>
       )}
 
-      <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-        <p className="mb-3 text-sm font-medium text-neutral-900">Booked a visit?</p>
-        {!trackOpen ? (
-          <button
-            onClick={() => setTrackOpen(true)}
-            className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
-          >
-            <Search size={14} /> Track your booking status
-          </button>
-        ) : (
-          <div className="space-y-2">
-            <input
-              type="email"
-              autoFocus
-              placeholder="Email you booked with"
-              value={trackEmail}
-              onChange={(e) => setTrackEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && findBooking()}
-              className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
-            />
-            <button
-              disabled={trackBusy}
-              onClick={findBooking}
-              className="w-full rounded-lg border border-neutral-900 bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {trackBusy ? "Looking up…" : "Find my booking"}
-            </button>
-            {trackError && <p className="text-xs font-medium text-accent-low">{trackError}</p>}
-          </div>
-        )}
-      </section>
-
       {!alreadyInstalled && (installable || isIosSafari()) && (
         <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
           <p className="mb-3 text-sm font-medium text-neutral-900">Install app</p>
@@ -1013,11 +981,39 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
         </section>
       )}
 
-      {!access?.access && (
-        <section>
-          <PricingTiers />
-        </section>
-      )}
+      <LiveInStoreCard />
+
+      <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+        <p className="mb-3 text-sm font-medium text-neutral-900">Booked a visit?</p>
+        {!trackOpen ? (
+          <button
+            onClick={() => setTrackOpen(true)}
+            className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
+          >
+            <Search size={14} /> Track your booking status
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <input
+              type="email"
+              autoFocus
+              placeholder="Email you booked with"
+              value={trackEmail}
+              onChange={(e) => setTrackEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && findBooking()}
+              className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+            />
+            <button
+              disabled={trackBusy}
+              onClick={findBooking}
+              className="w-full rounded-lg border border-neutral-900 bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {trackBusy ? "Looking up…" : "Find my booking"}
+            </button>
+            {trackError && <p className="text-xs font-medium text-accent-low">{trackError}</p>}
+          </div>
+        )}
+      </section>
 
       {message && <p className="mt-3 text-center text-xs font-medium text-neutral-600">{message}</p>}
 

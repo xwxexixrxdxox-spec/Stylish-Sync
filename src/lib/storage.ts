@@ -27,6 +27,15 @@ const TUTORIAL_KEY = "isc_tutorial_completed_v1";
 // stays out of the way. The Account panel still has an always-available
 // install entry point regardless.
 const INSTALL_BANNER_DISMISSED_KEY = "isc_install_banner_dismissed_v1";
+// Whether the customer has closed the "Coming Soon" overlay on the Live
+// In-Store Setup card in the Account panel (see LiveInStoreCard.tsx). Present
+// once dismissed, missing otherwise — same on/off-until-closed shape as the
+// install banner above. Deliberately NOT re-checked against VISITS_ENABLED
+// here (that's a deploy-time constant the component itself reads) — once an
+// admin actually turns the feature on, the card stops being gated on this
+// flag at all and just renders live, so a stale dismissal from the
+// "coming soon" era never hides the real, working feature.
+const LIVE_INSTORE_DISMISSED_KEY = "isc_live_instore_dismissed_v1";
 // Caps how much movement history we keep in localStorage. The Usage tab's
 // date filter now goes up to "All time," so this needs to comfortably
 // cover several years of realistic activity rather than "well over a
@@ -149,6 +158,16 @@ export function getInstallBannerDismissed(): boolean {
 export function setInstallBannerDismissed(): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(INSTALL_BANNER_DISMISSED_KEY, "1");
+}
+
+export function getLiveInStoreDismissed(): boolean {
+  if (typeof window === "undefined") return true; // never flash the card during SSR
+  return window.localStorage.getItem(LIVE_INSTORE_DISMISSED_KEY) !== null;
+}
+
+export function setLiveInStoreDismissed(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LIVE_INSTORE_DISMISSED_KEY, "1");
 }
 
 // Local-only "start fresh": wipes this device's inventory and usage
