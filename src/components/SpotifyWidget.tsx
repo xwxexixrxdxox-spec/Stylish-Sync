@@ -78,9 +78,13 @@ const NAV_H = 64;
 const FAB_SIZE = 44;
 const PANEL_WIDTH = 280;
 const SIDEBAR_WIDTH_EXPANDED = 280;
-const SIDEBAR_WIDTH_COLLAPSED = 36;
+// Kept deliberately thin - a customer on mobile reported the collapsed
+// strip still ate a noticeable sliver of the screen at the old 36px/28px.
+// The whole strip is still one big tap target (not just the icon), so it
+// stays easy to hit even this narrow.
+const SIDEBAR_WIDTH_COLLAPSED = 20;
 const BAR_HEIGHT_EXPANDED = 96;
-const BAR_HEIGHT_COLLAPSED = 28;
+const BAR_HEIGHT_COLLAPSED = 16;
 
 function clampPosition(pos: SpotifyWidgetPosition, width: number, height: number): SpotifyWidgetPosition {
   if (typeof window === "undefined") return pos;
@@ -412,6 +416,20 @@ export default function SpotifyWidget({ suppressed = false }: Props) {
     return embed.kind === "track" || embed.kind === "episode" ? 152 : 352;
   };
 
+  // This app never touches Spotify auth at all - the embedded player is
+  // Spotify's own, and it already has its own "log in" affordance (the
+  // small Spotify logo in its corner). A signed-in Premium listener gets
+  // full songs through that automatically; everyone else gets the usual
+  // 30-second previews. Surfaced here because it's easy to miss that the
+  // logo does anything at all. Skipped in the compact/horizontal layouts,
+  // which don't have the spare height for it.
+  const premiumHint = (
+    <p className="border-t border-surface-border px-3 py-1.5 text-[10px] leading-snug text-neutral-400">
+      Only hearing previews? Tap the Spotify logo above to log in - full songs play automatically for Premium
+      accounts.
+    </p>
+  );
+
   // A translucent highlight along whichever edge the cursor is currently
   // close enough to for a drop to dock there - the same visual language as
   // Windows Snap's preview outline, so it's obvious before releasing
@@ -579,106 +597,121 @@ export default function SpotifyWidget({ suppressed = false }: Props) {
   // --- Docked: collapsible sidebar (left/right) or bar (top/bottom) -------
   if (dock) {
     const vertical = dock === "left" || dock === "right";
-    const sideStyle: React.CSSProperties = vertical
-      ? {
-          [dock]: 0,
-          top: HEADER_H,
-          bottom: NAV_H,
-          width: collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED,
-        }
+    // Two separate styles rather than one that swaps a size - the panel
+    // below always stays at its EXPANDED size/position (see the comment on
+    // it for why) and only the collapsed tab uses the collapsed one.
+    const expandedStyle: React.CSSProperties = vertical
+      ? { [dock]: 0, top: HEADER_H, bottom: NAV_H, width: SIDEBAR_WIDTH_EXPANDED }
       : {
           left: 0,
           right: 0,
           // Inset from the true viewport edge by the app's own header/nav
-          // height - same reasoning as the vertical case above, just on the
-          // other axis: a top bar flush at 0 would sit on top of (and hide)
+          // height - a top bar flush at 0 would sit on top of (and hide)
           // the app's sticky header, and a bottom bar flush at 0 would hide
           // the fixed BottomNav.
           ...(dock === "top" ? { top: HEADER_H } : { bottom: NAV_H }),
-          height: collapsed ? BAR_HEIGHT_COLLAPSED : BAR_HEIGHT_EXPANDED,
+          height: BAR_HEIGHT_EXPANDED,
+        };
+    const collapsedTabStyle: React.CSSProperties = vertical
+      ? { [dock]: 0, top: HEADER_H, bottom: NAV_H, width: SIDEBAR_WIDTH_COLLAPSED }
+      : {
+          left: 0,
+          right: 0,
+          ...(dock === "top" ? { top: HEADER_H } : { bottom: NAV_H }),
+          height: BAR_HEIGHT_COLLAPSED,
         };
 
-    if (collapsed) {
-      return (
-        <Tooltip label="Expand music widget" side={dock === "top" ? "bottom" : "top"}>
-          <button
-            onClick={toggleCollapsed}
-            aria-label="Expand music widget"
-            className={`fixed z-40 flex items-center justify-center border border-surface-border bg-white text-[#1DB954] shadow-card hover:opacity-90 ${
-              vertical ? "flex-col rounded-r-lg rounded-l-none" : "rounded-b-lg rounded-t-none"
-            }`}
-            style={sideStyle}
-          >
-            <Music2 size={16} />
-          </button>
-        </Tooltip>
-      );
-    }
-
     return (
-      <div
-        ref={elementRef}
-        className={`fixed z-40 flex overflow-hidden border-surface-border bg-white shadow-card ${
-          vertical ? "flex-col border-l border-r" : "flex-col border-t border-b"
-        }`}
-        style={sideStyle}
-      >
-        <div className={`flex items-center justify-between border-b border-surface-border ${vertical ? "px-3 py-2" : "px-3 py-1.5"}`}>
-          {/* Only the title/grip area is the drag handle - deliberately NOT
-              the whole header row, so grabbing near the pencil/trash/
-              collapse/close icons to start a drag can't also register as a
-              press on one of them. */}
-          <div
-            onPointerDown={dragHandle.onPointerDown}
-            onPointerMove={dragHandle.onPointerMove}
-            onPointerUp={dragHandle.onPointerUp}
-            className="flex cursor-grab select-none items-center gap-1.5 py-1 pr-2 text-xs font-semibold text-neutral-700 active:cursor-grabbing"
-            style={{ touchAction: "none" }}
-            title="Drag to move or undock"
-          >
-            <GripHorizontal size={13} className="text-neutral-400" aria-hidden />
-            <Music2 size={14} className="text-[#1DB954]" />
-            {vertical && "Music"}
+      <>
+        {/* Kept mounted at its normal expanded size/position even while
+            collapsed - only visually hidden (CSS visibility, not display or
+            unmounting) and non-interactive, so whatever's playing in the
+            iframe below keeps playing. Collapsing used to literally remove
+            this whole panel (iframe included) from the page, which killed
+            playback outright - a customer caught that regression. */}
+        <div
+          ref={elementRef}
+          className={`fixed z-40 flex overflow-hidden border-surface-border bg-white shadow-card ${
+            vertical ? "flex-col border-l border-r" : "flex-col border-t border-b"
+          } ${collapsed ? "invisible pointer-events-none" : ""}`}
+          style={expandedStyle}
+          aria-hidden={collapsed}
+        >
+          <div className={`flex items-center justify-between border-b border-surface-border ${vertical ? "px-3 py-2" : "px-3 py-1.5"}`}>
+            {/* Only the title/grip area is the drag handle - deliberately NOT
+                the whole header row, so grabbing near the pencil/trash/
+                collapse/close icons to start a drag can't also register as a
+                press on one of them. */}
+            <div
+              onPointerDown={dragHandle.onPointerDown}
+              onPointerMove={dragHandle.onPointerMove}
+              onPointerUp={dragHandle.onPointerUp}
+              className="flex cursor-grab select-none items-center gap-1.5 py-1 pr-2 text-xs font-semibold text-neutral-700 active:cursor-grabbing"
+              style={{ touchAction: "none" }}
+              title="Drag to move or undock"
+            >
+              <GripHorizontal size={13} className="text-neutral-400" aria-hidden />
+              <Music2 size={14} className="text-[#1DB954]" />
+              {vertical && "Music"}
+            </div>
+            {controlButtons(dock)}
           </div>
-          {controlButtons(dock)}
-        </div>
 
-        {vertical ? (
-          showForm ? (
-            linkForm(false)
+          {vertical ? (
+            showForm ? (
+              linkForm(false)
+            ) : (
+              embed && (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="min-h-0 flex-1">
+                    <iframe
+                      key={embed.embedUrl}
+                      src={embed.embedUrl}
+                      width="100%"
+                      height="100%"
+                      style={{ border: 0, display: "block" }}
+                      allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                      loading="lazy"
+                      title="Spotify player"
+                    />
+                  </div>
+                  {premiumHint}
+                </div>
+              )
+            )
+          ) : showForm ? (
+            linkForm(true)
           ) : (
             embed && (
-              <div className="min-h-0 flex-1">
-                <iframe
-                  key={embed.embedUrl}
-                  src={embed.embedUrl}
-                  width="100%"
-                  height="100%"
-                  style={{ border: 0, display: "block" }}
-                  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                  loading="lazy"
-                  title="Spotify player"
-                />
-              </div>
+              <iframe
+                key={embed.embedUrl}
+                src={embed.embedUrl}
+                width="100%"
+                height={embedHeight(true)}
+                style={{ border: 0, display: "block" }}
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                loading="lazy"
+                title="Spotify player"
+              />
             )
-          )
-        ) : showForm ? (
-          linkForm(true)
-        ) : (
-          embed && (
-            <iframe
-              key={embed.embedUrl}
-              src={embed.embedUrl}
-              width="100%"
-              height={embedHeight(true)}
-              style={{ border: 0, display: "block" }}
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              loading="lazy"
-              title="Spotify player"
-            />
-          )
+          )}
+        </div>
+
+        {collapsed && (
+          <Tooltip label="Expand music widget" side={dock === "top" ? "bottom" : "top"}>
+            <button
+              onClick={toggleCollapsed}
+              aria-label="Expand music widget"
+              className={`fixed z-40 flex items-center justify-center border border-surface-border bg-white text-[#1DB954] shadow-card hover:opacity-90 ${
+                vertical ? "flex-col rounded-r-lg rounded-l-none" : "rounded-b-lg rounded-t-none"
+              }`}
+              style={collapsedTabStyle}
+            >
+              <Music2 size={13} />
+            </button>
+          </Tooltip>
         )}
-      </div>
+      </>
     );
   }
 
@@ -731,16 +764,19 @@ export default function SpotifyWidget({ suppressed = false }: Props) {
       {showForm
         ? linkForm(false)
         : embed && (
-            <iframe
-              key={embed.embedUrl}
-              src={embed.embedUrl}
-              width="100%"
-              height={embedHeight(false)}
-              style={{ border: 0, display: "block" }}
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              loading="lazy"
-              title="Spotify player"
-            />
+            <>
+              <iframe
+                key={embed.embedUrl}
+                src={embed.embedUrl}
+                width="100%"
+                height={embedHeight(false)}
+                style={{ border: 0, display: "block" }}
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                loading="lazy"
+                title="Spotify player"
+              />
+              {premiumHint}
+            </>
           )}
     </div>
   );
