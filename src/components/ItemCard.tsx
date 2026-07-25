@@ -5,6 +5,8 @@ import { Minus, Plus, Pencil, Trash2, PackageOpen, ChevronRight } from "lucide-r
 import { InventoryItem } from "@/lib/types";
 import { playChime } from "@/lib/chime";
 import { isLowStock } from "@/lib/reorderStatus";
+import { isRecentOtherEdit } from "@/lib/recentEdit";
+import { formatRelativeTime } from "@/lib/time";
 import Tooltip from "./Tooltip";
 import ConfirmDialog from "./ConfirmDialog";
 import BreakCaseDialog from "./BreakCaseDialog";
@@ -68,6 +70,25 @@ export default function ItemCard({
   const [editingQty, setEditingQty] = useState(false);
   const [qtyDraft, setQtyDraft] = useState("");
 
+  // "Someone just changed this" overwrite guard (see recentEdit.ts) — only
+  // checked once per card mount (i.e. once per distinct stock-touching
+  // interaction session on this card), not on every tick of a held +/-
+  // repeat, so a confirmed hold doesn't keep re-asking. Reset on Cancel so
+  // trying again immediately still gets asked once more, rather than
+  // silently unlocking unprotected edits after the first decline.
+  const hasCheckedRecentEditRef = useRef(false);
+  const [pendingOverwrite, setPendingOverwrite] = useState<(() => void) | null>(null);
+  const guardRecentEdit = (proceed: () => void) => {
+    if (!hasCheckedRecentEditRef.current) {
+      hasCheckedRecentEditRef.current = true;
+      if (isRecentOtherEdit(item)) {
+        setPendingOverwrite(() => proceed);
+        return;
+      }
+    }
+    proceed();
+  };
+
   const startEditQty = () => {
     onActivity?.();
     setQtyDraft(String(item.quantity));
@@ -77,8 +98,10 @@ export default function ItemCard({
     setEditingQty(false);
     const next = Math.round(Number(qtyDraft));
     if (!Number.isFinite(next) || next < 0 || next === item.quantity) return;
-    onActivity?.();
-    onAdjust(item.id, next - item.quantity);
+    guardRecentEdit(() => {
+      onActivity?.();
+      onAdjust(item.id, next - item.quantity);
+    });
   };
   // The linked each-item, looked up live by barcode every render rather
   // than trusted as "must still exist" — the customer can delete or
@@ -145,6 +168,10 @@ export default function ItemCard({
   };
 
   const startPress = (delta: 1 | -1, pointerId: number) => {
+    guardRecentEdit(() => runStartPress(delta, pointerId));
+  };
+
+  const runStartPress = (delta: 1 | -1, pointerId: number) => {
     applyStep(delta, false); // the press itself always behaves like a normal single click
     clearHoldTimers();
     releaseListenersCleanupRef.current?.();
@@ -238,6 +265,11 @@ export default function ItemCard({
           {item.barcode || "no barcode"} · {item.unit}
           {item.location && <> · 📍 {item.location}</>}
         </p>
+        {item.lastEditedBy && (
+          <p className="mt-0.5 text-[11px] text-neutral-400">
+            Edited by {item.lastEditedBy} · {formatRelativeTime(item.updatedAt)}
+          </p>
+        )}
         <div className="mt-2 flex items-center gap-2" data-tutorial={tutorialTarget ? "item-stock-controls" : undefined}>
           <div className="relative">
             <Tooltip label="Hold to decrease stock">
@@ -402,6 +434,24 @@ export default function ItemCard({
           onConfirm={(n) => {
             setBreakingCase(false);
             onBreakCase(item.id, n);
+          }}
+        />
+      )}
+
+      {pendingOverwrite && (
+        <ConfirmDialog
+          title="Recently changed"
+          message={`This item was updated ${formatRelativeTime(item.updatedAt)} by ${item.lastEditedBy} — overwrite that change?`}
+          confirmLabel="Overwrite anyway"
+          danger={false}
+          onCancel={() => {
+            hasCheckedRecentEditRef.current = false;
+            setPendingOverwrite(null);
+          }}
+          onConfirm={() => {
+            const proceed = pendingOverwrite;
+            setPendingOverwrite(null);
+            proceed();
           }}
         />
       )}

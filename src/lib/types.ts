@@ -28,6 +28,14 @@ export interface InventoryItem {
   reorderAt: number;
   updatedAt: string;
   location?: string;
+  // Free-text name of whoever last changed this item on whatever device
+  // made the change — see storage.ts's getEditorName/setEditorName. This
+  // is a lightweight, per-device "name tag," not real authentication:
+  // there's no login behind it, so it's an accountability signal for a
+  // small team, not an access-control mechanism. Undefined for any item
+  // whose most recent change happened before this field existed, or on a
+  // device where nobody's ever set a name.
+  lastEditedBy?: string;
   // If this item is a case/pack that gets broken down into a separate,
   // individually-tracked each-level item (e.g. a 12-pack case of cans that
   // gets unpacked onto a shelf as loose cans), these two fields describe
@@ -86,6 +94,12 @@ export interface StockMovement {
   // explicit ask.
   reason: "scan-add" | "scan-remove" | "manual-adjust" | "import" | "usage-import" | "break-case";
   at: string;
+  // Same lightweight per-device name tag as InventoryItem.lastEditedBy —
+  // see that field's comment. Kept local-only for now (not pushed to the
+  // Google Sheets Usage tab, which already uses columns A-G for its own
+  // detail table right up against the H:I weekly-totals block on the same
+  // sheet — adding an eighth column there would collide with it).
+  by?: string;
 }
 
 // EXPERIMENTAL — see PackageTracking below for what "experimental" means

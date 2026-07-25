@@ -36,6 +36,16 @@ const INSTALL_BANNER_DISMISSED_KEY = "isc_install_banner_dismissed_v1";
 // flag at all and just renders live, so a stale dismissal from the
 // "coming soon" era never hides the real, working feature.
 const LIVE_INSTORE_DISMISSED_KEY = "isc_live_instore_dismissed_v1";
+// A lightweight, per-device "who's using this thing" name tag — see the
+// `lastEditedBy` comment on InventoryItem in types.ts for what this is and
+// (importantly) isn't. Missing means nobody's set one on this device yet.
+const EDITOR_NAME_KEY = "isc_editor_name_v1";
+// Which field the Reorder tab's "Find at" retailer links search by — see
+// ReorderTab.tsx and retailerSearch.ts. Missing (the default) means "auto":
+// barcode when the item has one, otherwise name — the same fallback the
+// original Amazon-only link always used, so this ships without changing
+// anyone's current results until they explicitly pick one.
+const RETAILER_SEARCH_BY_KEY = "isc_retailer_search_by_v1";
 // Caps how much movement history we keep in localStorage. The Usage tab's
 // date filter now goes up to "All time," so this needs to comfortably
 // cover several years of realistic activity rather than "well over a
@@ -168,6 +178,32 @@ export function getLiveInStoreDismissed(): boolean {
 export function setLiveInStoreDismissed(): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(LIVE_INSTORE_DISMISSED_KEY, "1");
+}
+
+export function getEditorName(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(EDITOR_NAME_KEY);
+}
+
+export function setEditorName(name: string | null): void {
+  if (typeof window === "undefined") return;
+  const trimmed = (name ?? "").trim();
+  if (trimmed) window.localStorage.setItem(EDITOR_NAME_KEY, trimmed);
+  else window.localStorage.removeItem(EDITOR_NAME_KEY);
+}
+
+export type RetailerSearchBy = "auto" | "barcode" | "name";
+
+export function getRetailerSearchBy(): RetailerSearchBy {
+  if (typeof window === "undefined") return "auto";
+  const v = window.localStorage.getItem(RETAILER_SEARCH_BY_KEY);
+  return v === "barcode" || v === "name" ? v : "auto";
+}
+
+export function setRetailerSearchBy(value: RetailerSearchBy): void {
+  if (typeof window === "undefined") return;
+  if (value === "auto") window.localStorage.removeItem(RETAILER_SEARCH_BY_KEY);
+  else window.localStorage.setItem(RETAILER_SEARCH_BY_KEY, value);
 }
 
 // Local-only "start fresh": wipes this device's inventory and usage

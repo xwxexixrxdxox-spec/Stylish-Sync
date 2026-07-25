@@ -41,17 +41,20 @@ import { reconcileUsageFromSheetRows } from "@/lib/usageReport";
 import Tooltip from "@/components/Tooltip";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import {
+  getEditorName,
   getLastSyncedAt,
   getLastSyncToken,
   getSyncedUsageIds,
   loadMovements,
   replaceMovements,
+  setEditorName,
   setLastSyncedAt,
   setLastSyncToken,
   setLinkedSheetId,
   setSyncedUsageIds,
   startFreshInventory,
 } from "@/lib/storage";
+import { formatRelativeTime } from "@/lib/time";
 import {
   getDeferredInstallPrompt,
   isIosSafari,
@@ -67,21 +70,6 @@ import {
 } from "@/lib/pushReminders";
 import LiveInStoreCard from "./LiveInStoreCard";
 import DevAccessToggle from "./DevAccessToggle";
-
-// Coarse "how long ago" for the Last synced line — doesn't need
-// second-level precision, just enough for someone to eyeball "that's from
-// this morning" vs "that's from three days ago" when checking whether this
-// device is likely to be behind another one.
-function formatRelativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const minutes = Math.round(diffMs / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
 
 interface Props {
   items: InventoryItem[];
@@ -122,6 +110,18 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
   // never flashes the wrong state.
   const [remindersState, setRemindersState] = useState<"unknown" | "unsupported" | "off" | "on">("unknown");
   const [remindersBusy, setRemindersBusy] = useState(false);
+
+  // Lightweight per-device "who's using this thing" name tag — see the
+  // lastEditedBy comment on InventoryItem in types.ts. Read only after
+  // mount (same reasoning as every other localStorage-backed preference in
+  // this file) to avoid a server/client hydration mismatch. Committed on
+  // blur rather than every keystroke, so typing a name doesn't write to
+  // localStorage on every character.
+  const [editorName, setEditorNameState] = useState("");
+  useEffect(() => {
+    setEditorNameState(getEditorName() ?? "");
+  }, []);
+  const commitEditorName = () => setEditorName(editorName);
 
   useEffect(() => {
     if (!isPushSupported()) {
@@ -636,6 +636,22 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
           <LogOut size={14} /> {busy === "account-sign-out" ? "Signing out…" : "Sign out"}
         </button>
       )}
+
+      <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+        <p className="mb-1 text-sm font-medium text-neutral-900">Your name</p>
+        <input
+          value={editorName}
+          onChange={(e) => setEditorNameState(e.target.value)}
+          onBlur={commitEditorName}
+          placeholder="e.g. Alex"
+          className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+        />
+        <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+          Shown as &quot;edited by&quot; on inventory changes made on this device — helps a team working the same
+          inventory tell whose change is whose. Just a name tag, not a login — optional, and anyone using this
+          device can change it any time.
+        </p>
+      </section>
 
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <div className="mb-3 flex items-center justify-between">

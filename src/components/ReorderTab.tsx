@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Share2, ShoppingCart, X } from "lucide-react";
+import { ChevronDown, Plus, Share2, ShoppingCart, X } from "lucide-react";
 import { CARRIER_OPTIONS, Carrier, InventoryItem, PackageTracking } from "@/lib/types";
 import { getEffectiveQuantity, isLowStock } from "@/lib/reorderStatus";
-import { addPackageTracking, loadPackageTracking, setPackageTrackingDismissed } from "@/lib/storage";
+import {
+  addPackageTracking,
+  getRetailerSearchBy,
+  loadPackageTracking,
+  RetailerSearchBy,
+  setPackageTrackingDismissed,
+  setRetailerSearchBy,
+} from "@/lib/storage";
+import { RETAILERS } from "@/lib/retailerSearch";
 import { carrierTrackingUrl } from "@/lib/carrierTracking";
 import ExperimentalBadge from "./ExperimentalBadge";
 
@@ -43,6 +51,28 @@ export default function ReorderTab({ items }: Props) {
   const [addingFor, setAddingFor] = useState<string | null>(null);
   const [draftCarrier, setDraftCarrier] = useState<Carrier>("amazon");
   const [draftNumber, setDraftNumber] = useState("");
+
+  // "Find at <retailer>" — which item's dropdown of retailer links is open,
+  // plus the shared barcode/name/auto search preference (persisted per
+  // device, same pattern as the editor name tag in storage.ts).
+  const [findMenuFor, setFindMenuFor] = useState<string | null>(null);
+  const [searchBy, setSearchByState] = useState<RetailerSearchBy>("auto");
+  useEffect(() => {
+    setSearchByState(getRetailerSearchBy());
+  }, []);
+  const handleSearchByChange = (value: RetailerSearchBy) => {
+    setSearchByState(value);
+    setRetailerSearchBy(value);
+  };
+  // "auto" prefers a barcode when the item has one (a UPC search usually
+  // lands directly on the exact product page) and falls back to the name
+  // otherwise — same heuristic the old Amazon-only link used, just now
+  // shared across every retailer.
+  const queryFor = (it: InventoryItem) => {
+    if (searchBy === "barcode") return it.barcode || it.name;
+    if (searchBy === "name") return it.name;
+    return it.barcode || it.name;
+  };
 
   const startAdding = (itemId: string) => {
     setAddingFor(itemId);
@@ -97,9 +127,25 @@ export default function ReorderTab({ items }: Props) {
       ) : (
         <>
         <p className="mb-1.5 text-[11px] leading-relaxed text-neutral-400">
-          &quot;Find on Amazon&quot; searches by this item&apos;s barcode (or name) — results may not meet
+          &quot;Find at&quot; searches each store by this item&apos;s barcode or name — results may not meet
           expectations, so always verify it&apos;s the right product before purchasing.
         </p>
+        <div className="mb-3 flex items-center gap-1.5 text-[11px] text-neutral-500">
+          <span>Search by:</span>
+          {(["auto", "barcode", "name"] as RetailerSearchBy[]).map((opt) => (
+            <button
+              key={opt}
+              onClick={() => handleSearchByChange(opt)}
+              className={`rounded-full px-2 py-0.5 font-medium ${
+                searchBy === opt
+                  ? "bg-neutral-900 text-white"
+                  : "border border-surface-border text-neutral-500 hover:bg-surface-muted"
+              }`}
+            >
+              {opt === "auto" ? "Auto" : opt === "barcode" ? "Barcode" : "Description"}
+            </button>
+          ))}
+        </div>
         <p className="mb-3 text-[11px] leading-relaxed text-neutral-400">
           Package tracking is experimental: it&apos;s just a place to jot down a tracking number and get a link
           to the carrier&apos;s own tracking page — there&apos;s no live status, no notifications, and no
@@ -121,19 +167,43 @@ export default function ReorderTab({ items }: Props) {
                     Need {Math.max(Math.ceil(it.reorderAt - getEffectiveQuantity(it, items) + 1), 1)} more
                   </p>
                 </div>
-                {/* Manual reorder v1: a UPC search on Amazon usually lands
-                    directly on the exact product page, and falls back to a
-                    name search for items without a barcode. (True automatic
-                    reordering needs an Amazon Business account + Punchout/
-                    ordering API access — there's no public consumer API.) */}
-                <a
-                  href={`https://www.amazon.com/s?k=${encodeURIComponent(it.barcode || it.name)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
-                >
-                  <ShoppingCart size={13} /> Find on Amazon
-                </a>
+                {/* Manual reorder v1: a UPC search usually lands directly on
+                    the exact product page, and falls back to a name search
+                    for items without a barcode. (True automatic reordering
+                    needs a retailer business account + Punchout/ordering API
+                    access — there's no public consumer API for any of
+                    these.) Multiple retailers since not everyone stocks up
+                    at the same store — see retailerSearch.ts. */}
+                <div className="relative shrink-0">
+                  <button
+                    onClick={() => setFindMenuFor(findMenuFor === it.id ? null : it.id)}
+                    className="flex items-center gap-1.5 rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
+                  >
+                    <ShoppingCart size={13} /> Find at <ChevronDown size={12} />
+                  </button>
+                  {findMenuFor === it.id && (
+                    <>
+                      {/* Click-outside catcher — a plain fixed overlay below
+                          the menu itself, same pattern used elsewhere in
+                          this app for dismissible popovers. */}
+                      <div className="fixed inset-0 z-10" onClick={() => setFindMenuFor(null)} />
+                      <div className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-lg border border-surface-border bg-white shadow-card">
+                        {RETAILERS.map((r) => (
+                          <a
+                            key={r.id}
+                            href={r.buildUrl(queryFor(it))}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={() => setFindMenuFor(null)}
+                            className="block px-3 py-2 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
+                          >
+                            {r.label}
+                          </a>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="mt-3 border-t border-surface-border pt-3">

@@ -12,6 +12,7 @@ import {
   isFreshInstall,
   getTutorialCompleted,
   resetTutorialCompleted,
+  getEditorName,
 } from "@/lib/storage";
 import { syncPushDigest } from "@/lib/pushReminders";
 import BottomNav, { TabId } from "@/components/BottomNav";
@@ -130,16 +131,17 @@ export default function HomePage() {
     // (or a duplicate) delta instead of the one actually applied on top of
     // whatever the previous call in the burst just did.
     let applied = 0;
+    const editorName = getEditorName() ?? undefined;
     setItems((prev) =>
       prev.map((it) => {
         if (it.id !== id) return it;
         const nextQuantity = Math.max(0, it.quantity + delta);
         applied = nextQuantity - it.quantity;
-        return { ...it, quantity: nextQuantity, updatedAt: new Date().toISOString() };
+        return { ...it, quantity: nextQuantity, updatedAt: new Date().toISOString(), lastEditedBy: editorName };
       })
     );
     if (applied !== 0) {
-      logMovement({ itemId: id, delta: applied, reason: "manual-adjust", at: new Date().toISOString() });
+      logMovement({ itemId: id, delta: applied, reason: "manual-adjust", at: new Date().toISOString(), by: editorName });
     }
   };
 
@@ -149,9 +151,16 @@ export default function HomePage() {
 
   const bulkImport = (imported: InventoryItem[]) => {
     const before = new Map(items.map((it) => [it.barcode || it.id, it]));
+    const editorName = getEditorName() ?? undefined;
     setItems((prev) => {
       const byBarcode = new Map(prev.map((it) => [it.barcode || it.id, it]));
-      imported.forEach((it) => byBarcode.set(it.barcode || it.id, { ...byBarcode.get(it.barcode || it.id), ...it }));
+      imported.forEach((it) =>
+        byBarcode.set(it.barcode || it.id, {
+          ...byBarcode.get(it.barcode || it.id),
+          ...it,
+          lastEditedBy: editorName,
+        })
+      );
       return Array.from(byBarcode.values());
     });
     // Only log a movement for items that already existed - a freshly
@@ -162,7 +171,7 @@ export default function HomePage() {
       if (!prevItem) return;
       const delta = it.quantity - prevItem.quantity;
       if (delta !== 0) {
-        logMovement({ itemId: prevItem.id, delta, reason: "import", at: new Date().toISOString() });
+        logMovement({ itemId: prevItem.id, delta, reason: "import", at: new Date().toISOString(), by: editorName });
       }
     });
   };
@@ -199,6 +208,7 @@ export default function HomePage() {
   }) => {
     const existing = findMatchingItem(items, input);
     const itemId = existing ? existing.id : `item-${Date.now()}`;
+    const editorName = getEditorName() ?? undefined;
     setItems((prev) => {
       const existingInPrev = findMatchingItem(prev, input);
       if (existingInPrev) {
@@ -213,6 +223,7 @@ export default function HomePage() {
                 // location that was already recorded on an earlier add.
                 location: input.location ? input.location : it.location,
                 updatedAt: new Date().toISOString(),
+                lastEditedBy: editorName,
               }
             : it
         );
@@ -229,10 +240,11 @@ export default function HomePage() {
           reorderAt: Math.max(1, Math.round(input.quantity * 0.25)),
           updatedAt: new Date().toISOString(),
           location: input.location,
+          lastEditedBy: editorName,
         },
       ];
     });
-    logMovement({ itemId, delta: input.quantity, reason: "scan-add", at: new Date().toISOString() });
+    logMovement({ itemId, delta: input.quantity, reason: "scan-add", at: new Date().toISOString(), by: editorName });
   };
 
   // Breaks down N units of a case/pack item into its linked each-level
@@ -252,15 +264,17 @@ export default function HomePage() {
     if (n <= 0) return;
     const addedEaches = n * caseItem.breaksDownIntoQty;
     const now = new Date().toISOString();
+    const editorName = getEditorName() ?? undefined;
     setItems((prev) =>
       prev.map((it) => {
-        if (it.id === caseItem.id) return { ...it, quantity: it.quantity - n, updatedAt: now };
-        if (it.id === eachItem.id) return { ...it, quantity: it.quantity + addedEaches, updatedAt: now };
+        if (it.id === caseItem.id) return { ...it, quantity: it.quantity - n, updatedAt: now, lastEditedBy: editorName };
+        if (it.id === eachItem.id)
+          return { ...it, quantity: it.quantity + addedEaches, updatedAt: now, lastEditedBy: editorName };
         return it;
       })
     );
-    logMovement({ itemId: caseItem.id, delta: -n, reason: "break-case", at: now });
-    logMovement({ itemId: eachItem.id, delta: addedEaches, reason: "break-case", at: now });
+    logMovement({ itemId: caseItem.id, delta: -n, reason: "break-case", at: now, by: editorName });
+    logMovement({ itemId: eachItem.id, delta: addedEaches, reason: "break-case", at: now, by: editorName });
   };
 
   // Returns whether anything was actually removed - false for "no item in
@@ -271,16 +285,17 @@ export default function HomePage() {
     const requested = Math.max(0, Math.floor(input.quantity));
     const existing = items.find((it) => it.barcode === input.barcode);
     if (!existing || requested <= 0) return false;
+    const editorName = getEditorName() ?? undefined;
     setItems((prev) =>
       prev.map((it) =>
         it.barcode === input.barcode
-          ? { ...it, quantity: Math.max(0, it.quantity - requested), updatedAt: new Date().toISOString() }
+          ? { ...it, quantity: Math.max(0, it.quantity - requested), updatedAt: new Date().toISOString(), lastEditedBy: editorName }
           : it
       )
     );
     const removed = Math.min(requested, existing.quantity);
     if (removed > 0) {
-      logMovement({ itemId: existing.id, delta: -removed, reason: "scan-remove", at: new Date().toISOString() });
+      logMovement({ itemId: existing.id, delta: -removed, reason: "scan-remove", at: new Date().toISOString(), by: editorName });
     }
     return true;
   };
@@ -291,12 +306,16 @@ export default function HomePage() {
       <main className="min-h-screen bg-surface-muted">
         <header className="sticky top-0 z-20 border-b border-surface-border bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-2 px-4 py-3 sm:px-6">
-            <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTab("scan")}
+              aria-label="Go to Scan tab"
+              className="flex items-center gap-2 rounded-lg -m-1 p-1 hover:opacity-70"
+            >
               <span className="text-lg" aria-hidden>
                 📦
               </span>
               <span className="text-base font-semibold text-neutral-900">WS Inventory Management</span>
-            </div>
+            </button>
             <div className="flex items-center gap-1">
               <ThemeToggle />
               <ClearCacheButton />

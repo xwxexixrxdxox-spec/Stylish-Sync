@@ -5,6 +5,9 @@ import { InventoryItem, UsageRangeValue, USAGE_RANGE_OPTIONS } from "@/lib/types
 import { X, Trash2 } from "lucide-react";
 import LocationField from "@/components/LocationField";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { getEditorName } from "@/lib/storage";
+import { isRecentOtherEdit } from "@/lib/recentEdit";
+import { formatRelativeTime } from "@/lib/time";
 
 interface Props {
   item: InventoryItem;
@@ -44,6 +47,30 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
   const duplicateBarcode =
     trimmedBarcode.length > 0 && items.some((it) => it.id !== item.id && it.barcode === trimmedBarcode);
   const canSave = !nameError && !duplicateBarcode;
+
+  // "Someone just changed this" overwrite guard (see recentEdit.ts) —
+  // checked against `item`, the record as it stood when this modal opened,
+  // same lightweight local-only heuristic used on the inventory card's
+  // +/- controls.
+  const [confirmingOverwrite, setConfirmingOverwrite] = useState(false);
+
+  const doSave = () => {
+    onSave({
+      ...draft,
+      name: trimmedName,
+      barcode: trimmedBarcode,
+      updatedAt: new Date().toISOString(),
+      lastEditedBy: getEditorName() ?? undefined,
+    });
+  };
+
+  const handleSaveClick = () => {
+    if (isRecentOtherEdit(item)) {
+      setConfirmingOverwrite(true);
+      return;
+    }
+    doSave();
+  };
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
@@ -195,9 +222,7 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
           </button>
           <button
             disabled={!canSave}
-            onClick={() =>
-              onSave({ ...draft, name: trimmedName, barcode: trimmedBarcode, updatedAt: new Date().toISOString() })
-            }
+            onClick={handleSaveClick}
             className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Save
@@ -212,6 +237,20 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
           confirmLabel="Delete"
           onCancel={() => setConfirmingDelete(false)}
           onConfirm={() => onDelete(item.id)}
+        />
+      )}
+
+      {confirmingOverwrite && (
+        <ConfirmDialog
+          title="Recently changed"
+          message={`This item was updated ${formatRelativeTime(item.updatedAt)} by ${item.lastEditedBy} — overwrite that change?`}
+          confirmLabel="Overwrite anyway"
+          danger={false}
+          onCancel={() => setConfirmingOverwrite(false)}
+          onConfirm={() => {
+            setConfirmingOverwrite(false);
+            doSave();
+          }}
         />
       )}
 
