@@ -725,6 +725,17 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
               )}
             </p>
           )}
+          {lookupStatus === "existing" &&
+            editingExisting &&
+            location.trim() &&
+            location.trim().toLowerCase() !== (editingExisting.location || "").trim().toLowerCase() && (
+              <p className="mt-1 text-[11px] text-amber-700">
+                📍 This starts a <span className="font-medium">new</span> location for this barcode — the existing
+                stock at {editingExisting.location ? `"${editingExisting.location}"` : "its current location"} (
+                {editingExisting.quantity} {editingExisting.unit}) stays separate, it won&apos;t be moved or added
+                to.
+              </p>
+            )}
           {lookupStatus === "existing-multi" && (
             <p className="mt-1 text-[11px] text-amber-700">
               This barcode is stocked in {locationChoices.length} locations — pick which one below before adding or

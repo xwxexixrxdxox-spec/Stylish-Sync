@@ -214,16 +214,30 @@ export default function HomePage() {
   ): InventoryItem | undefined => {
     if (input.barcode) {
       const matches = list.filter((it) => it.barcode === input.barcode);
-      // The common case: this barcode maps to exactly one row, so match on
-      // it regardless of location - unchanged from before Phase 4. Once a
-      // second row for this same barcode exists (the same product tracked
-      // at more than one location), a bare barcode alone can no longer say
-      // which row to update, so it only resolves when the location also
-      // matches one of them; otherwise the caller (addStock) creates a
-      // fresh row for what reads as a new location rather than guessing
-      // which existing one was meant.
-      if (matches.length <= 1) return matches[0];
       const loc = (input.location || "").trim().toLowerCase();
+      if (!loc) {
+        // No location was given on this add/scan - fall back to "the one
+        // row this barcode has" regardless of what location THAT row
+        // happens to carry (unchanged pre-Phase4 behavior, for a customer
+        // who's never touched locations at all). With 2+ rows already
+        // split across locations, a blank location can't say which one
+        // this belongs to, so this deliberately does not guess - the Scan
+        // tab's "existing-multi" picker (see ScanTab.tsx) is what's
+        // supposed to force a choice before addStock/removeStock are ever
+        // called with a blank location in that case.
+        return matches.length === 1 ? matches[0] : undefined;
+      }
+      // A location WAS given - it's the authoritative signal for which row
+      // this is, even when this barcode currently has only one row. This
+      // is deliberately NOT "match the one row regardless of location":
+      // that used to mean scanning the same barcode at a brand-new second
+      // location (e.g. moving from "Sports Locker 1" to "Sports Locker 2"
+      // with the same foot-spray barcode) silently matched the Locker-1
+      // row anyway, overwrote its location to Locker 2, and added the two
+      // quantities together into one row - the opposite of what
+      // per-location tracking is for. A given location only ever matches a
+      // row that's actually already at that location; anything else falls
+      // through to the caller creating a fresh row for it.
       return matches.find((it) => (it.location || "").trim().toLowerCase() === loc);
     }
     const name = input.name.trim().toLowerCase();
@@ -322,12 +336,19 @@ export default function HomePage() {
     if (requested <= 0) return false;
     const matches = items.filter((it) => it.barcode === input.barcode);
     if (matches.length === 0) return false;
-    // Same disambiguation rule as findMatchingItem above: a barcode with
-    // only one row removes from it regardless of location (unchanged
-    // behavior); a barcode shared by 2+ rows (Phase 4) needs the location
-    // to say which one - and if it doesn't match any of them, this is a
-    // genuine "don't know which row" case, not a silent guess.
-    const existing = matches.length === 1 ? matches[0] : matches.find((it) => (it.location || "").trim().toLowerCase() === (input.location || "").trim().toLowerCase());
+    // Same rule as findMatchingItem above: a blank location falls back to
+    // "the one row" only when there's exactly one; a location that WAS
+    // given is authoritative regardless of how many rows exist, and only
+    // matches a row actually at that location - never "the one row,
+    // whichever location it happens to be at." See findMatchingItem's
+    // comment for the real bug this fixes (removing from the wrong
+    // location's row instead of reporting no match).
+    const loc = (input.location || "").trim().toLowerCase();
+    const existing = loc
+      ? matches.find((it) => (it.location || "").trim().toLowerCase() === loc)
+      : matches.length === 1
+        ? matches[0]
+        : undefined;
     if (!existing) return false;
     const targetId = existing.id;
     const editorName = getEditorName() ?? undefined;
