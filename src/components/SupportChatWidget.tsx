@@ -9,14 +9,28 @@ interface ChatMessage {
   text: string;
 }
 
+// Every "email us" link in this widget points here with the same subject
+// prefilled, so a customer never lands on a totally blank compose window -
+// there's at minimum a clear subject line for whoever answers support@
+// to triage by, even before the customer types anything. Kept as just a
+// subject (no prefilled body) since a body guess would either be empty and
+// pointless or presumptuous about what the customer wants to say.
+const MAILTO_SUBJECT = "Support request — WS Inventory Management";
+function mailtoHref(address: string): string {
+  return `mailto:${address}?subject=${encodeURIComponent(MAILTO_SUBJECT)}`;
+}
+
 // Bot replies mention an email address by name (see supportBot.ts/clyde.ts)
 // but that's just plain text sitting in a chat bubble - a customer who
 // actually wants to use it has to select and copy it by hand. This turns
 // any email address appearing in a BOT message into a real tap-to-email
-// link. Deliberately not dangerouslySetInnerHTML: a bot reply on the AI
-// path is LLM output, and rendering arbitrary HTML from that would be a
-// self-inflicted XSS hole - splitting into plain-text/anchor React nodes
-// keeps everything except the recognized address as inert text.
+// link (with the same prefilled subject as the header link below), so
+// tapping it hands the customer straight to their mail app with a
+// to:/subject: already filled in, no copy-pasting required. Deliberately
+// not dangerouslySetInnerHTML: a bot reply on the AI path is LLM output,
+// and rendering arbitrary HTML from that would be a self-inflicted XSS
+// hole - splitting into plain-text/anchor React nodes keeps everything
+// except the recognized address as inert text.
 const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 function renderWithMailtoLinks(text: string): ReactNode[] {
   const parts = text.split(EMAIL_PATTERN);
@@ -26,7 +40,7 @@ function renderWithMailtoLinks(text: string): ReactNode[] {
     if (part) nodes.push(part);
     if (matches[i]) {
       nodes.push(
-        <a key={i} href={`mailto:${matches[i]}`} className="underline underline-offset-2">
+        <a key={i} href={mailtoHref(matches[i])} className="underline underline-offset-2">
           {matches[i]}
         </a>
       );
@@ -97,7 +111,7 @@ export default function SupportChatWidget() {
         <p className="text-sm font-semibold">Clyde</p>
         <p className="text-xs text-white/60">
           Usually replies instantly · or email{" "}
-          <a href={`mailto:${SUPPORT_EMAIL}`} className="underline underline-offset-2 hover:text-white">
+          <a href={mailtoHref(SUPPORT_EMAIL)} className="underline underline-offset-2 hover:text-white">
             {SUPPORT_EMAIL}
           </a>
         </p>
