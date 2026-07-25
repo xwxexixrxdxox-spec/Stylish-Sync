@@ -38,6 +38,24 @@ interface Props {
   suppressed?: boolean;
 }
 
+// Curated one-tap presets, shown alongside the paste-a-link option - added
+// after a customer pointed out that Spotify itself buries "copy link to
+// playlist" (an extra menu on desktop web, and easy to never find at all in
+// the mobile app), so pasting a link is real friction for anyone who just
+// wants *something* playing while they work. These are Spotify's own
+// long-running official editorial playlists (chosen for staying power, not
+// personal taste) rather than anything hosted by this app - same no-OAuth
+// embed as a pasted link, just skipping the "find Spotify's share button"
+// step entirely. Anyone who wants their own specific playlist still has the
+// paste option right below.
+const QUICK_PICKS: { label: string; url: string }[] = [
+  { label: "Lo-Fi Beats", url: "https://open.spotify.com/playlist/37i9dQZF1DWWQRwui0ExPn" },
+  { label: "Deep Focus", url: "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ" },
+  { label: "Peaceful Piano", url: "https://open.spotify.com/playlist/37i9dQZF1DX4sWSpwq3LiO" },
+  { label: "Jazz Classics", url: "https://open.spotify.com/playlist/37i9dQZF1DXbITWG1ZJKYt" },
+  { label: "Chill Hits", url: "https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6" },
+];
+
 const EDGE_MARGIN = 8;
 // Matches the widget's original fixed placement (bottom-32 right-4) so a
 // customer who never drags it sees exactly the same spot as before.
@@ -377,6 +395,17 @@ export default function SpotifyWidget({ suppressed = false }: Props) {
     setEditing(true);
   };
 
+  // Same effect as saveDraft, but for a pre-vetted quick-pick URL - skips
+  // the parse-and-validate step since QUICK_PICKS is a fixed, known-good
+  // list rather than customer-typed text.
+  const chooseQuickPick = (url: string) => {
+    setSpotifyLink(url);
+    setLink(url);
+    setError(null);
+    setDraft("");
+    setEditing(false);
+  };
+
   const embedHeight = (compact: boolean) => {
     if (!embed) return 0;
     if (compact) return 80;
@@ -447,9 +476,27 @@ export default function SpotifyWidget({ suppressed = false }: Props) {
   const linkForm = (horizontal: boolean) => (
     <div className={horizontal ? "flex flex-1 items-center gap-2 px-3 py-2" : "space-y-2 p-3"}>
       {!horizontal && (
-        <p className="text-[11px] text-neutral-500">
-          Paste a Spotify playlist, album, track, or podcast link to play it here while you work.
-        </p>
+        <>
+          <p className="text-[11px] text-neutral-500">
+            Tap one to start playing right away, or paste your own Spotify playlist, album, track, or podcast link
+            below.
+          </p>
+          {/* Bypasses Spotify's own share-link flow entirely (buried in a
+              submenu on desktop, easy to never find in the mobile app) -
+              see QUICK_PICKS above for why these specific playlists. */}
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_PICKS.map((pick) => (
+              <button
+                key={pick.url}
+                onClick={() => chooseQuickPick(pick.url)}
+                className="rounded-full border border-surface-border px-2.5 py-1 text-[11px] font-medium text-neutral-600 hover:border-[#1DB954] hover:text-[#1DB954]"
+              >
+                {pick.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-neutral-400">Or paste your own link:</p>
+        </>
       )}
       <input
         type="text"
