@@ -416,19 +416,17 @@ export default function SpotifyWidget({ suppressed = false }: Props) {
     return embed.kind === "track" || embed.kind === "episode" ? 152 : 352;
   };
 
-  // This app never touches Spotify auth at all - the embedded player is
-  // Spotify's own, and it already has its own "log in" affordance (the
-  // small Spotify logo in its corner). A signed-in Premium listener gets
-  // full songs through that automatically; everyone else gets the usual
-  // 30-second previews. Surfaced here because it's easy to miss that the
-  // logo does anything at all. Skipped in the compact/horizontal layouts,
-  // which don't have the spare height for it.
-  const premiumHint = (
-    <p className="border-t border-surface-border px-3 py-1.5 text-[10px] leading-snug text-neutral-400">
-      Only hearing previews? Tap the Spotify logo above to log in - full songs play automatically for Premium
-      accounts.
-    </p>
-  );
+  // A previous version of this pointed customers at the Spotify logo in
+  // the embed's corner as a "log in for full songs" tip. Turned out that
+  // icon deep-links out to the native Spotify app on mobile rather than
+  // logging in inline - exactly the app-switching (and the background-tab
+  // reload risk that comes with it, mid-inventory-count) this widget is
+  // meant to avoid. A real fix would be Spotify's own Web Playback SDK
+  // (true in-page Premium streaming, no app hop), but that needs Spotify's
+  // written approval for commercial use and is capped at 5 authorized
+  // users without it - not workable for real customers. So: no hint, no
+  // nudge toward that icon. Previews-only-in-the-browser is the tradeoff
+  // that keeps this 100% app-switch-free by default.
 
   // A translucent highlight along whichever edge the cursor is currently
   // close enough to for a drop to dock there - the same visual language as
@@ -662,20 +660,17 @@ export default function SpotifyWidget({ suppressed = false }: Props) {
               linkForm(false)
             ) : (
               embed && (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="min-h-0 flex-1">
-                    <iframe
-                      key={embed.embedUrl}
-                      src={embed.embedUrl}
-                      width="100%"
-                      height="100%"
-                      style={{ border: 0, display: "block" }}
-                      allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                      loading="lazy"
-                      title="Spotify player"
-                    />
-                  </div>
-                  {premiumHint}
+                <div className="min-h-0 flex-1">
+                  <iframe
+                    key={embed.embedUrl}
+                    src={embed.embedUrl}
+                    width="100%"
+                    height="100%"
+                    style={{ border: 0, display: "block" }}
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                    loading="lazy"
+                    title="Spotify player"
+                  />
                 </div>
               )
             )
@@ -764,19 +759,16 @@ export default function SpotifyWidget({ suppressed = false }: Props) {
       {showForm
         ? linkForm(false)
         : embed && (
-            <>
-              <iframe
-                key={embed.embedUrl}
-                src={embed.embedUrl}
-                width="100%"
-                height={embedHeight(false)}
-                style={{ border: 0, display: "block" }}
-                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                loading="lazy"
-                title="Spotify player"
-              />
-              {premiumHint}
-            </>
+            <iframe
+              key={embed.embedUrl}
+              src={embed.embedUrl}
+              width="100%"
+              height={embedHeight(false)}
+              style={{ border: 0, display: "block" }}
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              loading="lazy"
+              title="Spotify player"
+            />
           )}
     </div>
   );
