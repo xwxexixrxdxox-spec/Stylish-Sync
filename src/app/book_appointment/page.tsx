@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, Clock } from "lucide-react";
+import { CalendarDays, CheckCircle2, Clock, X } from "lucide-react";
 import { OpenSlot, ContactMethod, BOOKING_DURATIONS, BookingDuration, BOOKING_WINDOW_END } from "@/lib/types";
 import { VISIT_OFFER, VISITS_ENABLED } from "@/lib/stripeTiers";
+import { getBookingPausedDismissed, setBookingPausedDismissed } from "@/lib/storage";
 
 function toMinutesLocal(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
@@ -35,12 +36,21 @@ export default function BookAppointmentPage() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [booking, setBooking] = useState<{ id: string; cancelToken: string } | null>(null);
+  // Whether the "Coming Soon" overlay on the paused-state mechanism below
+  // has been closed. Defaults to false (overlay showing) to avoid a flash
+  // of the unlocked-looking mechanism before the localStorage check below
+  // can run on mount — mirrors LiveInStoreCard's same-shaped guard, just
+  // inverted since here the overlay itself is what should default to shown.
+  const [pausedNoticeDismissed, setPausedNoticeDismissed] = useState(false);
 
   useEffect(() => {
     // Requests are paused (see VISITS_ENABLED) — skip fetching availability
     // entirely rather than loading real open slots into a page that won't
     // let anyone actually book them.
-    if (!VISITS_ENABLED) return;
+    if (!VISITS_ENABLED) {
+      setPausedNoticeDismissed(getBookingPausedDismissed());
+      return;
+    }
     fetch("/api/book-appointment")
       .then((r) => r.json())
       .then((body) => setSlots(body.slots ?? []))
@@ -57,15 +67,61 @@ export default function BookAppointmentPage() {
   }, [slots]);
 
   if (!VISITS_ENABLED) {
+    // Rather than blocking the whole page behind an opaque "paused"
+    // message (which hid the actual booking mechanism entirely, with no
+    // way to even see it's there), this shows the real page — header,
+    // pricing blurb, and a locked preview of where the open-times list
+    // would normally go — with the mechanism itself made inert
+    // (pointer-events-none) and a translucent, closeable "Coming Soon"
+    // notice layered on top, the same visual pattern as LiveInStoreCard in
+    // the Account panel. Closing the notice reveals the locked mechanism
+    // underneath rather than hiding anything further — there's nothing
+    // left to protect against, since the API route rejects new
+    // submissions server-side regardless (see book-appointment/route.ts).
     return (
-      <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
-        <CalendarDays className="mb-3 text-neutral-400" size={40} />
-        <h1 className="text-lg font-semibold text-neutral-900">Visit requests are paused</h1>
-        <p className="mt-2 text-sm text-neutral-600">
+      <main className="mx-auto min-h-screen max-w-2xl px-4 pb-24 pt-8 sm:px-6">
+        <h1 className="mb-1 text-lg font-semibold text-neutral-900">Request an in-person visit</h1>
+        <p className="mb-6 text-sm text-neutral-500">
+          {VISIT_OFFER.hourlyRateLabel} ({VISIT_OFFER.hourlyRateBlurb}), or {VISIT_OFFER.dailyRateLabel} (
+          {VISIT_OFFER.dailyRateBlurb}). Billed after the visit — nothing to pay now.
+        </p>
+
+        <div className="relative overflow-hidden rounded-xl2 border border-dashed border-surface-border">
+          <div className="pointer-events-none select-none p-6" aria-hidden="true">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <CalendarDays className="text-neutral-400" size={24} />
+              <p className="text-sm text-neutral-500">No open times posted right now — check back soon.</p>
+            </div>
+          </div>
+
+          {!pausedNoticeDismissed && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/70 backdrop-blur-[1px]">
+              <span className="rounded-full bg-neutral-900 px-3 py-1 text-xs font-semibold text-white shadow-card">
+                Coming Soon
+              </span>
+              <button
+                onClick={() => {
+                  setBookingPausedDismissed();
+                  setPausedNoticeDismissed(true);
+                }}
+                aria-label="Dismiss Coming Soon notice"
+                className="absolute right-2 top-2 rounded-full p-1 text-neutral-500 hover:bg-white hover:text-neutral-900"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        <p className="mt-3 text-xs text-neutral-500">
           We're not accepting new in-person visit requests right now while we finish testing the admin/technician
           side. Check back soon — the rest of the app is free to use in the meantime.
         </p>
-        <a href="/" className="mt-5 rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted">
+
+        <a
+          href="/"
+          className="mt-5 inline-block rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted"
+        >
           Back to app
         </a>
       </main>

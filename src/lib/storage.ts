@@ -36,6 +36,15 @@ const INSTALL_BANNER_DISMISSED_KEY = "isc_install_banner_dismissed_v1";
 // flag at all and just renders live, so a stale dismissal from the
 // "coming soon" era never hides the real, working feature.
 const LIVE_INSTORE_DISMISSED_KEY = "isc_live_instore_dismissed_v1";
+// Same "closeable Coming Soon overlay" pattern as LIVE_INSTORE_DISMISSED_KEY
+// above, but for the actual /book_appointment page (BookAppointmentPage) -
+// while VISITS_ENABLED is off, that page shows the real (inert) booking
+// mechanism behind a translucent, dismissible notice rather than blocking
+// the whole page with an opaque "paused" message. Same reasoning applies:
+// deliberately NOT re-checked against VISITS_ENABLED here, since the page
+// itself stops rendering any overlay at all once the flag flips on,
+// regardless of a stale dismissal from the "coming soon" era.
+const BOOKING_PAUSED_DISMISSED_KEY = "isc_booking_paused_dismissed_v1";
 // A lightweight, per-device "who's using this thing" name tag — see the
 // `lastEditedBy` comment on InventoryItem in types.ts for what this is and
 // (importantly) isn't. Missing means nobody's set one on this device yet.
@@ -178,6 +187,16 @@ export function getLiveInStoreDismissed(): boolean {
 export function setLiveInStoreDismissed(): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(LIVE_INSTORE_DISMISSED_KEY, "1");
+}
+
+export function getBookingPausedDismissed(): boolean {
+  if (typeof window === "undefined") return true; // never flash the overlay during SSR
+  return window.localStorage.getItem(BOOKING_PAUSED_DISMISSED_KEY) !== null;
+}
+
+export function setBookingPausedDismissed(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(BOOKING_PAUSED_DISMISSED_KEY, "1");
 }
 
 export function getEditorName(): string | null {
