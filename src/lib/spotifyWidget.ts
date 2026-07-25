@@ -16,6 +16,8 @@
 const LINK_KEY = "isc_spotify_link_v1";
 const OPEN_KEY = "isc_spotify_widget_open_v1";
 const POSITION_KEY = "isc_spotify_widget_pos_v1";
+const DOCK_KEY = "isc_spotify_widget_dock_v1";
+const COLLAPSED_KEY = "isc_spotify_widget_collapsed_v1";
 
 export type SpotifyEmbedKind = "playlist" | "album" | "track" | "artist" | "show" | "episode";
 
@@ -100,4 +102,38 @@ export function getSpotifyWidgetPosition(): SpotifyWidgetPosition | null {
 export function setSpotifyWidgetPosition(pos: SpotifyWidgetPosition): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(POSITION_KEY, JSON.stringify(pos));
+}
+
+// Windows-11-style edge docking: dragging the widget to within a few dozen
+// pixels of a screen edge snaps it into a full-length strip along that edge
+// (a sidebar for left/right, a header/footer bar for top/bottom) instead of
+// leaving it as a small floating window. Undefined/null dock means
+// "floating" - the normal small draggable window, using the position above.
+export type DockSide = "left" | "right" | "top" | "bottom";
+
+export function getSpotifyWidgetDock(): DockSide | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(DOCK_KEY);
+  return raw === "left" || raw === "right" || raw === "top" || raw === "bottom" ? raw : null;
+}
+
+export function setSpotifyWidgetDock(side: DockSide | null): void {
+  if (typeof window === "undefined") return;
+  if (side) window.localStorage.setItem(DOCK_KEY, side);
+  else window.localStorage.removeItem(DOCK_KEY);
+}
+
+// Separate from the floating FAB/panel "open" state above - a docked strip
+// can be collapsed down to a thin edge tab without leaving dock mode
+// entirely, the same way a Windows/Unity dock panel collapses to a strip
+// rather than closing outright.
+export function getSpotifyWidgetCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+}
+
+export function setSpotifyWidgetCollapsed(collapsed: boolean): void {
+  if (typeof window === "undefined") return;
+  if (collapsed) window.localStorage.setItem(COLLAPSED_KEY, "1");
+  else window.localStorage.removeItem(COLLAPSED_KEY);
 }
