@@ -15,6 +15,7 @@
 
 const LINK_KEY = "isc_spotify_link_v1";
 const OPEN_KEY = "isc_spotify_widget_open_v1";
+const POSITION_KEY = "isc_spotify_widget_pos_v1";
 
 export type SpotifyEmbedKind = "playlist" | "album" | "track" | "artist" | "show" | "episode";
 
@@ -67,4 +68,36 @@ export function setSpotifyWidgetOpen(open: boolean): void {
   if (typeof window === "undefined") return;
   if (open) window.localStorage.setItem(OPEN_KEY, "1");
   else window.localStorage.removeItem(OPEN_KEY);
+}
+
+// Where the customer last dragged the widget to (top-left corner, in CSS
+// pixels from the viewport's own top-left) - added after the widget's fixed
+// bottom-right spot turned out to sit on top of the per-item edit/delete
+// buttons on some screens. Undefined/null means "never dragged, use the
+// default bottom-right spot" rather than storing that default explicitly,
+// so a future change to the default placement still applies to anyone who
+// hasn't personally moved it.
+export interface SpotifyWidgetPosition {
+  left: number;
+  top: number;
+}
+
+export function getSpotifyWidgetPosition(): SpotifyWidgetPosition | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(POSITION_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.left === "number" && typeof parsed?.top === "number") {
+      return { left: parsed.left, top: parsed.top };
+    }
+  } catch {
+    // Ignore hand-edited/corrupt localStorage - fall back to the default.
+  }
+  return null;
+}
+
+export function setSpotifyWidgetPosition(pos: SpotifyWidgetPosition): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(POSITION_KEY, JSON.stringify(pos));
 }

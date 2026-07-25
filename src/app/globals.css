@@ -121,6 +121,17 @@ body {
   color: #797982;
 }
 
+/* text-brand (#171717, same near-black as text-neutral-900) is deliberately
+   left alone everywhere it pairs with bg-brand as CTA-button label text -
+   see the note at the top of this block. BottomNav's active-tab icon/label
+   is the one place text-brand is used on its own, directly against the
+   nav's own (now-dark) background rather than a brand-colored button, so
+   without this it renders as near-black-on-near-black - a customer can't
+   tell which tab is selected in dark mode. */
+.dark .text-brand {
+  color: #f4f4f5;
+}
+
 /* Focus rings: a near-black ring (the light-mode default) is nearly
    invisible against a dark input on a dark card, which defeats the point
    of a focus indicator. */
