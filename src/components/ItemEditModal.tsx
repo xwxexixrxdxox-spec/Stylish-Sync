@@ -222,10 +222,33 @@ export default function ItemEditModal({ item, items, onSave, onDelete, onClose, 
           border: 1px solid #e7e7ea;
           padding: 0.5rem 0.75rem;
           font-size: 0.875rem;
+          /* Explicit background/text color (not just relying on the
+             browser's UA default + inherited text color) - dark-mode
+             testing found that leaving these unset meant the input's
+             background stayed hardcoded browser-white while its text color
+             inherited from <body> and correctly went light in dark mode,
+             producing near-invisible light-text-on-white. The .dark rule
+             below flips both together instead. */
+          background-color: #ffffff;
+          color: #171717;
         }
         .input:focus {
           outline: 2px solid #171717;
           outline-offset: 1px;
+        }
+        .input::placeholder {
+          color: #a3a3a3;
+        }
+        :global(.dark) .input {
+          background-color: #18181b;
+          color: #f4f4f5;
+          border-color: #2f2f34;
+        }
+        :global(.dark) .input:focus {
+          outline-color: #d4d4d8;
+        }
+        :global(.dark) .input::placeholder {
+          color: #797982;
         }
       `}</style>
     </div>

@@ -27,6 +27,8 @@ import ClearCacheButton from "@/components/ClearCacheButton";
 import Tooltip from "@/components/Tooltip";
 import TutorialOverlay from "@/components/TutorialOverlay";
 import InstallBanner from "@/components/InstallBanner";
+import ThemeToggle from "@/components/ThemeToggle";
+import SpotifyWidget from "@/components/SpotifyWidget";
 
 // Minimum time to keep the load screen up, so its entrance animation
 // (logo mark + label + progress fill) always gets to finish playing even
@@ -296,6 +298,7 @@ export default function HomePage() {
               <span className="text-base font-semibold text-neutral-900">WS Inventory Management</span>
             </div>
             <div className="flex items-center gap-1">
+              <ThemeToggle />
               <ClearCacheButton />
               <Tooltip label="Account & settings" side="bottom">
                 <button
@@ -355,6 +358,10 @@ export default function HomePage() {
             on top of a callout, competing for the same bottom-of-screen
             attention as the tour's own "Next" card. */}
         <InstallBanner suppressed={tutorialActive} />
+
+        {/* Same reasoning as InstallBanner above - stays out of the way
+            while the tour has the screen's attention. */}
+        <SpotifyWidget suppressed={tutorialActive} />
 
         <BottomNav active={tab} onChange={setTab} showStatusTab={!!trackedBookingId} />
 

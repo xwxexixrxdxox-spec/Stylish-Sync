@@ -1,6 +1,14 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  // Class-based rather than the "media" default: lets the header's
+  // ThemeToggle force an explicit light/dark choice on top of the OS
+  // preference (see src/lib/theme.ts). globals.css carries the actual
+  // dark: overrides as plain `.dark <selector>` rules rather than `dark:`
+  // variants on every className, since retrofitting that onto ~650
+  // existing color classes across 40+ files would have been a much larger
+  // and riskier change for the same visual result.
+  darkMode: "class",
   content: [
     "./src/app/**/*.{ts,tsx}",
     "./src/components/**/*.{ts,tsx}",

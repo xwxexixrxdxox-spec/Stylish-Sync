@@ -16,7 +16,7 @@ export default function PrivacyPage() {
           ← Back to app
         </a>
         <h1>Privacy Policy</h1>
-        <p className="text-sm text-neutral-500">Last updated: July 24, 2026</p>
+        <p className="text-sm text-neutral-500">Last updated: July 25, 2026</p>
 
         <h2>Who we are</h2>
         <p>
@@ -74,6 +74,13 @@ export default function PrivacyPage() {
             a response. If AI-backed replies are enabled, your message and recent chat history are sent to our AI
             provider (Ollama Cloud) to generate that response — see "Third parties we rely on" below. There is no
             live human agent behind this chat; nothing is "handed off" to a person unless you separately email us.
+          </li>
+          <li>
+            <strong>An optional Spotify link, only if you set one up</strong>: the app includes a closeable music
+            widget you can turn on yourself by pasting a Spotify playlist/album/track/podcast link. That link is
+            stored only in your browser (not on our server), and nothing is sent to Spotify unless you've both
+            pasted a link and opened the widget — until then, no Spotify content loads at all. See "Third parties we
+            rely on" below.
           </li>
           <li>
             <strong>Essential cookies</strong> used for things like remembering your cookie-consent choice and, if
@@ -245,6 +252,17 @@ export default function PrivacyPage() {
             (not your inventory or Google account data). See{" "}
             <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">
               Google's Privacy Policy
+            </a>
+            .
+          </li>
+          <li>
+            <strong>Spotify</strong> — optional embedded music player, only if you paste a link into the music
+            widget and open it. Once you do, Spotify's embed player loads in that widget and, like any embedded
+            player, can see that your browser loaded it (standard request/ad-style info Spotify sees from any site
+            that embeds their player). We never send Spotify your inventory, account, or Google data — only the
+            playlist/track/album/etc. link you chose to paste. See{" "}
+            <a href="https://www.spotify.com/legal/privacy-policy/" target="_blank" rel="noreferrer">
+              Spotify's Privacy Policy
             </a>
             .
           </li>
