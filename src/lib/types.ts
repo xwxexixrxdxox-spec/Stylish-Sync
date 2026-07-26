@@ -214,6 +214,39 @@ export interface OrderedPart {
   // not the customer's own price" caveat as InventoryItem.pricePerUnit's
   // lookup path (see BarcodeLookupResult in productLookup.ts).
   pricePerUnit?: number;
+  // Quantity due-in/received (2026-07, Oracle-GCSS-inspired) — a
+  // requisition rarely arrives all at once, so this tracks how many of
+  // the ordered quantity have actually shown up separately from the
+  // `status` dropdown above. Undefined means "1 ordered, none received
+  // yet" for any part created before this shipped, same as every other
+  // backfill-via-undefined field in this file. PropertyManager.tsx's
+  // "Log receipt" control is what increments `quantityReceived` and
+  // auto-advances `status` to "received" once it reaches
+  // `quantityOrdered` — it does NOT keep these two in sync if a customer
+  // instead flips the status dropdown by hand (e.g. closing a part out
+  // as "received" without logging every partial shipment) — that's a
+  // deliberate scope boundary, not an oversight: the dropdown stays the
+  // authoritative "is this done" signal, quantity tracking is an
+  // additional, optional layer of detail on top of it.
+  quantityOrdered?: number;
+  quantityReceived?: number;
+  // Expected arrival date ("YYYY-MM-DD"), a la GCSS's Estimated Delivery
+  // Date — purely informational (nothing here polls a carrier), but lets
+  // PropertyManager.tsx flag a part as overdue (still "ordered"/"shipped"
+  // past this date) instead of every part reading the same regardless of
+  // how stale it's gotten.
+  estimatedDeliveryDate?: string;
+  // Optional link to the MaintenanceTask (by id, within the same
+  // PropertyItem) this part is actually for — GCSS never lets a
+  // requisition float independently of the work order it supports, and
+  // without this a customer has to mentally match up two separate lists
+  // to answer "which job is this part for." Only ever set at part-creation
+  // time (see the "Add a part" form in PropertyManager.tsx) — there's no
+  // separate edit-existing-part flow yet, matching the same limit already
+  // in place for partNumber/description/unit/price. A dangling id (its
+  // task got deleted) is treated as "no link" by anything that reads it,
+  // rather than crashing or resurrecting the task.
+  maintenanceTaskId?: string;
   // Chronological log of every status change, seeded with one entry at
   // creation and appended to on every status change thereafter — see
   // StatusHistoryEntry above.

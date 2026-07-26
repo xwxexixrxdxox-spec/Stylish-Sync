@@ -89,26 +89,29 @@ const PROPERTY_SYNC_TOKEN_RANGE = `${SYNC_META_SHEET_TITLE}!A2`;
 // the Inventory tab (see PropertyItem's comment in types.ts for why this
 // is its own feature, not a variant of inventory). Same "own tab on the
 // same linked spreadsheet" model as Usage, created on first sync the same
-// lazy way (see ensurePropertySheet). Laid out as three side-by-side
+// lazy way (see ensurePropertySheet). Laid out as four side-by-side
 // blocks on one sheet, the same multi-block-per-sheet approach the Usage
 // tab uses for its detail/summary split — but here purely for readability
 // (a blank gutter column between each block) rather than because anything
 // needs to sit at a fixed anchor for a chart:
-//   A:G — one row per property (the "parent" records)
-//   I:Q — one row per ordered part, referencing its property by ID
-//         (widened 2026-07 to carry Part Number/Unit/Price alongside
-//         Description — the part-lookup feature in PropertyManager.tsx
-//         fills these in the same way ScanTab.tsx fills the equivalent
-//         InventoryItem fields)
-//   S:X — one row per maintenance task, referencing its property by ID
-// Parts/tasks reference their property by ID (column I/S) rather than
+//   A:G  — one row per property (the "parent" records)
+//   I:U  — one row per ordered part, referencing its property by ID
+//          (widened 2026-07 to 13 columns — Quantity Ordered/Received,
+//          Estimated Delivery Date, and Linked Task ID joined Part
+//          Number/Unit/Price/Status alongside Description, Oracle-GCSS-
+//          inspired quantity-due-in/EDD/work-order-linkage concepts — see
+//          OrderedPart in types.ts for what each field actually drives)
+//   W:AB — one row per maintenance task, referencing its property by ID
+//          (shifted right from S:X to make room for the wider Parts block)
+//   AD:AL — the status-history "story" block (shifted right from Z:AH)
+// Parts/tasks reference their property by ID (column I/W) rather than
 // name alone — a name is what a customer sees and might reasonably edit,
 // an ID is what actually survives that edit and still resolves correctly
 // on the next pull.
 const PROPERTY_SHEET_TITLE = "Property";
 const PROPERTY_DETAIL_RANGE = `${PROPERTY_SHEET_TITLE}!A1:G`;
 const PROPERTY_DETAIL_HEADER = ["ID", "Name", "Location", "Serial Number", "Notes", "Last Edited By", "Last Edited At"];
-const PROPERTY_PARTS_RANGE = `${PROPERTY_SHEET_TITLE}!I1:Q`;
+const PROPERTY_PARTS_RANGE = `${PROPERTY_SHEET_TITLE}!I1:U`;
 const PROPERTY_PARTS_HEADER = [
   "Property ID",
   "Property Name",
@@ -116,11 +119,15 @@ const PROPERTY_PARTS_HEADER = [
   "Description",
   "Unit",
   "Price Per Unit",
+  "Quantity Ordered",
+  "Quantity Received",
+  "Estimated Delivery Date",
+  "Linked Task ID",
   "Status",
   "Last Edited At",
   "Part ID",
 ];
-const PROPERTY_TASKS_RANGE = `${PROPERTY_SHEET_TITLE}!S1:X`;
+const PROPERTY_TASKS_RANGE = `${PROPERTY_SHEET_TITLE}!W1:AB`;
 const PROPERTY_TASKS_HEADER = ["Property ID", "Property Name", "Task Description", "Status", "Last Edited At", "Task ID"];
 // A 4th block (2026-07) — the full chronological status-change log for
 // every part and task, flattened into one long sheet so the export reads
@@ -131,7 +138,7 @@ const PROPERTY_TASKS_HEADER = ["Property ID", "Property Name", "Task Description
 // the general chronological-status-log idea behind systems like Oracle
 // GCSS — not a literal replica of its exact column layout, which isn't
 // something this app has direct knowledge of.
-const PROPERTY_HISTORY_RANGE = `${PROPERTY_SHEET_TITLE}!Z1:AH`;
+const PROPERTY_HISTORY_RANGE = `${PROPERTY_SHEET_TITLE}!AD1:AL`;
 const PROPERTY_HISTORY_HEADER = [
   "Type",
   "Property ID",
@@ -715,6 +722,10 @@ export async function pushPropertyToSheet(spreadsheetId: string, properties: Pro
         part.description,
         part.unit || "",
         part.pricePerUnit ?? "",
+        part.quantityOrdered ?? 1,
+        part.quantityReceived ?? 0,
+        part.estimatedDeliveryDate || "",
+        part.maintenanceTaskId || "",
         part.status,
         part.updatedAt ? formatSheetTimestamp(part.updatedAt) : "",
         part.id,
@@ -849,22 +860,28 @@ export async function pullPropertyFromSheet(spreadsheetId: string): Promise<Prop
   historyByItemId.forEach((list) => list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)));
 
   partsRows
-    .filter((r) => r.length && r[0] && r[8])
+    .filter((r) => r.length && r[0] && r[12])
     .forEach((r) => {
       const parent = byId.get(r[0]);
       if (!parent) return;
       const price = Number(r[5]);
-      const status = (r[6] as OrderedPart["status"]) || "ordered";
-      const updatedAt = parseWhen(r[7]);
+      const qtyOrdered = Number(r[6]);
+      const qtyReceived = Number(r[7]);
+      const status = (r[10] as OrderedPart["status"]) || "ordered";
+      const updatedAt = parseWhen(r[11]);
       parent.orderedParts.push({
-        id: r[8],
+        id: r[12],
         partNumber: r[2] || undefined,
         description: r[3] ?? "",
         unit: (r[4] as OrderedPart["unit"]) || undefined,
         pricePerUnit: r[5] && Number.isFinite(price) ? price : undefined,
+        quantityOrdered: r[6] && Number.isFinite(qtyOrdered) ? qtyOrdered : undefined,
+        quantityReceived: r[7] && Number.isFinite(qtyReceived) ? qtyReceived : undefined,
+        estimatedDeliveryDate: r[8] || undefined,
+        maintenanceTaskId: r[9] || undefined,
         status,
         updatedAt,
-        statusHistory: (historyByItemId.get(r[8]) as StatusHistoryEntry<OrderedPart["status"]>[] | undefined) ?? [
+        statusHistory: (historyByItemId.get(r[12]) as StatusHistoryEntry<OrderedPart["status"]>[] | undefined) ?? [
           { status, at: updatedAt },
         ],
       });

@@ -7,6 +7,7 @@ import {
   UploadCloud,
   DownloadCloud,
   Package,
+  PackageCheck,
   Wrench,
   AlertTriangle,
   Search,
@@ -54,6 +55,18 @@ const UNITS: Unit[] = [
   "kg", "lb", "oz", "g", "L", "ml", "fl oz",
 ];
 
+// Local "YYYY-MM-DD" for today, matching the plain-date strings
+// estimatedDeliveryDate/<input type="date"> use — local, not UTC, so a
+// customer near a UTC day boundary doesn't see a part flip overdue (or
+// not) based on the wrong day.
+function todayStr(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // What PropertyCard's "Add a part" mini-form hands back to addPart below —
 // partNumber/unit/pricePerUnit are whatever the barcode/UPC lookup filled
 // in (or the customer typed over it), same optional shape as OrderedPart
@@ -63,6 +76,9 @@ interface NewPartInput {
   description: string;
   unit?: Unit;
   pricePerUnit?: number;
+  quantityOrdered?: number;
+  estimatedDeliveryDate?: string;
+  maintenanceTaskId?: string;
 }
 import ConfirmDialog from "@/components/ConfirmDialog";
 
@@ -154,6 +170,10 @@ export default function PropertyManager() {
       description: input.description.trim(),
       unit: input.unit,
       pricePerUnit: input.pricePerUnit,
+      quantityOrdered: input.quantityOrdered && input.quantityOrdered > 0 ? input.quantityOrdered : 1,
+      quantityReceived: 0,
+      estimatedDeliveryDate: input.estimatedDeliveryDate || undefined,
+      maintenanceTaskId: input.maintenanceTaskId || undefined,
       status: "ordered",
       updatedAt,
       // Seed the story with its first chapter — every part starts life
@@ -187,6 +207,51 @@ export default function PropertyManager() {
                     }
                   : part
               ),
+              updatedAt,
+              lastEditedBy,
+            }
+          : p
+      )
+    );
+  };
+
+  // Logs a (possibly partial) receipt against a part's quantityOrdered —
+  // separate from updatePartStatus above because this can leave `status`
+  // unchanged (a partial receipt is still "shipped," just with some of it
+  // in hand now) while still writing a real, timestamped, attributed
+  // history entry, since "3 of 10 showed up today" is exactly the kind of
+  // thing the status "story" is supposed to capture. Once the running
+  // total reaches quantityOrdered, this auto-advances `status` to
+  // "received" the same way a customer picking it from the dropdown
+  // would — so a fully-received part still auto-closes per the existing
+  // isPartClosed-adjacent flow without the customer having to also
+  // remember to flip the dropdown themselves.
+  const logPartReceipt = (propertyId: string, partId: string, amount: number) => {
+    if (!(amount > 0)) return;
+    const { updatedAt, lastEditedBy } = touch();
+    setProperties((prev) =>
+      prev.map((p) =>
+        p.id === propertyId
+          ? {
+              ...p,
+              orderedParts: p.orderedParts.map((part) => {
+                if (part.id !== partId) return part;
+                const ordered = part.quantityOrdered ?? 1;
+                const receivedBefore = part.quantityReceived ?? 0;
+                const receivedNow = Math.min(ordered, receivedBefore + amount);
+                const isFull = receivedNow >= ordered;
+                const nextStatus: OrderedPart["status"] = isFull ? "received" : part.status;
+                const note = isFull
+                  ? `Received ${receivedNow} of ${ordered} — complete`
+                  : `Received ${amount} (${receivedNow} of ${ordered} so far)`;
+                return {
+                  ...part,
+                  quantityReceived: receivedNow,
+                  status: nextStatus,
+                  updatedAt,
+                  statusHistory: [...part.statusHistory, { status: nextStatus, at: updatedAt, note, by: lastEditedBy }],
+                };
+              }),
               updatedAt,
               lastEditedBy,
             }
@@ -428,6 +493,7 @@ export default function PropertyManager() {
               onDelete={() => setConfirmDeleteId(p.id)}
               onAddPart={(input) => addPart(p.id, input)}
               onUpdatePartStatus={(partId, status, note) => updatePartStatus(p.id, partId, status, note)}
+              onLogPartReceipt={(partId, amount) => logPartReceipt(p.id, partId, amount)}
               onRemovePart={(partId) => removePart(p.id, partId)}
               onAddTask={(desc) => addTask(p.id, desc)}
               onUpdateTaskStatus={(taskId, status, note) => updateTaskStatus(p.id, taskId, status, note)}
@@ -497,6 +563,7 @@ interface CardProps {
   onDelete: () => void;
   onAddPart: (input: NewPartInput) => void;
   onUpdatePartStatus: (partId: string, status: OrderedPart["status"], note?: string) => void;
+  onLogPartReceipt: (partId: string, amount: number) => void;
   onRemovePart: (partId: string) => void;
   onAddTask: (description: string) => void;
   onUpdateTaskStatus: (taskId: string, status: MaintenanceTask["status"], note?: string) => void;
@@ -509,6 +576,7 @@ function PropertyCard({
   onDelete,
   onAddPart,
   onUpdatePartStatus,
+  onLogPartReceipt,
   onRemovePart,
   onAddTask,
   onUpdateTaskStatus,
@@ -533,6 +601,20 @@ function PropertyCard({
   const [lookupStatus, setLookupStatus] = useState<"idle" | "checking" | "found" | "multiple" | "not-found">("idle");
   const [candidates, setCandidates] = useState<BarcodeLookupResult[]>([]);
   const [findMenuForPartId, setFindMenuForPartId] = useState<string | null>(null);
+  // Quantity/ETA/linked-task fields (2026-07, Oracle-GCSS-inspired) — see
+  // OrderedPart.quantityOrdered/estimatedDeliveryDate/maintenanceTaskId in
+  // types.ts for what each actually drives. partQuantity defaults to "1"
+  // (a string, not a number, since it's a controlled input) rather than
+  // blank — most parts genuinely are qty 1, and a pre-filled sensible
+  // default beats an empty field that silently means the same thing.
+  const [partQuantity, setPartQuantity] = useState("1");
+  const [partEta, setPartEta] = useState("");
+  const [partTaskId, setPartTaskId] = useState("");
+  // "Log receipt" inline prompt — same one-row-at-a-time pattern as the
+  // cancel-reason prompt below (cancelPromptFor/cancelNote), keyed by part
+  // id so only one row's prompt is open at once.
+  const [receiptPromptFor, setReceiptPromptFor] = useState<string | null>(null);
+  const [receiptAmount, setReceiptAmount] = useState("");
 
   // Status-history tracking (2026-07) — expandable "story" panel per
   // part/task (ids are unique across both lists, so one piece of state
@@ -558,6 +640,16 @@ function PropertyCard({
   // is what actually documents the reopening in the audit trail.
   const isPartClosed = (status: OrderedPart["status"]) => status === "installed" || status === "cancelled";
   const isTaskClosed = (status: MaintenanceTask["status"]) => status === "completed" || status === "cancelled";
+
+  // "Overdue" (2026-07, GCSS's Estimated Delivery Date concept) only means
+  // anything while a part is still actually in flight — once it's been
+  // received/installed/cancelled, whatever date it was originally expected
+  // by is no longer relevant. Plain string comparison works here because
+  // estimatedDeliveryDate and todayStr() are both "YYYY-MM-DD".
+  const isPartOverdue = (part: OrderedPart) =>
+    !!part.estimatedDeliveryDate &&
+    (part.status === "ordered" || part.status === "shipped") &&
+    part.estimatedDeliveryDate < todayStr();
   const [partsClosedOpen, setPartsClosedOpen] = useState(false);
   const [tasksClosedOpen, setTasksClosedOpen] = useState(false);
   const [reopenedPartIds, setReopenedPartIds] = useState<Set<string>>(new Set());
@@ -655,16 +747,23 @@ function PropertyCard({
   const submitNewPart = () => {
     if (!partDescription.trim()) return;
     const price = Number(partPrice);
+    const quantity = Number(partQuantity);
     onAddPart({
       partNumber: partNumber.trim() || undefined,
       description: partDescription.trim(),
       unit: partUnit,
       pricePerUnit: partPrice.trim() && Number.isFinite(price) ? price : undefined,
+      quantityOrdered: partQuantity.trim() && Number.isFinite(quantity) && quantity > 0 ? quantity : undefined,
+      estimatedDeliveryDate: partEta || undefined,
+      maintenanceTaskId: partTaskId || undefined,
     });
     setPartNumber("");
     setPartDescription("");
     setPartUnit("ea");
     setPartPrice("");
+    setPartQuantity("1");
+    setPartEta("");
+    setPartTaskId("");
     setPriceFromLookup(false);
     setLookupStatus("idle");
     setCandidates([]);
@@ -701,6 +800,27 @@ function PropertyCard({
                     {part.unit ? ` / ${part.unit}` : ""} est.
                   </>
                 )}
+              </span>
+            )}
+            {((part.quantityOrdered ?? 1) > 1 || (part.quantityReceived ?? 0) > 0 || part.estimatedDeliveryDate) && (
+              <span className="block text-[10px] text-neutral-400">
+                {((part.quantityOrdered ?? 1) > 1 || (part.quantityReceived ?? 0) > 0) && (
+                  <>
+                    {part.quantityReceived ?? 0}/{part.quantityOrdered ?? 1} received
+                  </>
+                )}
+                {(part.quantityOrdered ?? 1) > 1 && part.estimatedDeliveryDate && " · "}
+                {part.estimatedDeliveryDate && (
+                  <span className={isPartOverdue(part) ? "font-medium text-accent-low" : ""}>
+                    {isPartOverdue(part) && "⚠ overdue — "}
+                    ETA {new Date(`${part.estimatedDeliveryDate}T00:00:00`).toLocaleDateString()}
+                  </span>
+                )}
+              </span>
+            )}
+            {part.maintenanceTaskId && (
+              <span className="block text-[10px] text-neutral-400">
+                For: {property.maintenanceTasks.find((t) => t.id === part.maintenanceTaskId)?.description ?? "(task removed)"}
               </span>
             )}
             {!editable && (
@@ -772,6 +892,23 @@ function PropertyCard({
               </>
             )}
           </div>
+          {editable && (part.status === "ordered" || part.status === "shipped") && (
+            <button
+              onClick={() => {
+                setReceiptPromptFor(receiptPromptFor === part.id ? null : part.id);
+                const remaining = (part.quantityOrdered ?? 1) - (part.quantityReceived ?? 0);
+                setReceiptAmount(remaining > 0 ? String(remaining) : "1");
+              }}
+              aria-label="Log a receipt"
+              className={`flex items-center rounded-md border px-1.5 py-1 ${
+                receiptPromptFor === part.id
+                  ? "border-neutral-900 bg-neutral-900 text-white"
+                  : "border-surface-border bg-white text-neutral-500 hover:bg-surface-muted"
+              }`}
+            >
+              <PackageCheck size={12} />
+            </button>
+          )}
           <button
             onClick={() => onRemovePart(part.id)}
             aria-label="Remove part"
@@ -780,6 +917,52 @@ function PropertyCard({
             <Trash2 size={12} />
           </button>
         </div>
+
+        {receiptPromptFor === part.id && (
+          <div className="mt-1.5 rounded-lg border border-surface-border bg-surface-muted p-2">
+            <p className="mb-1 text-[11px] font-medium text-neutral-700">
+              Log a receipt — {part.quantityReceived ?? 0} of {part.quantityOrdered ?? 1} received so far
+            </p>
+            <div className="flex gap-1.5">
+              <input
+                autoFocus
+                type="number"
+                min="1"
+                step="1"
+                value={receiptAmount}
+                onChange={(e) => setReceiptAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const amount = Number(receiptAmount);
+                  if (amount > 0) {
+                    onLogPartReceipt(part.id, amount);
+                    setReceiptPromptFor(null);
+                  }
+                }}
+                className="w-20 rounded-md border border-surface-border bg-white px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-neutral-900"
+              />
+              <button
+                onClick={() => setReceiptPromptFor(null)}
+                className="flex-1 rounded-md border border-surface-border bg-white py-1 text-[11px] font-medium text-neutral-600 hover:bg-surface-muted"
+              >
+                Never mind
+              </button>
+              <button
+                onClick={() => {
+                  const amount = Number(receiptAmount);
+                  if (amount > 0) {
+                    onLogPartReceipt(part.id, amount);
+                    setReceiptPromptFor(null);
+                  }
+                }}
+                disabled={!(Number(receiptAmount) > 0)}
+                className="flex-1 rounded-md bg-neutral-900 py-1 text-[11px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                Log receipt
+              </button>
+            </div>
+          </div>
+        )}
 
         {cancelPromptFor?.kind === "part" && cancelPromptFor.id === part.id && (
           <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2">
@@ -958,6 +1141,41 @@ function PropertyCard({
             {property.location && <p className="text-xs text-neutral-500">{property.location}</p>}
             {property.serialNumber && <p className="text-xs text-neutral-400">S/N {property.serialNumber}</p>}
             {property.notes && <p className="mt-1 text-xs text-neutral-500">{property.notes}</p>}
+            {(() => {
+              // Per-property health rollup (2026-07, GCSS readiness-status-
+              // inspired) — a lightweight "is this property okay" signal
+              // right on the card, so a customer with several properties
+              // doesn't have to open each one just to see which need
+              // attention. Purely derived from what's already loaded; no
+              // new stored state, so it's always in sync with the lists
+              // below it.
+              const openParts = property.orderedParts.filter((part) => !isPartClosed(part.status)).length;
+              const overdueParts = property.orderedParts.filter((part) => isPartOverdue(part)).length;
+              const openTasks = property.maintenanceTasks.filter((task) => !isTaskClosed(task.status)).length;
+              if (!openParts && !openTasks) {
+                return <p className="mt-1 text-[11px] font-medium text-green-700">✓ All clear — nothing open</p>;
+              }
+              return (
+                <p className="mt-1 flex flex-wrap gap-x-1.5 text-[11px] text-neutral-500">
+                  {openParts > 0 && (
+                    <span>
+                      {openParts} open part{openParts === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  {overdueParts > 0 && (
+                    <span className="font-medium text-accent-low">
+                      · {overdueParts} overdue
+                    </span>
+                  )}
+                  {openTasks > 0 && (
+                    <span>
+                      {openParts > 0 ? "· " : ""}
+                      {openTasks} open task{openTasks === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </p>
+              );
+            })()}
             {property.lastEditedBy && (
               <p className="mt-1 text-[11px] text-neutral-400">
                 Edited by {property.lastEditedBy} · {formatRelativeTime(property.updatedAt)}
@@ -1122,6 +1340,45 @@ function PropertyCard({
               <p className="text-[10px] text-neutral-400">Price is an online estimate — verify before ordering.</p>
             )}
             <div className="flex gap-1.5">
+              <div className="flex-1">
+                <label className="mb-0.5 block text-[10px] font-medium text-neutral-500">Quantity ordered</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={partQuantity}
+                  onChange={(e) => setPartQuantity(e.target.value)}
+                  className="w-full rounded-lg border border-surface-border px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-neutral-900"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="mb-0.5 block text-[10px] font-medium text-neutral-500">Expected by (optional)</label>
+                <input
+                  type="date"
+                  value={partEta}
+                  onChange={(e) => setPartEta(e.target.value)}
+                  className="w-full rounded-lg border border-surface-border px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-neutral-900"
+                />
+              </div>
+            </div>
+            {property.maintenanceTasks.length > 0 && (
+              <div>
+                <label className="mb-0.5 block text-[10px] font-medium text-neutral-500">For which task? (optional)</label>
+                <select
+                  value={partTaskId}
+                  onChange={(e) => setPartTaskId(e.target.value)}
+                  className="w-full rounded-lg border border-surface-border px-2.5 py-1.5 text-xs outline-none"
+                >
+                  <option value="">Not linked to a task</option>
+                  {property.maintenanceTasks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex gap-1.5">
               <button
                 onClick={() => {
                   setAddPartOpen(false);
@@ -1129,6 +1386,9 @@ function PropertyCard({
                   setPartDescription("");
                   setPartUnit("ea");
                   setPartPrice("");
+                  setPartQuantity("1");
+                  setPartEta("");
+                  setPartTaskId("");
                   setPriceFromLookup(false);
                   setLookupStatus("idle");
                   setCandidates([]);
