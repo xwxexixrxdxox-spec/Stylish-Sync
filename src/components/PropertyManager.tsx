@@ -543,6 +543,26 @@ function PropertyCard({
   const [cancelPromptFor, setCancelPromptFor] = useState<{ kind: "part" | "task"; id: string } | null>(null);
   const [cancelNote, setCancelNote] = useState("");
 
+  // Auto-close for terminal statuses (2026-07) — once a part is Installed
+  // or a task is Completed, it's done: leaving it sitting in the same list
+  // as active work invites a customer to glance at the page and assume
+  // it's still in progress. Cancelled is folded into "closed" too for the
+  // same reason (it's equally not-active-work), even though the request
+  // named Installed/Completed specifically. Closed entries collapse into
+  // their own section, become read-only (no more accidental status
+  // flips), and show who closed them out and when, right on the row —
+  // full detail is still one tap away via the History panel. "Reopen" is
+  // a purely local, transient toggle (see reopenedPartIds/reopenedTaskIds)
+  // — it doesn't touch data on its own; only actually picking a new status
+  // afterward writes a new (attributed, timestamped) history entry, which
+  // is what actually documents the reopening in the audit trail.
+  const isPartClosed = (status: OrderedPart["status"]) => status === "installed" || status === "cancelled";
+  const isTaskClosed = (status: MaintenanceTask["status"]) => status === "completed" || status === "cancelled";
+  const [partsClosedOpen, setPartsClosedOpen] = useState(false);
+  const [tasksClosedOpen, setTasksClosedOpen] = useState(false);
+  const [reopenedPartIds, setReopenedPartIds] = useState<Set<string>>(new Set());
+  const [reopenedTaskIds, setReopenedTaskIds] = useState<Set<string>>(new Set());
+
   const handlePartStatusChange = (part: OrderedPart, status: OrderedPart["status"]) => {
     if (status === "cancelled") {
       setCancelPromptFor({ kind: "part", id: part.id });
@@ -657,6 +677,267 @@ function PropertyCard({
   // barcode over a name — falling back to the description otherwise.
   const partQuery = (part: OrderedPart) => part.partNumber || part.description;
 
+  // One row for the Ordered Parts list, shared by the active section and
+  // the (reopened) closed section — `editable` is what actually decides
+  // whether it shows the live status dropdown or the closed summary/badge,
+  // independent of which section it's rendered in.
+  const renderPartRow = (part: OrderedPart, editable: boolean) => {
+    const closingEntry = part.statusHistory[part.statusHistory.length - 1];
+    return (
+      <div
+        key={part.id}
+        className={`rounded-lg px-2 py-1.5 ${editable ? "bg-surface-muted" : "border border-green-200 bg-green-50"}`}
+      >
+        <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-xs text-neutral-700">{part.description}</span>
+            {(part.partNumber || part.pricePerUnit != null) && (
+              <span className="block text-[10px] text-neutral-400">
+                {part.partNumber && <>#{part.partNumber}</>}
+                {part.partNumber && part.pricePerUnit != null && " · "}
+                {part.pricePerUnit != null && (
+                  <>
+                    ${part.pricePerUnit.toFixed(2)}
+                    {part.unit ? ` / ${part.unit}` : ""} est.
+                  </>
+                )}
+              </span>
+            )}
+            {!editable && (
+              <span className="block text-[10px] font-medium text-green-700">
+                ✓ {orderedPartStatusLabel(part.status)}
+                {closingEntry?.by && ` · by ${closingEntry.by}`}
+                {" · "}
+                {new Date(part.updatedAt).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          {editable ? (
+            <select
+              value={part.status}
+              onChange={(e) => handlePartStatusChange(part, e.target.value as OrderedPart["status"])}
+              className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
+            >
+              {ORDERED_PART_STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <button
+              onClick={() => setReopenedPartIds((prev) => new Set(prev).add(part.id))}
+              className="shrink-0 rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] font-medium text-neutral-500 hover:bg-surface-muted"
+            >
+              Reopen
+            </button>
+          )}
+          <button
+            onClick={() => setHistoryOpenFor(historyOpenFor === part.id ? null : part.id)}
+            aria-label="View status history"
+            className={`flex items-center rounded-md border px-1.5 py-1 ${
+              historyOpenFor === part.id
+                ? "border-neutral-900 bg-neutral-900 text-white"
+                : "border-surface-border bg-white text-neutral-500 hover:bg-surface-muted"
+            }`}
+          >
+            <Clock size={12} />
+          </button>
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setFindMenuForPartId(findMenuForPartId === part.id ? null : part.id)}
+              aria-label="Find this part at a store"
+              className="flex items-center gap-1 rounded-md border border-surface-border bg-white px-1.5 py-1 text-neutral-500 hover:bg-surface-muted"
+            >
+              <ShoppingCart size={12} />
+              <ChevronDown size={10} />
+            </button>
+            {findMenuForPartId === part.id && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setFindMenuForPartId(null)} />
+                <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-surface-border bg-white shadow-card">
+                  {RETAILERS.map((r) => (
+                    <a
+                      key={r.id}
+                      href={r.buildUrl(partQuery(part))}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => setFindMenuForPartId(null)}
+                      className="block px-3 py-2 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
+                    >
+                      {r.label}
+                    </a>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <button
+            onClick={() => onRemovePart(part.id)}
+            aria-label="Remove part"
+            className="text-neutral-400 hover:text-accent-low"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+
+        {cancelPromptFor?.kind === "part" && cancelPromptFor.id === part.id && (
+          <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2">
+            <p className="mb-1 text-[11px] font-medium text-amber-800">Cancelling — reason (optional)?</p>
+            <input
+              autoFocus
+              value={cancelNote}
+              onChange={(e) => setCancelNote(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && confirmCancel()}
+              placeholder="e.g. ordered wrong part, no longer needed…"
+              className="mb-1.5 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-amber-400"
+            />
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setCancelPromptFor(null)}
+                className="flex-1 rounded-md border border-surface-border bg-white py-1 text-[11px] font-medium text-neutral-600 hover:bg-surface-muted"
+              >
+                Never mind
+              </button>
+              <button
+                onClick={confirmCancel}
+                className="flex-1 rounded-md bg-accent-low py-1 text-[11px] font-semibold text-white hover:opacity-90"
+              >
+                Cancel part
+              </button>
+            </div>
+          </div>
+        )}
+
+        {historyOpenFor === part.id && (
+          <div className="mt-1.5 space-y-1 rounded-lg border border-surface-border bg-white p-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">Status history</p>
+            {[...part.statusHistory]
+              .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+              .map((entry, i) => (
+                <div key={i} className="text-[11px] text-neutral-600">
+                  <span className="font-medium text-neutral-800">{orderedPartStatusLabel(entry.status)}</span>
+                  {" — "}
+                  {new Date(entry.at).toLocaleString()}
+                  {entry.by && <span className="text-neutral-400"> · by {entry.by}</span>}
+                  {entry.note && <span className="block text-neutral-400">{entry.note}</span>}
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Same shape as renderPartRow above, for the Maintenance / repair tasks
+  // list.
+  const renderTaskRow = (task: MaintenanceTask, editable: boolean) => {
+    const closingEntry = task.statusHistory[task.statusHistory.length - 1];
+    return (
+      <div
+        key={task.id}
+        className={`rounded-lg px-2 py-1.5 ${editable ? "bg-surface-muted" : "border border-green-200 bg-green-50"}`}
+      >
+        <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <span className="block text-xs text-neutral-700">{task.description}</span>
+            {!editable && (
+              <span className="block text-[10px] font-medium text-green-700">
+                ✓ {maintenanceTaskStatusLabel(task.status)}
+                {closingEntry?.by && ` · by ${closingEntry.by}`}
+                {" · "}
+                {new Date(task.updatedAt).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          {editable ? (
+            <select
+              value={task.status}
+              onChange={(e) => handleTaskStatusChange(task, e.target.value as MaintenanceTask["status"])}
+              className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
+            >
+              {MAINTENANCE_TASK_STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <button
+              onClick={() => setReopenedTaskIds((prev) => new Set(prev).add(task.id))}
+              className="shrink-0 rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] font-medium text-neutral-500 hover:bg-surface-muted"
+            >
+              Reopen
+            </button>
+          )}
+          <button
+            onClick={() => setHistoryOpenFor(historyOpenFor === task.id ? null : task.id)}
+            aria-label="View status history"
+            className={`flex items-center rounded-md border px-1.5 py-1 ${
+              historyOpenFor === task.id
+                ? "border-neutral-900 bg-neutral-900 text-white"
+                : "border-surface-border bg-white text-neutral-500 hover:bg-surface-muted"
+            }`}
+          >
+            <Clock size={12} />
+          </button>
+          <button
+            onClick={() => onRemoveTask(task.id)}
+            aria-label="Remove task"
+            className="text-neutral-400 hover:text-accent-low"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+
+        {cancelPromptFor?.kind === "task" && cancelPromptFor.id === task.id && (
+          <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2">
+            <p className="mb-1 text-[11px] font-medium text-amber-800">Cancelling — reason (optional)?</p>
+            <input
+              autoFocus
+              value={cancelNote}
+              onChange={(e) => setCancelNote(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && confirmCancel()}
+              placeholder="e.g. no longer needed, duplicate task…"
+              className="mb-1.5 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-amber-400"
+            />
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setCancelPromptFor(null)}
+                className="flex-1 rounded-md border border-surface-border bg-white py-1 text-[11px] font-medium text-neutral-600 hover:bg-surface-muted"
+              >
+                Never mind
+              </button>
+              <button
+                onClick={confirmCancel}
+                className="flex-1 rounded-md bg-accent-low py-1 text-[11px] font-semibold text-white hover:opacity-90"
+              >
+                Cancel task
+              </button>
+            </div>
+          </div>
+        )}
+
+        {historyOpenFor === task.id && (
+          <div className="mt-1.5 space-y-1 rounded-lg border border-surface-border bg-white p-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">Status history</p>
+            {[...task.statusHistory]
+              .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+              .map((entry, i) => (
+                <div key={i} className="text-[11px] text-neutral-600">
+                  <span className="font-medium text-neutral-800">{maintenanceTaskStatusLabel(entry.status)}</span>
+                  {" — "}
+                  {new Date(entry.at).toLocaleString()}
+                  {entry.by && <span className="text-neutral-400"> · by {entry.by}</span>}
+                  {entry.note && <span className="block text-neutral-400">{entry.note}</span>}
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const saveEdit = () => {
     if (!name.trim()) return;
     onUpdate({
@@ -748,129 +1029,9 @@ function PropertyCard({
           <Package size={13} /> Ordered parts
         </p>
         <div className="space-y-1.5">
-          {property.orderedParts.map((part) => (
-            <div key={part.id} className="rounded-lg bg-surface-muted px-2 py-1.5">
-              <div className="flex items-center gap-1.5">
-                <div className="min-w-0 flex-1">
-                  <span className="block truncate text-xs text-neutral-700">{part.description}</span>
-                  {(part.partNumber || part.pricePerUnit != null) && (
-                    <span className="block text-[10px] text-neutral-400">
-                      {part.partNumber && <>#{part.partNumber}</>}
-                      {part.partNumber && part.pricePerUnit != null && " · "}
-                      {part.pricePerUnit != null && (
-                        <>
-                          ${part.pricePerUnit.toFixed(2)}
-                          {part.unit ? ` / ${part.unit}` : ""} est.
-                        </>
-                      )}
-                    </span>
-                  )}
-                </div>
-                <select
-                  value={part.status}
-                  onChange={(e) => handlePartStatusChange(part, e.target.value as OrderedPart["status"])}
-                  className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
-                >
-                  {ORDERED_PART_STATUS_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setHistoryOpenFor(historyOpenFor === part.id ? null : part.id)}
-                  aria-label="View status history"
-                  className={`flex items-center rounded-md border px-1.5 py-1 ${
-                    historyOpenFor === part.id
-                      ? "border-neutral-900 bg-neutral-900 text-white"
-                      : "border-surface-border bg-white text-neutral-500 hover:bg-surface-muted"
-                  }`}
-                >
-                  <Clock size={12} />
-                </button>
-                <div className="relative shrink-0">
-                  <button
-                    onClick={() => setFindMenuForPartId(findMenuForPartId === part.id ? null : part.id)}
-                    aria-label="Find this part at a store"
-                    className="flex items-center gap-1 rounded-md border border-surface-border bg-white px-1.5 py-1 text-neutral-500 hover:bg-surface-muted"
-                  >
-                    <ShoppingCart size={12} />
-                    <ChevronDown size={10} />
-                  </button>
-                  {findMenuForPartId === part.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setFindMenuForPartId(null)} />
-                      <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-surface-border bg-white shadow-card">
-                        {RETAILERS.map((r) => (
-                          <a
-                            key={r.id}
-                            href={r.buildUrl(partQuery(part))}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={() => setFindMenuForPartId(null)}
-                            className="block px-3 py-2 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
-                          >
-                            {r.label}
-                          </a>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-                <button
-                  onClick={() => onRemovePart(part.id)}
-                  aria-label="Remove part"
-                  className="text-neutral-400 hover:text-accent-low"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-
-              {cancelPromptFor?.kind === "part" && cancelPromptFor.id === part.id && (
-                <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2">
-                  <p className="mb-1 text-[11px] font-medium text-amber-800">Cancelling — reason (optional)?</p>
-                  <input
-                    autoFocus
-                    value={cancelNote}
-                    onChange={(e) => setCancelNote(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && confirmCancel()}
-                    placeholder="e.g. ordered wrong part, no longer needed…"
-                    className="mb-1.5 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-amber-400"
-                  />
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={() => setCancelPromptFor(null)}
-                      className="flex-1 rounded-md border border-surface-border bg-white py-1 text-[11px] font-medium text-neutral-600 hover:bg-surface-muted"
-                    >
-                      Never mind
-                    </button>
-                    <button
-                      onClick={confirmCancel}
-                      className="flex-1 rounded-md bg-accent-low py-1 text-[11px] font-semibold text-white hover:opacity-90"
-                    >
-                      Cancel part
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {historyOpenFor === part.id && (
-                <div className="mt-1.5 space-y-1 rounded-lg border border-surface-border bg-white p-2">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">Status history</p>
-                  {[...part.statusHistory]
-                    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
-                    .map((entry, i) => (
-                      <div key={i} className="text-[11px] text-neutral-600">
-                        <span className="font-medium text-neutral-800">{orderedPartStatusLabel(entry.status)}</span>
-                        {" — "}
-                        {new Date(entry.at).toLocaleString()}
-                        {entry.note && <span className="block text-neutral-400">{entry.note}</span>}
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          ))}
+          {property.orderedParts
+            .filter((part) => !isPartClosed(part.status))
+            .map((part) => renderPartRow(part, true))}
         </div>
 
         {!addPartOpen ? (
@@ -986,6 +1147,27 @@ function PropertyCard({
             </div>
           </div>
         )}
+
+        {(() => {
+          const closedParts = property.orderedParts.filter((part) => isPartClosed(part.status));
+          if (!closedParts.length) return null;
+          return (
+            <div className="mt-2">
+              <button
+                onClick={() => setPartsClosedOpen((v) => !v)}
+                className="flex items-center gap-1 text-[11px] font-medium text-neutral-400 hover:text-neutral-600"
+              >
+                <ChevronDown size={11} className={partsClosedOpen ? "" : "-rotate-90"} />
+                Closed ({closedParts.length})
+              </button>
+              {partsClosedOpen && (
+                <div className="mt-1.5 space-y-1.5">
+                  {closedParts.map((part) => renderPartRow(part, reopenedPartIds.has(part.id)))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="border-t border-surface-border pt-3">
@@ -993,86 +1175,9 @@ function PropertyCard({
           <Wrench size={13} /> Maintenance / repair tasks
         </p>
         <div className="space-y-1.5">
-          {property.maintenanceTasks.map((task) => (
-            <div key={task.id} className="rounded-lg bg-surface-muted px-2 py-1.5">
-              <div className="flex items-center gap-1.5">
-                <span className="flex-1 text-xs text-neutral-700">{task.description}</span>
-                <select
-                  value={task.status}
-                  onChange={(e) => handleTaskStatusChange(task, e.target.value as MaintenanceTask["status"])}
-                  className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
-                >
-                  {MAINTENANCE_TASK_STATUS_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setHistoryOpenFor(historyOpenFor === task.id ? null : task.id)}
-                  aria-label="View status history"
-                  className={`flex items-center rounded-md border px-1.5 py-1 ${
-                    historyOpenFor === task.id
-                      ? "border-neutral-900 bg-neutral-900 text-white"
-                      : "border-surface-border bg-white text-neutral-500 hover:bg-surface-muted"
-                  }`}
-                >
-                  <Clock size={12} />
-                </button>
-                <button
-                  onClick={() => onRemoveTask(task.id)}
-                  aria-label="Remove task"
-                  className="text-neutral-400 hover:text-accent-low"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-
-              {cancelPromptFor?.kind === "task" && cancelPromptFor.id === task.id && (
-                <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2">
-                  <p className="mb-1 text-[11px] font-medium text-amber-800">Cancelling — reason (optional)?</p>
-                  <input
-                    autoFocus
-                    value={cancelNote}
-                    onChange={(e) => setCancelNote(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && confirmCancel()}
-                    placeholder="e.g. no longer needed, duplicate task…"
-                    className="mb-1.5 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-amber-400"
-                  />
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={() => setCancelPromptFor(null)}
-                      className="flex-1 rounded-md border border-surface-border bg-white py-1 text-[11px] font-medium text-neutral-600 hover:bg-surface-muted"
-                    >
-                      Never mind
-                    </button>
-                    <button
-                      onClick={confirmCancel}
-                      className="flex-1 rounded-md bg-accent-low py-1 text-[11px] font-semibold text-white hover:opacity-90"
-                    >
-                      Cancel task
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {historyOpenFor === task.id && (
-                <div className="mt-1.5 space-y-1 rounded-lg border border-surface-border bg-white p-2">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">Status history</p>
-                  {[...task.statusHistory]
-                    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
-                    .map((entry, i) => (
-                      <div key={i} className="text-[11px] text-neutral-600">
-                        <span className="font-medium text-neutral-800">{maintenanceTaskStatusLabel(entry.status)}</span>
-                        {" — "}
-                        {new Date(entry.at).toLocaleString()}
-                        {entry.note && <span className="block text-neutral-400">{entry.note}</span>}
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          ))}
+          {property.maintenanceTasks
+            .filter((task) => !isTaskClosed(task.status))
+            .map((task) => renderTaskRow(task, true))}
         </div>
         <div className="mt-1.5 flex gap-1.5">
           <input
@@ -1098,6 +1203,27 @@ function PropertyCard({
             <Plus size={13} />
           </button>
         </div>
+
+        {(() => {
+          const closedTasks = property.maintenanceTasks.filter((task) => isTaskClosed(task.status));
+          if (!closedTasks.length) return null;
+          return (
+            <div className="mt-2">
+              <button
+                onClick={() => setTasksClosedOpen((v) => !v)}
+                className="flex items-center gap-1 text-[11px] font-medium text-neutral-400 hover:text-neutral-600"
+              >
+                <ChevronDown size={11} className={tasksClosedOpen ? "" : "-rotate-90"} />
+                Closed ({closedTasks.length})
+              </button>
+              {tasksClosedOpen && (
+                <div className="mt-1.5 space-y-1.5">
+                  {closedTasks.map((task) => renderTaskRow(task, reopenedTaskIds.has(task.id)))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
