@@ -67,7 +67,14 @@ import {
   getExistingPushSubscription,
   isPushSupported,
 } from "@/lib/pushReminders";
+import { VISITS_ENABLED } from "@/lib/stripeTiers";
 import LiveInStoreCard from "./LiveInStoreCard";
+
+interface AccountInfo {
+  id: string;
+  email: string;
+  googleLinked: boolean;
+}
 
 interface Props {
   items: InventoryItem[];
@@ -119,6 +126,103 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
     setEditorNameState(getEditorName() ?? "");
   }, []);
   const commitEditorName = () => setEditorName(editorName);
+
+  // Customer account gate - the whole panel below this point is only shown
+  // once signed in (see the authState branch at the bottom of this
+  // component). "loading" is the brief window before the /api/account/me
+  // check resolves, so a signed-in customer doesn't see a flash of the
+  // sign-up form on every open.
+  const [authState, setAuthState] = useState<"loading" | "signedOut" | "signedIn">("loading");
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [authMode, setAuthMode] = useState<"signup" | "login">("signup");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/account/me")
+      .then((r) => r.json())
+      .then((body) => {
+        if (cancelled) return;
+        if (body.ok && body.account) {
+          setAccount(body.account);
+          setAuthState("signedIn");
+        } else {
+          setAuthState("signedOut");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAuthState("signedOut");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const submitAuth = async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const res = await fetch(`/api/account/${authMode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail.trim(), password: authPassword }),
+      });
+      const body = await res.json();
+      if (res.ok && body.ok && body.account) {
+        setAccount(body.account);
+        setAuthState("signedIn");
+        setAuthPassword("");
+      } else {
+        setAuthError(body.error ?? "Something went wrong. Try again.");
+      }
+    } catch {
+      setAuthError("Something went wrong. Try again.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const continueWithGoogleAuth = async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const token = await requestAccessToken(true);
+      const res = await fetch("/api/account/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const body = await res.json();
+      if (res.ok && body.ok && body.account) {
+        setAccount(body.account);
+        setAuthState("signedIn");
+      } else {
+        setAuthError(body.error ?? "Couldn't continue with Google. Try again.");
+      }
+    } catch (e: any) {
+      setAuthError(e?.message ?? "Couldn't continue with Google. Try again.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const logOutOfAccount = async () => {
+    setAuthBusy(true);
+    try {
+      await fetch("/api/account/logout", { method: "POST" }).catch(() => {});
+    } finally {
+      setAccount(null);
+      setAuthState("signedOut");
+      setAuthEmail("");
+      setAuthPassword("");
+      setAuthBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!isPushSupported()) {
@@ -265,6 +369,10 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
   // without making them type their email again. Never throws — a failure
   // here just means the tab doesn't appear, not a broken sign-in.
   const checkForMatchingBooking = async (token: string) => {
+    // Booking requests are paused (see VISITS_ENABLED) - skip the lookup
+    // entirely rather than surfacing a Status tab for a feature the
+    // "Booked a visit?" section itself is currently hidden.
+    if (!VISITS_ENABLED) return;
     try {
       const email = await getGoogleEmail(token);
       if (!email) return;
@@ -596,8 +704,117 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
     flash("Signed out of Google.");
   };
 
+  // Brief window before /api/account/me resolves - deliberately minimal so
+  // it never competes visually with the sign-up form that (for most first
+  // opens) appears a moment later.
+  if (authState === "loading") {
+    return (
+      <div className="px-4 pb-6 pt-4">
+        <p className="py-10 text-center text-sm text-neutral-400">Loading…</p>
+      </div>
+    );
+  }
+
+  // Everything below this panel (name tag, Google Sheets sync, reminders,
+  // install app, and the rest) is gated behind a customer account — no
+  // Stripe/billing involved, this is purely "signed in or not." Google
+  // sign-in for Sheets stays hidden until this gate is passed (see the
+  // WeirdSync1 requirements doc), which falls out naturally here since it
+  // only appears further down, inside the signed-in view below.
+  if (authState === "signedOut") {
+    return (
+      <div className="px-4 pb-6 pt-4">
+        <section className="rounded-xl2 border border-surface-border bg-white p-5 shadow-card">
+          <p className="mb-1 text-base font-semibold text-neutral-900">
+            {authMode === "signup" ? "Create your account" : "Log in"}
+          </p>
+          <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+            An account keeps your name tag, Google Sheets connection, and reminders tied to you across
+            visits. A Google account isn&apos;t required — sign up with any email, or use Google below for
+            one-tap setup (which also unlocks Sheets sync automatically).
+          </p>
+
+          {isGoogleSheetsConfigured() && (
+            <>
+              <button
+                disabled={authBusy}
+                onClick={continueWithGoogleAuth}
+                className="w-full rounded-lg border border-surface-border py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+              >
+                {authBusy ? "Connecting…" : "Continue with Google"}
+              </button>
+              <div className="my-3 flex items-center gap-2 text-[11px] text-neutral-400">
+                <div className="h-px flex-1 bg-surface-border" /> or <div className="h-px flex-1 bg-surface-border" />
+              </div>
+            </>
+          )}
+
+          <div className="space-y-2">
+            <input
+              type="email"
+              autoComplete="email"
+              placeholder="Email"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+              className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+            />
+            <input
+              type="password"
+              autoComplete={authMode === "signup" ? "new-password" : "current-password"}
+              placeholder="Password (8+ characters)"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitAuth()}
+              className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+            />
+            {authError && <p className="text-xs font-medium text-accent-low">{authError}</p>}
+            <button
+              disabled={authBusy || !authEmail.trim() || authPassword.length < 8}
+              onClick={submitAuth}
+              className="w-full rounded-lg bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {authBusy ? "Working…" : authMode === "signup" ? "Sign up" : "Log in"}
+            </button>
+          </div>
+
+          <button
+            onClick={() => {
+              setAuthMode((m) => (m === "signup" ? "login" : "signup"));
+              setAuthError(null);
+            }}
+            className="mt-3 w-full text-center text-xs text-neutral-500 hover:text-neutral-700"
+          >
+            {authMode === "signup" ? "Already have an account? Log in" : "New here? Sign up"}
+          </button>
+        </section>
+
+        <div className="mt-6 flex items-center justify-center gap-4 pb-2 text-xs">
+          <a href="/privacy" className="text-blue-600 hover:underline">
+            Privacy Policy
+          </a>
+          <a href="/terms" className="text-blue-600 hover:underline">
+            Terms of Service
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 pb-6 pt-4">
+      <div className="mb-4 flex items-center justify-between rounded-lg bg-surface-muted px-3 py-2 text-xs text-neutral-600">
+        <span>
+          Signed in as <span className="font-medium text-neutral-800">{account?.email}</span>
+        </span>
+        <button
+          disabled={authBusy}
+          onClick={logOutOfAccount}
+          className="font-medium text-neutral-500 hover:text-neutral-700 disabled:opacity-50"
+        >
+          Log out
+        </button>
+      </div>
+
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-1 text-sm font-medium text-neutral-900">Your name</p>
         <input
@@ -733,6 +950,12 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
           </p>
         ) : !sheetId ? (
           <>
+            {account && !account.googleLinked && (
+              <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+                Sheets sync needs a Google account — you signed up with a non-Google email, so this stays
+                unavailable until you sign in with Google below. Everything else here works fine without it.
+              </p>
+            )}
             <button
               disabled={busy === "connect"}
               onClick={connectGoogle}
@@ -948,37 +1171,39 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
 
       <LiveInStoreCard />
 
-      <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-        <p className="mb-3 text-sm font-medium text-neutral-900">Booked a visit?</p>
-        {!trackOpen ? (
-          <button
-            onClick={() => setTrackOpen(true)}
-            className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
-          >
-            <Search size={14} /> Track your booking status
-          </button>
-        ) : (
-          <div className="space-y-2">
-            <input
-              type="email"
-              autoFocus
-              placeholder="Email you booked with"
-              value={trackEmail}
-              onChange={(e) => setTrackEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && findBooking()}
-              className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
-            />
+      {VISITS_ENABLED && (
+        <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+          <p className="mb-3 text-sm font-medium text-neutral-900">Booked a visit?</p>
+          {!trackOpen ? (
             <button
-              disabled={trackBusy}
-              onClick={findBooking}
-              className="w-full rounded-lg border border-neutral-900 bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              onClick={() => setTrackOpen(true)}
+              className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
             >
-              {trackBusy ? "Looking up…" : "Find my booking"}
+              <Search size={14} /> Track your booking status
             </button>
-            {trackError && <p className="text-xs font-medium text-accent-low">{trackError}</p>}
-          </div>
-        )}
-      </section>
+          ) : (
+            <div className="space-y-2">
+              <input
+                type="email"
+                autoFocus
+                placeholder="Email you booked with"
+                value={trackEmail}
+                onChange={(e) => setTrackEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && findBooking()}
+                className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
+              />
+              <button
+                disabled={trackBusy}
+                onClick={findBooking}
+                className="w-full rounded-lg border border-neutral-900 bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {trackBusy ? "Looking up…" : "Find my booking"}
+              </button>
+              {trackError && <p className="text-xs font-medium text-accent-low">{trackError}</p>}
+            </div>
+          )}
+        </section>
+      )}
 
       {message && <p className="mt-3 text-center text-xs font-medium text-neutral-600">{message}</p>}
 
