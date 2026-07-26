@@ -151,6 +151,19 @@ const PROPERTY_HISTORY_HEADER = [
   "Changed By",
 ];
 
+// Where Tasks/History used to live before the 2026-07 Parts-block widening
+// (I:Q → I:U pushed everything after it further right). Any customer who
+// already pushed Property data under the old layout would otherwise be
+// left with stale, orphaned columns sitting in their sheet forever — their
+// next push writes the new W:AB / AD:AL locations, but nothing would ever
+// clear the old S:X / Z:AH ones on its own. Cleared alongside the current
+// ranges in pushPropertyToSheet's batchClear below; harmless to clear even
+// for an account that never had data there. (The old Parts range, I:Q, is
+// a strict subset of the new I:U, so it's already covered without a
+// separate entry here.)
+const LEGACY_PROPERTY_TASKS_RANGE = `${PROPERTY_SHEET_TITLE}!S1:X`;
+const LEGACY_PROPERTY_HISTORY_RANGE = `${PROPERTY_SHEET_TITLE}!Z1:AH`;
+
 // drive.file (not the broader drive.readonly) is deliberate: it only grants
 // this app access to files the customer explicitly selects through the
 // Picker UI, not blanket read access to their whole Drive. The Picker's own
@@ -786,7 +799,14 @@ export async function pushPropertyToSheet(spreadsheetId: string, properties: Pro
   await sheetsFetch(`/${spreadsheetId}/values:batchClear`, token, {
     method: "POST",
     body: JSON.stringify({
-      ranges: [PROPERTY_DETAIL_RANGE, PROPERTY_PARTS_RANGE, PROPERTY_TASKS_RANGE, PROPERTY_HISTORY_RANGE],
+      ranges: [
+        PROPERTY_DETAIL_RANGE,
+        PROPERTY_PARTS_RANGE,
+        PROPERTY_TASKS_RANGE,
+        PROPERTY_HISTORY_RANGE,
+        LEGACY_PROPERTY_TASKS_RANGE,
+        LEGACY_PROPERTY_HISTORY_RANGE,
+      ],
     }),
   });
   await sheetsFetch(`/${spreadsheetId}/values:batchUpdate`, token, {
