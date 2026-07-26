@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { InventoryItem, AccessCheckResponse } from "@/lib/types";
+import { InventoryItem } from "@/lib/types";
 import AccountTab from "./AccountTab";
 
 interface Props {
@@ -11,7 +11,6 @@ interface Props {
   onImport: (items: InventoryItem[]) => void;
   sheetId: string | null;
   setSheetId: (id: string | null) => void;
-  access: AccessCheckResponse | null;
   onBookingMatch?: (bookingId: string | null) => void;
   onReplayTutorial?: () => void;
 }
@@ -28,7 +27,6 @@ export default function AccountSidebar({
   onImport,
   sheetId,
   setSheetId,
-  access,
   onBookingMatch,
   onReplayTutorial,
 }: Props) {
@@ -65,7 +63,6 @@ export default function AccountSidebar({
             onImport={onImport}
             sheetId={sheetId}
             setSheetId={setSheetId}
-            access={access}
             onBookingMatch={onBookingMatch}
             onReplayTutorial={onReplayTutorial}
           />

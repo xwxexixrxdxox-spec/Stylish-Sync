@@ -159,13 +159,6 @@ export interface PackageTracking {
 
 export type SupportAccessState = "unknown" | "locked" | "unlocked";
 
-export interface AccessCheckResponse {
-  access: boolean;
-  plan?: string | null;
-  currentPeriodEnd?: string | null;
-  reason?: string;
-}
-
 // --- In-person visit booking -----------------------------------------
 // `date`/`start` below are plain "YYYY-MM-DD" / "HH:MM" strings meant to be
 // read as wall-clock time in the booking's own `timezone` field (captured

@@ -5,7 +5,6 @@ import {
   ExternalLink,
   RefreshCw,
   LogOut,
-  ShieldCheck,
   Search,
   Download,
   Share,
@@ -18,7 +17,7 @@ import {
   X,
   Users,
 } from "lucide-react";
-import { InventoryItem, AccessCheckResponse } from "@/lib/types";
+import { InventoryItem } from "@/lib/types";
 import {
   createInventorySpreadsheet,
   getGoogleEmail,
@@ -69,14 +68,12 @@ import {
   isPushSupported,
 } from "@/lib/pushReminders";
 import LiveInStoreCard from "./LiveInStoreCard";
-import DevAccessToggle from "./DevAccessToggle";
 
 interface Props {
   items: InventoryItem[];
   onImport: (items: InventoryItem[]) => void;
   sheetId: string | null;
   setSheetId: (id: string | null) => void;
-  access: AccessCheckResponse | null;
   // Called with a booking id when the signed-in Google account's email
   // matches an active visit booking, so the app shell can surface the
   // minimal "Status" tab — or with null on sign-out, to hide it again.
@@ -88,7 +85,7 @@ interface Props {
   onReplayTutorial?: () => void;
 }
 
-export default function AccountTab({ items, onImport, sheetId, setSheetId, access, onBookingMatch, onReplayTutorial }: Props) {
+export default function AccountTab({ items, onImport, sheetId, setSheetId, onBookingMatch, onReplayTutorial }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
@@ -599,44 +596,8 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
     flash("Signed out of Google.");
   };
 
-  const signOutOfAccount = async () => {
-    setBusy("account-sign-out");
-    try {
-      await fetch("/api/sign-out", { method: "POST" }).catch(() => {});
-      window.location.reload();
-    } finally {
-      setBusy(null);
-    }
-  };
-
   return (
     <div className="px-4 pb-6 pt-4">
-      <DevAccessToggle access={access} />
-
-      {access?.access && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl2 border border-green-200 bg-green-50 p-4 text-sm text-green-800 shadow-card">
-          <ShieldCheck size={18} />
-          <div>
-            <p className="font-medium">Premium active</p>
-            {access.currentPeriodEnd && (
-              <p className="text-xs text-green-700">
-                Renews {new Date(access.currentPeriodEnd).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {access?.access && access.plan !== "Dev Test Mode (not a real subscription)" && (
-        <button
-          disabled={busy === "account-sign-out"}
-          onClick={signOutOfAccount}
-          className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
-        >
-          <LogOut size={14} /> {busy === "account-sign-out" ? "Signing out…" : "Sign out"}
-        </button>
-      )}
-
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-1 text-sm font-medium text-neutral-900">Your name</p>
         <input
@@ -982,18 +943,6 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, acces
               Screen."
             </p>
           )}
-        </section>
-      )}
-
-      {access?.access && process.env.NEXT_PUBLIC_STRIPE_PORTAL_URL && (
-        <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
-          <p className="mb-3 text-sm font-medium text-neutral-900">App</p>
-          <a
-            href={process.env.NEXT_PUBLIC_STRIPE_PORTAL_URL}
-            className="block rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
-          >
-            💳 Manage billing
-          </a>
         </section>
       )}
 

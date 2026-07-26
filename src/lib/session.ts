@@ -1,21 +1,26 @@
 import crypto from "crypto";
 
-// Server-only helpers for a signed, tamper-proof "I am Stripe customer X"
-// cookie. This is what makes the unlock mechanism safe: the cookie's
-// payload can be read by anyone, but it can only be *created* by someone
-// holding SESSION_SECRET (this server), because forging a valid signature
-// without the secret is computationally infeasible. The client can never
-// manufacture a valid cookie on its own, which is what satisfies "the
-// customer should not be able to confirm their own payment."
+// Server-only helpers for a signed, tamper-proof "I am this customer
+// account" cookie. The cookie's payload can be read by anyone, but it can
+// only be *created* by someone holding SESSION_SECRET (this server),
+// because forging a valid signature without the secret is computationally
+// infeasible - the client can never manufacture a valid cookie on its own.
+//
+// Historically this cookie carried a Stripe customerId and represented
+// "has this browser proven it paid for a subscription." That subscription
+// system was removed entirely (2026-07) - support chat has been free for
+// everyone for a while now, and any future payments are handled manually
+// via Stripe's own dashboard, disconnected from this site. What's left is
+// simpler: this cookie now just represents "this browser is signed in to
+// customer account X" (see accounts.ts), with no entitlement/billing
+// meaning attached to it at all.
 
 const COOKIE_NAME = "isc_session";
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days; access is re-verified
-// live against Stripe on every check, so this is just how long we keep
-// *asking* Stripe on behalf of this browser, not a trust window by itself.
+const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 export interface SessionPayload {
-  customerId: string;
-  email: string | null;
+  accountId: string;
+  email: string;
   iat: number;
 }
 
@@ -58,12 +63,6 @@ export function verifySessionCookieValue(value: string | undefined | null): Sess
 
 export const SESSION_COOKIE_NAME = COOKIE_NAME;
 export const SESSION_MAX_AGE = MAX_AGE_SECONDS;
-
-// A deliberately separate cookie name from SESSION_COOKIE_NAME above, used
-// only by the dev-only "preview paid access" toggle (see
-// /api/dev/toggle-access). Keeping it distinct means the real,
-// Stripe-verified session mechanism is never touched by the bypass.
-export const DEV_ACCESS_COOKIE_NAME = "isc_dev_bypass";
 
 // Admin session for the /admin visit-availability screen. Same
 // sign-with-a-server-secret pattern as the customer session above (so a

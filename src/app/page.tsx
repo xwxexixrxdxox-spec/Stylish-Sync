@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
-import { InventoryItem, AccessCheckResponse } from "@/lib/types";
+import { InventoryItem } from "@/lib/types";
 import {
   loadItems,
   saveItems,
@@ -42,7 +42,6 @@ export default function HomePage() {
   const [tab, setTab] = useState<TabId>("inventory");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [sheetId, setSheetIdState] = useState<string | null>(null);
-  const [access, setAccess] = useState<AccessCheckResponse | null>(null);
   const [showLoadScreen, setShowLoadScreen] = useState(true);
   const [loadScreenExiting, setLoadScreenExiting] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -65,10 +64,6 @@ export default function HomePage() {
     setItems(loadItems());
     setSheetIdState(getLinkedSheetId());
     if (freshInstall && !getTutorialCompleted()) setTutorialActive(true);
-    fetch("/api/check-access")
-      .then((r) => r.json())
-      .then(setAccess)
-      .catch(() => setAccess({ access: false }));
     const timer = setTimeout(() => setLoadScreenExiting(true), LOAD_SCREEN_MIN_MS);
     return () => clearTimeout(timer);
   }, []);
@@ -480,7 +475,6 @@ export default function HomePage() {
             items={items}
             onAddStock={addStock}
             onRemoveStock={removeStock}
-            access={access}
             onSaveItem={upsertItem}
             onDeleteItem={deleteItem}
           />
@@ -497,7 +491,6 @@ export default function HomePage() {
           onImport={bulkImport}
           sheetId={sheetId}
           setSheetId={setSheetId}
-          access={access}
           onBookingMatch={setTrackedBookingId}
           onReplayTutorial={replayTutorial}
         />

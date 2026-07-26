@@ -66,11 +66,6 @@ it.
 - **Privacy Policy / Terms of Service** pages, kept in sync with what the
   app actually does and collects (see Task 89's rewrite — no more
   `[bracketed placeholders]`)
-- **Dev-only "simulate paid access" toggle** — a holdover from the old
-  subscription model (see "Legacy: the old subscription flow" below);
-  doesn't affect Support chat access anymore since that's free for everyone
-  now, but still exercises the dormant `/api/check-access` code path for
-  testing
 
 ## Quick start (local development)
 
@@ -101,15 +96,14 @@ See `.env.example` for the full list with comments. Summary:
 | `RESEND_FROM_EMAIL` | Optional — custom "from" address | Verify your own sending domain in Resend; defaults to Resend's shared test sender otherwise |
 | `STRIPE_SECRET_KEY` | Creating/verifying Stripe Checkout Sessions for paid visits | Stripe Dashboard → Developers → API keys — **this account is livemode; real charges** |
 | `STRIPE_WEBHOOK_SECRET` | Marking a visit "paid" when its Checkout Session completes | Stripe Dashboard → Developers → Webhooks → your endpoint's signing secret |
-| `SESSION_SECRET` | Signing the legacy subscription session cookie (see "Legacy" below) and other signed-cookie use | `openssl rand -hex 32` |
+| `SESSION_SECRET` | Signing the customer account session cookie and the admin session cookie | `openssl rand -hex 32` |
 | `OLLAMA_API_KEY` | AI-backed Clyde replies (Ollama Cloud) | [Ollama Cloud](https://ollama.com) account. Unset → Clyde falls back to the free rule-based assistant automatically |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google Sheets sync sign-in | Google Cloud Console → Credentials → OAuth client ID |
 | `NEXT_PUBLIC_GOOGLE_API_KEY` | Optional — lets customers pick an existing spreadsheet via a real Google Picker popup, instead of only ever getting an app-created one | Google Cloud Console → Credentials → API key, with the Google Picker API enabled |
 | `NEXT_PUBLIC_UPC_LOOKUP_URL` | Optional — swap in a paid barcode-lookup provider | Your chosen provider; defaults to UPCitemdb's free trial endpoint |
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | Optional — Google Analytics (consent-gated) | Google Analytics → Admin → Data Streams |
 | `NEXT_PUBLIC_SITE_URL` | Base URL used to build links in booking/status emails | Defaults to `https://weirdsync.com` if unset |
-| `NEXT_PUBLIC_STRIPE_PORTAL_URL` | Legacy — "Manage billing" link for the old subscription model (see below) | Stripe Dashboard → Settings → Billing |
-| `NEXT_PUBLIC_ENABLE_TEST_TOOLS` | Optional — shows the dev-only testing panel (simulate access, scan diagnostics) in a production-style local build. Never set in a real deployment | — |
+| `NEXT_PUBLIC_ENABLE_TEST_TOOLS` | Optional — shows dev-only testing UI (e.g. Scan tab diagnostics) in a production-style local build. Never set in a real deployment | — |
 
 VAPID keys for push notifications are generated automatically on first use
 and persisted in Redis — no environment variable needed for those.
@@ -153,28 +147,32 @@ itself stays fully usable). Check its current value before assuming visits
 are open; it's meant to be flipped back on once the admin/technician side
 has had more real-world testing.
 
-### Legacy: the old subscription flow
+### Removed: the old subscription flow
 
 Earlier versions of this app sold a 4-tier Stripe subscription (1/3/6/12
-months) that unlocked a gated support chat. That model is gone — support is
-free for everyone now — but some of its plumbing is still present in the
-codebase and shouldn't be treated as dead-and-safe-to-delete without
-checking Stripe first:
+months) that unlocked a gated support chat. Support has been free for
+everyone for a while now, which made that subscription/access-gating system
+fully inert — so, as of 2026-07, it was removed entirely rather than kept
+around as unused plumbing:
 
-- `/api/check-access`, `/api/verify-session`, `/payment-success`'s
-  `"ok-subscription"` branch, and the "Restore access by email" /
-  "Manage billing" bits in `AccountTab.tsx` all still work, but nothing in
-  this repo currently creates a subscription-mode Checkout Session that
-  would exercise them for a new customer.
-- A legacy Stripe Payment Link (see the comment on `VISIT_OFFER
-  .paymentLinkUrl` in `stripeTiers.ts`) may or may not still be configured
-  in the live Stripe Dashboard to redirect to `/payment-success` — that
-  can't be confirmed from the code alone, which is why this branch is
-  documented rather than deleted.
-- The dev-only "Simulate paid access" toggle (Account → testing tools, or
-  `NEXT_PUBLIC_ENABLE_TEST_TOOLS=true`) still flips this legacy `access`
-  flag for testing purposes, but it no longer gates anything customer-facing
-  — Clyde and the rest of the app are free regardless of it.
+- `/api/check-access`, `/api/verify-session`, `/api/restore-access`,
+  `/api/sign-out`, `/api/dev/toggle-access`, `/payment-success`, and the
+  `DevAccessToggle` component are all deleted.
+- `customerHasActiveSubscription`/`findActiveSubscriptionByEmail` in
+  `stripeServer.ts`, the "Premium active" banner, the paid-account
+  "Sign out" button, and the "Manage billing" link in `AccountTab.tsx` are
+  all removed.
+- The Stripe webhook (`/api/stripe-webhook`) no longer listens for
+  `customer.subscription.updated`/`.deleted`; it now only handles
+  `checkout.session.completed` for the visit-booking payment flow below.
+- The customer session cookie (`src/lib/session.ts`) is repurposed rather
+  than deleted — it used to represent "this browser proved it paid," and
+  now just represents "this browser is signed in to a customer account"
+  (see the account-signup work this repo is building toward), with no
+  billing meaning attached.
+- Any future payments (e.g. for the in-person visit below, or anything
+  else) are expected to go through Stripe's own dashboard/Checkout flows
+  directly — not through a subscription gate on this app.
 
 ## Google Sheets setup
 
@@ -283,10 +281,6 @@ iOS/Android projects.
 - **No live-agent backend.** Clyde tells customers plainly that there's no
   human chat team and points them at email or the paid in-person visit
   instead — there's no ticketing/chat backend wired up beyond that.
-- **The old subscription Stripe plumbing is legacy, not deleted** — see
-  "Legacy: the old subscription flow" above. Don't assume it's safe to
-  remove without first confirming in the Stripe Dashboard whether the old
-  Payment Link still points at it.
 - **`VISITS_ENABLED`** (`src/lib/stripeTiers.ts`) may currently be `false`
   — check it before assuming new booking requests are being accepted.
 - **`xlsx` (SheetJS) is pinned to the maintainer's own CDN build**

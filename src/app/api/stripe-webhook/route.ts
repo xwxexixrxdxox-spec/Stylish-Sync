@@ -3,17 +3,17 @@ import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeServer";
 import { markBookingPaid } from "@/lib/booking";
 
-// Defense-in-depth alongside the live-check pattern used by
-// /api/check-access: this endpoint verifies Stripe's webhook signature so
-// only genuine Stripe events are trusted, and gives you a single place to
-// hook up things like a receipt email, an internal Slack alert, or a
-// database if you later want persisted subscription records instead of
-// (or in addition to) live API checks.
+// Verifies Stripe's webhook signature so only genuine Stripe events are
+// trusted, and gives you a single place to hook up things like a receipt
+// email or an internal Slack alert. The only event actually handled today
+// is the one-off visit-booking payment (see createVisitCheckoutSession in
+// stripeServer.ts) - the old subscription system this webhook used to also
+// listen for (customer.subscription.updated/deleted) was removed (2026-07)
+// along with the rest of the subscription/access-gating flow.
 //
 // Configure this URL (https://<your-domain>/api/stripe-webhook) in Stripe
 // Dashboard > Developers > Webhooks, subscribed to at least:
-//   checkout.session.completed, customer.subscription.updated,
-//   customer.subscription.deleted
+//   checkout.session.completed
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("stripe-signature");
@@ -56,12 +56,6 @@ export async function POST(req: NextRequest) {
       }
       break;
     }
-    case "customer.subscription.updated":
-    case "customer.subscription.deleted":
-      // Live subscription status is re-derived on demand in
-      // /api/check-access, so no write is strictly required here.
-      console.log(`[stripe-webhook] ${event.type}`);
-      break;
     default:
       break;
   }

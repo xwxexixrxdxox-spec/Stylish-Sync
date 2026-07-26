@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Check } from "lucide-react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
-import { InventoryItem, Unit, AccessCheckResponse } from "@/lib/types";
+import { InventoryItem, Unit } from "@/lib/types";
 import { getKnownLocations } from "@/lib/locations";
 import ReceiptScanTab from "@/components/ReceiptScanTab";
 import LocationField from "@/components/LocationField";
@@ -46,7 +46,6 @@ interface Props {
   // once a barcode maps to more than one row (Phase 4 - see the
   // "existing-multi" lookup status below) - ignored otherwise.
   onRemoveStock: (input: { barcode: string; quantity: number; location?: string }) => boolean;
-  access: AccessCheckResponse | null;
   // Lets a customer fix a wrong name/price/unit on an item already sitting
   // in their inventory right from the Scan tab the moment they notice it's
   // off (see the "existing" lookup status below), instead of only via the
@@ -85,7 +84,7 @@ type LookupStatus = "idle" | "checking" | "existing" | "existing-multi" | "found
 // via <input type="file" capture>, then decodes that single still photo.
 
 
-export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSaveItem, onDeleteItem }: Props) {
+export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, onDeleteItem }: Props) {
   const [mode, setMode] = useState<"barcode" | "receipt">("barcode");
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
@@ -601,10 +600,10 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, access, onSa
       </div>
       {/* Dev/QA-only: this was always meant to be temporary instrumentation
           for chasing camera-focus issues, not something a real customer
-          should see mid-scan. Gated the same way the dev access toggle and
-          check-access route already gate their own test-only affordances,
-          so it never ships to production but still works under `next dev`
-          or NEXT_PUBLIC_ENABLE_TEST_TOOLS=true. */}
+          should see mid-scan. Gated behind the same test-tools flag used
+          elsewhere for test-only affordances, so it never ships to
+          production but still works under `next dev` or
+          NEXT_PUBLIC_ENABLE_TEST_TOOLS=true. */}
       {isTestToolsEnabled() && (scanning || diagnostics.attempts > 0) && (
         <div className="mt-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-3">
           <p className="mb-1.5 text-xs font-semibold text-neutral-500">Scan diagnostics (temporary)</p>
