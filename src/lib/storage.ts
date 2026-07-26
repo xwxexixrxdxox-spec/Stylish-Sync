@@ -164,6 +164,44 @@ export function resetTutorialCompleted(): void {
   window.localStorage.removeItem(TUTORIAL_KEY);
 }
 
+// Same three-function shape as the main tutorial above, kept under its own
+// key so finishing/skipping/replaying the Property tour never touches the
+// main app's own tutorial state (a customer could plausibly complete one
+// and not the other, or replay just one) — see
+// PropertyTutorialOverlay.tsx/propertyTutorial.ts.
+const PROPERTY_TUTORIAL_KEY = "isc_property_tutorial_completed_v1";
+
+export function getPropertyTutorialCompleted(): boolean {
+  if (typeof window === "undefined") return true; // never auto-launch during SSR
+  return window.localStorage.getItem(PROPERTY_TUTORIAL_KEY) !== null;
+}
+
+export function setPropertyTutorialCompleted(reason: TutorialCompletionReason): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PROPERTY_TUTORIAL_KEY, reason);
+}
+
+export function resetPropertyTutorialCompleted(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(PROPERTY_TUTORIAL_KEY);
+}
+
+// Whether the Property tour should read each step's card aloud. Defaults to
+// on (missing key reads as enabled) per how this was asked for; a customer
+// who mutes it via the tour's own speaker toggle gets that respected on
+// every future run/replay until they turn it back on.
+const PROPERTY_TUTORIAL_VOICE_KEY = "isc_property_tutorial_voice_v1";
+
+export function getPropertyTutorialVoiceEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.localStorage.getItem(PROPERTY_TUTORIAL_VOICE_KEY) !== "0";
+}
+
+export function setPropertyTutorialVoiceEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PROPERTY_TUTORIAL_VOICE_KEY, enabled ? "1" : "0");
+}
+
 export function saveItems(items: InventoryItem[]): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
@@ -407,9 +445,13 @@ export function deletePackageTracking(id: string): void {
 // Same local-first shape as ITEMS_KEY above, but a fully separate key and
 // array — Property items are a distinct tracked list from inventory, not a
 // variant of it (see PropertyItem's comment in types.ts). Deliberately no
-// seed data here: a brand-new customer lands on an empty property list
-// rather than demo fixtures, since (unlike the inventory tab) there's no
-// natural example to seed that would apply to every business.
+// *default* seed data here: a brand-new customer lands on an empty property
+// list rather than demo fixtures, since (unlike the inventory tab) there's
+// no natural example to seed that would apply to every business. The one
+// scoped exception is the guided tour below (PropertyTutorialOverlay.tsx) —
+// it seeds exactly one clearly-labeled example property purely so it has
+// something real to spotlight, the same reason Inventory ships 3 sample
+// items for its own tour, and only when the property list is empty.
 const PROPERTY_KEY = "isc_property_items_v1";
 
 export function loadPropertyItems(): PropertyItem[] {
@@ -613,6 +655,10 @@ export async function clearAppCache(): Promise<void> {
   // sync, so a full cache clear genuinely resets to a first-open experience
   // rather than reseeding demo items with no tour to explain them.
   window.localStorage.removeItem(TUTORIAL_KEY);
+  // Same reasoning, same pairing, for Property: clearing PROPERTY_KEY empties
+  // the list again, so the Property tour's completion flag resets alongside
+  // it rather than leaving a blank list with no tour to explain it either.
+  window.localStorage.removeItem(PROPERTY_TUTORIAL_KEY);
   // Sync tokens/synced-id sets are namespaced per spreadsheetId (see
   // above) rather than one fixed key, so they need an explicit scan
   // rather than a single removeItem — this is also the way a customer

@@ -32,7 +32,11 @@ import {
   setLastPropertySyncedAt,
   getLastPropertySyncToken,
   setLastPropertySyncToken,
+  getPropertyTutorialCompleted,
+  resetPropertyTutorialCompleted,
 } from "@/lib/storage";
+import { buildExampleProperty, EXAMPLE_PROPERTY_ID, EXAMPLE_PART_ID, EXAMPLE_TASK_ID } from "@/lib/propertyTutorial";
+import PropertyTutorialOverlay from "@/components/PropertyTutorialOverlay";
 import {
   pushPropertyToSheet,
   pullPropertyFromSheet,
@@ -99,6 +103,7 @@ export default function PropertyManager() {
   const [lastSyncedAt, setLastSyncedAtState] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [tutorialActive, setTutorialActive] = useState(false);
 
   // Add-property inline form state.
   const [addOpen, setAddOpen] = useState(false);
@@ -108,12 +113,38 @@ export default function PropertyManager() {
   const [newNotes, setNewNotes] = useState("");
 
   useEffect(() => {
-    setProperties(loadPropertyItems());
+    const stored = loadPropertyItems();
+    // A brand-new property list (nothing saved yet, not "the customer
+    // deleted everything") plus a tour that hasn't run gets exactly one
+    // seeded example property so the guided tour below has something real
+    // to spotlight — the same reason Inventory ships 3 sample items for its
+    // own tour (see loadPropertyItems'/PROPERTY_KEY's comment for why
+    // Property otherwise deliberately ships with none). A customer who's
+    // already added real properties, or who already finished/skipped the
+    // tour once, never gets this — only a genuinely first-ever visit does.
+    if (stored.length === 0 && !getPropertyTutorialCompleted()) {
+      setProperties([buildExampleProperty()]);
+      setTutorialActive(true);
+    } else {
+      setProperties(stored);
+    }
     const id = getLinkedSheetId();
     setSheetId(id);
     if (id) setLastSyncedAtState(getLastPropertySyncedAt(id));
     setLoaded(true);
   }, []);
+
+  // Lets a customer pull the Property tour back up on demand (see the
+  // "Take the tour" link below), long after its one automatic launch —
+  // same idea as page.tsx's replayTutorial for the main app's tour. Only
+  // re-seeds the example if it isn't already sitting in the list (e.g. the
+  // customer deleted it after an earlier run) — replaying shouldn't create
+  // a second copy alongside real properties they've since added.
+  const replayPropertyTutorial = () => {
+    resetPropertyTutorialCompleted();
+    setProperties((prev) => (prev.some((p) => p.id === EXAMPLE_PROPERTY_ID) ? prev : [buildExampleProperty(), ...prev]));
+    setTutorialActive(true);
+  };
 
   useEffect(() => {
     if (loaded) savePropertyItems(properties);
@@ -425,12 +456,21 @@ export default function PropertyManager() {
 
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         {!addOpen ? (
-          <button
-            onClick={() => setAddOpen(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90"
-          >
-            <Plus size={14} /> Add property
-          </button>
+          <>
+            <button
+              data-tutorial="add-property-button"
+              onClick={() => setAddOpen(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90"
+            >
+              <Plus size={14} /> Add property
+            </button>
+            <button
+              onClick={replayPropertyTutorial}
+              className="mt-2 w-full text-center text-xs font-medium text-neutral-400 hover:text-neutral-600"
+            >
+              ↻ Take the property tour
+            </button>
+          </>
         ) : (
           <div className="space-y-2">
             <p className="text-sm font-medium text-neutral-900">New property</p>
@@ -513,6 +553,16 @@ export default function PropertyManager() {
           busy={false}
           onCancel={() => setConfirmDeleteId(null)}
           onConfirm={() => deleteProperty(confirmDeleteId)}
+        />
+      )}
+
+      {tutorialActive && (
+        <PropertyTutorialOverlay
+          exampleReceivedCount={
+            properties.find((p) => p.id === EXAMPLE_PROPERTY_ID)?.orderedParts.find((pt) => pt.id === EXAMPLE_PART_ID)
+              ?.quantityReceived ?? 0
+          }
+          onClose={() => setTutorialActive(false)}
         />
       )}
 
@@ -782,9 +832,11 @@ function PropertyCard({
   // independent of which section it's rendered in.
   const renderPartRow = (part: OrderedPart, editable: boolean) => {
     const closingEntry = part.statusHistory[part.statusHistory.length - 1];
+    const isTutorialExamplePart = part.id === EXAMPLE_PART_ID;
     return (
       <div
         key={part.id}
+        data-tutorial={isTutorialExamplePart ? "tutorial-example-part" : undefined}
         className={`rounded-lg px-2 py-1.5 ${editable ? "bg-surface-muted" : "border border-green-200 bg-green-50"}`}
       >
         <div className="flex items-center gap-1.5">
@@ -811,7 +863,10 @@ function PropertyCard({
                 )}
                 {(part.quantityOrdered ?? 1) > 1 && part.estimatedDeliveryDate && " · "}
                 {part.estimatedDeliveryDate && (
-                  <span className={isPartOverdue(part) ? "font-medium text-accent-low" : ""}>
+                  <span
+                    data-tutorial={isTutorialExamplePart ? "tutorial-example-eta" : undefined}
+                    className={isPartOverdue(part) ? "font-medium text-accent-low" : ""}
+                  >
                     {isPartOverdue(part) && "⚠ overdue — "}
                     ETA {new Date(`${part.estimatedDeliveryDate}T00:00:00`).toLocaleDateString()}
                   </span>
@@ -819,7 +874,10 @@ function PropertyCard({
               </span>
             )}
             {part.maintenanceTaskId && (
-              <span className="block text-[10px] text-neutral-400">
+              <span
+                data-tutorial={isTutorialExamplePart ? "tutorial-example-task-link" : undefined}
+                className="block text-[10px] text-neutral-400"
+              >
                 For: {property.maintenanceTasks.find((t) => t.id === part.maintenanceTaskId)?.description ?? "(task removed)"}
               </span>
             )}
@@ -853,6 +911,7 @@ function PropertyCard({
             </button>
           )}
           <button
+            data-tutorial={isTutorialExamplePart ? "tutorial-example-history-button" : undefined}
             onClick={() => setHistoryOpenFor(historyOpenFor === part.id ? null : part.id)}
             aria-label="View status history"
             className={`flex items-center rounded-md border px-1.5 py-1 ${
@@ -894,6 +953,7 @@ function PropertyCard({
           </div>
           {editable && (part.status === "ordered" || part.status === "shipped") && (
             <button
+              data-tutorial={isTutorialExamplePart ? "tutorial-example-log-receipt" : undefined}
               onClick={() => {
                 setReceiptPromptFor(receiptPromptFor === part.id ? null : part.id);
                 const remaining = (part.quantityOrdered ?? 1) - (part.quantityReceived ?? 0);
@@ -1132,8 +1192,13 @@ function PropertyCard({
     setEditing(false);
   };
 
+  const isTutorialExample = property.id === EXAMPLE_PROPERTY_ID;
+
   return (
-    <div className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+    <div
+      data-tutorial={isTutorialExample ? "tutorial-example-property" : undefined}
+      className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card"
+    >
       {!editing ? (
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
@@ -1153,10 +1218,20 @@ function PropertyCard({
               const overdueParts = property.orderedParts.filter((part) => isPartOverdue(part)).length;
               const openTasks = property.maintenanceTasks.filter((task) => !isTaskClosed(task.status)).length;
               if (!openParts && !openTasks) {
-                return <p className="mt-1 text-[11px] font-medium text-green-700">✓ All clear — nothing open</p>;
+                return (
+                  <p
+                    data-tutorial={isTutorialExample ? "tutorial-example-health" : undefined}
+                    className="mt-1 text-[11px] font-medium text-green-700"
+                  >
+                    ✓ All clear — nothing open
+                  </p>
+                );
               }
               return (
-                <p className="mt-1 flex flex-wrap gap-x-1.5 text-[11px] text-neutral-500">
+                <p
+                  data-tutorial={isTutorialExample ? "tutorial-example-health" : undefined}
+                  className="mt-1 flex flex-wrap gap-x-1.5 text-[11px] text-neutral-500"
+                >
                   {openParts > 0 && (
                     <span>
                       {openParts} open part{openParts === 1 ? "" : "s"}
@@ -1190,6 +1265,7 @@ function PropertyCard({
               Edit
             </button>
             <button
+              data-tutorial={isTutorialExample ? "tutorial-example-delete" : undefined}
               onClick={onDelete}
               aria-label="Delete property"
               className="rounded-lg p-1.5 text-neutral-400 hover:bg-red-50 hover:text-accent-low"
