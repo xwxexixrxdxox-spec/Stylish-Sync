@@ -185,6 +185,19 @@ export interface OrderedPart {
   description: string;
   status: OrderedPartStatus;
   updatedAt: string;
+  // Manufacturer/replacement part number (2026-07) — typed in from a note
+  // or a part's own label, kept separate from `description` since a part
+  // number is often not human-readable on its own but is exactly the
+  // string a barcode/UPC lookup (see productLookup.ts/communityLookup.ts)
+  // or a retailer search (retailerSearch.ts) wants. Optional — plenty of
+  // parts still get ordered by description alone with no number in hand.
+  partNumber?: string;
+  unit?: Unit;
+  // Best-effort price from the same lookup that fills in partNumber's
+  // description/unit, or typed in by hand — same "online market estimate,
+  // not the customer's own price" caveat as InventoryItem.pricePerUnit's
+  // lookup path (see BarcodeLookupResult in productLookup.ts).
+  pricePerUnit?: number;
 }
 
 export type MaintenanceTaskStatus = "needed" | "scheduled" | "in_progress" | "completed" | "cancelled";

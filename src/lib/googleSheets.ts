@@ -95,18 +95,32 @@ const PROPERTY_SYNC_TOKEN_RANGE = `${SYNC_META_SHEET_TITLE}!A2`;
 // (a blank gutter column between each block) rather than because anything
 // needs to sit at a fixed anchor for a chart:
 //   A:G — one row per property (the "parent" records)
-//   I:N — one row per ordered part, referencing its property by ID
-//   P:U — one row per maintenance task, referencing its property by ID
-// Parts/tasks reference their property by ID (column I/P) rather than
+//   I:Q — one row per ordered part, referencing its property by ID
+//         (widened 2026-07 to carry Part Number/Unit/Price alongside
+//         Description — the part-lookup feature in PropertyManager.tsx
+//         fills these in the same way ScanTab.tsx fills the equivalent
+//         InventoryItem fields)
+//   S:X — one row per maintenance task, referencing its property by ID
+// Parts/tasks reference their property by ID (column I/S) rather than
 // name alone — a name is what a customer sees and might reasonably edit,
 // an ID is what actually survives that edit and still resolves correctly
 // on the next pull.
 const PROPERTY_SHEET_TITLE = "Property";
 const PROPERTY_DETAIL_RANGE = `${PROPERTY_SHEET_TITLE}!A1:G`;
 const PROPERTY_DETAIL_HEADER = ["ID", "Name", "Location", "Serial Number", "Notes", "Last Edited By", "Last Edited At"];
-const PROPERTY_PARTS_RANGE = `${PROPERTY_SHEET_TITLE}!I1:N`;
-const PROPERTY_PARTS_HEADER = ["Property ID", "Property Name", "Part Description", "Status", "Last Edited At", "Part ID"];
-const PROPERTY_TASKS_RANGE = `${PROPERTY_SHEET_TITLE}!P1:U`;
+const PROPERTY_PARTS_RANGE = `${PROPERTY_SHEET_TITLE}!I1:Q`;
+const PROPERTY_PARTS_HEADER = [
+  "Property ID",
+  "Property Name",
+  "Part Number",
+  "Description",
+  "Unit",
+  "Price Per Unit",
+  "Status",
+  "Last Edited At",
+  "Part ID",
+];
+const PROPERTY_TASKS_RANGE = `${PROPERTY_SHEET_TITLE}!S1:X`;
 const PROPERTY_TASKS_HEADER = ["Property ID", "Property Name", "Task Description", "Status", "Last Edited At", "Task ID"];
 
 // drive.file (not the broader drive.readonly) is deliberate: it only grants
@@ -676,7 +690,10 @@ export async function pushPropertyToSheet(spreadsheetId: string, properties: Pro
       p.orderedParts.map((part) => [
         p.id,
         p.name,
+        part.partNumber || "",
         part.description,
+        part.unit || "",
+        part.pricePerUnit ?? "",
         part.status,
         part.updatedAt ? formatSheetTimestamp(part.updatedAt) : "",
         part.id,
@@ -720,7 +737,7 @@ export async function pushPropertyToSheet(spreadsheetId: string, properties: Pro
 }
 
 // Reads the Property tab back into a full PropertyItem list — parts/tasks
-// rows are matched back to their parent property by ID (column I/P), not
+// rows are matched back to their parent property by ID (column I/S), not
 // row order or name, so a property renamed directly in the sheet (or
 // reordered) still resolves its parts/tasks correctly. A part/task row
 // whose Property ID doesn't match any property row is dropped rather than
@@ -759,15 +776,19 @@ export async function pullPropertyFromSheet(spreadsheetId: string): Promise<Prop
   const byId = new Map(properties.map((p) => [p.id, p]));
 
   partsRows
-    .filter((r) => r.length && r[0] && r[5])
+    .filter((r) => r.length && r[0] && r[8])
     .forEach((r) => {
       const parent = byId.get(r[0]);
       if (!parent) return;
+      const price = Number(r[5]);
       parent.orderedParts.push({
-        id: r[5],
-        description: r[2] ?? "",
-        status: (r[3] as OrderedPart["status"]) || "ordered",
-        updatedAt: parseWhen(r[4]),
+        id: r[8],
+        partNumber: r[2] || undefined,
+        description: r[3] ?? "",
+        unit: (r[4] as OrderedPart["unit"]) || undefined,
+        pricePerUnit: r[5] && Number.isFinite(price) ? price : undefined,
+        status: (r[6] as OrderedPart["status"]) || "ordered",
+        updatedAt: parseWhen(r[7]),
       });
     });
 

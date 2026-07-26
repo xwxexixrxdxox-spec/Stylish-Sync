@@ -1,11 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, UploadCloud, DownloadCloud, Package, Wrench, AlertTriangle } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  UploadCloud,
+  DownloadCloud,
+  Package,
+  Wrench,
+  AlertTriangle,
+  Search,
+  ShoppingCart,
+  ChevronDown,
+} from "lucide-react";
 import {
   PropertyItem,
   OrderedPart,
   MaintenanceTask,
+  Unit,
   ORDERED_PART_STATUS_OPTIONS,
   MAINTENANCE_TASK_STATUS_OPTIONS,
 } from "@/lib/types";
@@ -27,7 +39,30 @@ import {
   newSyncToken,
   sheetUrl,
 } from "@/lib/googleSheets";
+import { lookupBarcodeCandidates, BarcodeLookupResult } from "@/lib/productLookup";
+import { lookupCommunityBarcode } from "@/lib/communityLookup";
+import { RETAILERS } from "@/lib/retailerSearch";
 import { formatRelativeTime } from "@/lib/time";
+
+// Same unit list ScanTab.tsx/ReceiptScanTab.tsx use for their own manual-
+// entry dropdowns — kept as a local copy rather than a new shared export,
+// matching how those two already each keep their own copy rather than a
+// shared constant.
+const UNITS: Unit[] = [
+  "ea", "box", "case", "pack", "bag", "bottle", "can", "roll", "dozen", "pair",
+  "kg", "lb", "oz", "g", "L", "ml", "fl oz",
+];
+
+// What PropertyCard's "Add a part" mini-form hands back to addPart below —
+// partNumber/unit/pricePerUnit are whatever the barcode/UPC lookup filled
+// in (or the customer typed over it), same optional shape as OrderedPart
+// itself.
+interface NewPartInput {
+  partNumber?: string;
+  description: string;
+  unit?: Unit;
+  pricePerUnit?: number;
+}
 import ConfirmDialog from "@/components/ConfirmDialog";
 
 // Manages the Property list end-to-end (create/edit/delete a property, and
@@ -109,12 +144,15 @@ export default function PropertyManager() {
     setConfirmDeleteId(null);
   };
 
-  const addPart = (propertyId: string, description: string) => {
-    if (!description.trim()) return;
+  const addPart = (propertyId: string, input: NewPartInput) => {
+    if (!input.description.trim()) return;
     const { updatedAt, lastEditedBy } = touch();
     const part: OrderedPart = {
       id: `part-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      description: description.trim(),
+      partNumber: input.partNumber?.trim() || undefined,
+      description: input.description.trim(),
+      unit: input.unit,
+      pricePerUnit: input.pricePerUnit,
       status: "ordered",
       updatedAt,
     };
@@ -362,7 +400,7 @@ export default function PropertyManager() {
               property={p}
               onUpdate={(patch) => updateProperty(p.id, patch)}
               onDelete={() => setConfirmDeleteId(p.id)}
-              onAddPart={(desc) => addPart(p.id, desc)}
+              onAddPart={(input) => addPart(p.id, input)}
               onUpdatePartStatus={(partId, status) => updatePartStatus(p.id, partId, status)}
               onRemovePart={(partId) => removePart(p.id, partId)}
               onAddTask={(desc) => addTask(p.id, desc)}
@@ -431,7 +469,7 @@ interface CardProps {
   property: PropertyItem;
   onUpdate: (patch: Partial<PropertyItem>) => void;
   onDelete: () => void;
-  onAddPart: (description: string) => void;
+  onAddPart: (input: NewPartInput) => void;
   onUpdatePartStatus: (partId: string, status: OrderedPart["status"]) => void;
   onRemovePart: (partId: string) => void;
   onAddTask: (description: string) => void;
@@ -455,8 +493,100 @@ function PropertyCard({
   const [location, setLocation] = useState(property.location ?? "");
   const [serialNumber, setSerialNumber] = useState(property.serialNumber ?? "");
   const [notes, setNotes] = useState(property.notes ?? "");
-  const [newPart, setNewPart] = useState("");
   const [newTask, setNewTask] = useState("");
+
+  // "Add a part" mini-form — collapsed by default (see addPartOpen) since
+  // it's a 4-field form (part number, description, unit, price) rather
+  // than the single-line quick-add the Maintenance list still uses.
+  const [addPartOpen, setAddPartOpen] = useState(false);
+  const [partNumber, setPartNumber] = useState("");
+  const [partDescription, setPartDescription] = useState("");
+  const [partUnit, setPartUnit] = useState<Unit>("ea");
+  const [partPrice, setPartPrice] = useState("");
+  const [priceFromLookup, setPriceFromLookup] = useState(false);
+  const [lookupStatus, setLookupStatus] = useState<"idle" | "checking" | "found" | "multiple" | "not-found">("idle");
+  const [candidates, setCandidates] = useState<BarcodeLookupResult[]>([]);
+  const [findMenuForPartId, setFindMenuForPartId] = useState<string | null>(null);
+
+  // Fills the part-number lookup fields from one candidate — same
+  // "description always overwrites, price only overwrites (and only then
+  // flags as an estimate) when this candidate actually has one" behavior
+  // as ScanTab.tsx's applyCandidate, since it's the same underlying
+  // lookup and the same "online estimate, not this business's own price"
+  // caveat applies here too.
+  const applyPartCandidate = (candidate: BarcodeLookupResult) => {
+    setPartDescription(candidate.name);
+    if (candidate.price !== null) {
+      setPartPrice(String(candidate.price));
+      setPriceFromLookup(true);
+    } else {
+      setPriceFromLookup(false);
+    }
+  };
+
+  // Looks up a typed-in part number the same way ScanTab.tsx resolves a
+  // scanned barcode: the shared, crowdsourced community database first
+  // (free, name+unit only), then the external UPC/product lookup (can
+  // return 0/1/multiple candidates) — see productLookup.ts and
+  // communityLookup.ts for why each step is shaped the way it is. There's
+  // no camera scan here (unlike Scan/Receipt Scan) since a part number
+  // usually comes from a handwritten note or a part's own label the
+  // customer is typing in, not a barcode they're pointing a camera at —
+  // if that turns out to matter, camera scanning is a natural follow-up.
+  const lookupPart = async () => {
+    const trimmed = partNumber.trim();
+    if (!trimmed) return;
+    setLookupStatus("checking");
+    setCandidates([]);
+    setPriceFromLookup(false);
+
+    const community = await lookupCommunityBarcode(trimmed);
+    if (community) {
+      setLookupStatus("found");
+      setPartDescription(community.name);
+      if (community.unit) setPartUnit(community.unit as Unit);
+      return;
+    }
+
+    const found = await lookupBarcodeCandidates(trimmed);
+    if (found.length === 1) {
+      setLookupStatus("found");
+      applyPartCandidate(found[0]);
+      return;
+    }
+    if (found.length > 1) {
+      setLookupStatus("multiple");
+      setCandidates(found);
+      applyPartCandidate(found[0]);
+      return;
+    }
+    setLookupStatus("not-found");
+  };
+
+  const submitNewPart = () => {
+    if (!partDescription.trim()) return;
+    const price = Number(partPrice);
+    onAddPart({
+      partNumber: partNumber.trim() || undefined,
+      description: partDescription.trim(),
+      unit: partUnit,
+      pricePerUnit: partPrice.trim() && Number.isFinite(price) ? price : undefined,
+    });
+    setPartNumber("");
+    setPartDescription("");
+    setPartUnit("ea");
+    setPartPrice("");
+    setPriceFromLookup(false);
+    setLookupStatus("idle");
+    setCandidates([]);
+    setAddPartOpen(false);
+  };
+
+  // "Find at" query for a part: prefer its part number when it has one —
+  // a manufacturer part number usually lands a search directly on the
+  // right product, the same reason ReorderTab.tsx's "auto" mode prefers a
+  // barcode over a name — falling back to the description otherwise.
+  const partQuery = (part: OrderedPart) => part.partNumber || part.description;
 
   const saveEdit = () => {
     if (!name.trim()) return;
@@ -550,53 +680,188 @@ function PropertyCard({
         </p>
         <div className="space-y-1.5">
           {property.orderedParts.map((part) => (
-            <div key={part.id} className="flex items-center gap-1.5 rounded-lg bg-surface-muted px-2 py-1.5">
-              <span className="flex-1 text-xs text-neutral-700">{part.description}</span>
-              <select
-                value={part.status}
-                onChange={(e) => onUpdatePartStatus(part.id, e.target.value as OrderedPart["status"])}
-                className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
-              >
-                {ORDERED_PART_STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => onRemovePart(part.id)}
-                aria-label="Remove part"
-                className="text-neutral-400 hover:text-accent-low"
-              >
-                <Trash2 size={12} />
-              </button>
+            <div key={part.id} className="rounded-lg bg-surface-muted px-2 py-1.5">
+              <div className="flex items-center gap-1.5">
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-xs text-neutral-700">{part.description}</span>
+                  {(part.partNumber || part.pricePerUnit != null) && (
+                    <span className="block text-[10px] text-neutral-400">
+                      {part.partNumber && <>#{part.partNumber}</>}
+                      {part.partNumber && part.pricePerUnit != null && " · "}
+                      {part.pricePerUnit != null && (
+                        <>
+                          ${part.pricePerUnit.toFixed(2)}
+                          {part.unit ? ` / ${part.unit}` : ""} est.
+                        </>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <select
+                  value={part.status}
+                  onChange={(e) => onUpdatePartStatus(part.id, e.target.value as OrderedPart["status"])}
+                  className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
+                >
+                  {ORDERED_PART_STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="relative shrink-0">
+                  <button
+                    onClick={() => setFindMenuForPartId(findMenuForPartId === part.id ? null : part.id)}
+                    aria-label="Find this part at a store"
+                    className="flex items-center gap-1 rounded-md border border-surface-border bg-white px-1.5 py-1 text-neutral-500 hover:bg-surface-muted"
+                  >
+                    <ShoppingCart size={12} />
+                    <ChevronDown size={10} />
+                  </button>
+                  {findMenuForPartId === part.id && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setFindMenuForPartId(null)} />
+                      <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-surface-border bg-white shadow-card">
+                        {RETAILERS.map((r) => (
+                          <a
+                            key={r.id}
+                            href={r.buildUrl(partQuery(part))}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={() => setFindMenuForPartId(null)}
+                            className="block px-3 py-2 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
+                          >
+                            {r.label}
+                          </a>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button
+                  onClick={() => onRemovePart(part.id)}
+                  aria-label="Remove part"
+                  className="text-neutral-400 hover:text-accent-low"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
-        <div className="mt-1.5 flex gap-1.5">
-          <input
-            value={newPart}
-            onChange={(e) => setNewPart(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                onAddPart(newPart);
-                setNewPart("");
-              }
-            }}
-            placeholder="Add a part…"
-            className="flex-1 rounded-lg border border-surface-border px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-neutral-900"
-          />
+
+        {!addPartOpen ? (
           <button
-            onClick={() => {
-              onAddPart(newPart);
-              setNewPart("");
-            }}
-            disabled={!newPart.trim()}
-            className="rounded-lg border border-surface-border px-2.5 text-neutral-600 hover:bg-surface-muted disabled:opacity-40"
+            onClick={() => setAddPartOpen(true)}
+            className="mt-1.5 flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-700"
           >
-            <Plus size={13} />
+            <Plus size={13} /> Add a part
           </button>
-        </div>
+        ) : (
+          <div className="mt-1.5 space-y-1.5 rounded-lg border border-surface-border p-2">
+            <div className="flex gap-1.5">
+              <input
+                value={partNumber}
+                onChange={(e) => setPartNumber(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && lookupPart()}
+                placeholder="Part number (optional)"
+                className="flex-1 rounded-lg border border-surface-border px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-neutral-900"
+              />
+              <button
+                onClick={lookupPart}
+                disabled={!partNumber.trim() || lookupStatus === "checking"}
+                className="flex items-center gap-1 rounded-lg border border-surface-border px-2.5 text-xs font-medium text-neutral-600 hover:bg-surface-muted disabled:opacity-40"
+              >
+                <Search size={12} /> {lookupStatus === "checking" ? "Looking up…" : "Look up"}
+              </button>
+            </div>
+            {lookupStatus === "found" && (
+              <p className="text-[11px] text-green-700">✓ Found — details filled in below</p>
+            )}
+            {lookupStatus === "not-found" && (
+              <p className="text-[11px] text-amber-700">No match for that part number — enter details manually.</p>
+            )}
+            {lookupStatus === "multiple" && (
+              <div className="space-y-1 rounded-lg bg-surface-muted p-1.5">
+                <p className="px-0.5 text-[11px] font-medium text-neutral-600">
+                  {candidates.length} possible matches — pick one, or edit the description below.
+                </p>
+                {candidates.map((c, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => applyPartCandidate(c)}
+                    className={`block w-full rounded-md border px-2 py-1 text-left text-[11px] ${
+                      partDescription === c.name
+                        ? "border-neutral-900 bg-white font-medium text-neutral-900"
+                        : "border-surface-border bg-white text-neutral-600 hover:bg-white/60"
+                    }`}
+                  >
+                    {c.name}
+                    {c.price !== null && <span className="ml-1.5 text-neutral-400">· ${c.price.toFixed(2)} est.</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            <input
+              value={partDescription}
+              onChange={(e) => setPartDescription(e.target.value)}
+              placeholder="Description"
+              className="w-full rounded-lg border border-surface-border px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-neutral-900"
+            />
+            <div className="flex gap-1.5">
+              <select
+                value={partUnit}
+                onChange={(e) => setPartUnit(e.target.value as Unit)}
+                className="rounded-lg border border-surface-border px-2 py-1.5 text-xs outline-none"
+              >
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={partPrice}
+                onChange={(e) => {
+                  setPartPrice(e.target.value);
+                  setPriceFromLookup(false);
+                }}
+                placeholder="Price per unit"
+                className="flex-1 rounded-lg border border-surface-border px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-neutral-900"
+              />
+            </div>
+            {priceFromLookup && (
+              <p className="text-[10px] text-neutral-400">Price is an online estimate — verify before ordering.</p>
+            )}
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => {
+                  setAddPartOpen(false);
+                  setPartNumber("");
+                  setPartDescription("");
+                  setPartUnit("ea");
+                  setPartPrice("");
+                  setPriceFromLookup(false);
+                  setLookupStatus("idle");
+                  setCandidates([]);
+                }}
+                className="flex-1 rounded-lg border border-surface-border py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitNewPart}
+                disabled={!partDescription.trim()}
+                className="flex-1 rounded-lg bg-neutral-900 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                Add part
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-surface-border pt-3">
