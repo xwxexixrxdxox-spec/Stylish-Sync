@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, ChevronLeft } from "lucide-react";
 import { InventoryItem, StockMovement, UsageRangeValue, USAGE_RANGE_OPTIONS } from "@/lib/types";
 import { loadMovements } from "@/lib/storage";
 import UsageImportPanel from "./UsageImportPanel";
+import UsageOverview from "./UsageOverview";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -111,6 +112,11 @@ const REORDER_BUFFER_DAYS = 7;
 
 export default function UsageTab({ items, onSave }: Props) {
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  // Overview (every item at a glance) is the landing view — "detail" is a
+  // drill-in destination reached by tapping a row there (or by using the
+  // item dropdown while already in detail, kept for quick switching
+  // between items without bouncing back to the overview each time).
+  const [view, setView] = useState<"overview" | "detail">("overview");
   const [selectedId, setSelectedId] = useState<string>("");
   const [rangeValue, setRangeValue] = useState<UsageRangeValue>(30);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -228,6 +234,12 @@ export default function UsageTab({ items, onSave }: Props) {
       {showHelp && (
         <div className="mb-4 space-y-2 rounded-xl2 border border-surface-border bg-white p-4 text-xs leading-relaxed text-neutral-600 shadow-card">
           <p>
+            <span className="font-medium text-neutral-800">The overview list:</span> every item at once, sorted by
+            how much has moved in the selected range, with a small trend sparkline per row. Tap any item to open its
+            full detail view below — the stat tiles, suggested reorder point, and the bigger used-vs-restocked
+            chart. Use &quot;← All items&quot; at the top of the detail view to come back.
+          </p>
+          <p>
             <span className="font-medium text-neutral-800">What counts as usage:</span> anything that removes stock —
             a scanned Remove, a manual quantity decrease, or an imported/pulled usage entry. Restocks (Add Stock,
             imports that increase quantity) never count toward usage.
@@ -274,9 +286,26 @@ export default function UsageTab({ items, onSave }: Props) {
         <p className="rounded-xl2 border border-dashed border-surface-border bg-white p-6 text-center text-sm text-neutral-400">
           Add some inventory first, then usage trends will show up here.
         </p>
-      ) : (
+      ) : view === "overview" ? (
         <>
           <UsageImportPanel items={items} onImported={() => setMovements(loadMovements())} />
+          <UsageOverview
+            items={items}
+            movements={movements}
+            onSelectItem={(id) => {
+              setSelectedId(id);
+              setView("detail");
+            }}
+          />
+        </>
+      ) : (
+        <>
+          <button
+            onClick={() => setView("overview")}
+            className="mb-3 flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-700"
+          >
+            <ChevronLeft size={14} /> All items
+          </button>
 
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <select
