@@ -1,6 +1,6 @@
 "use client";
 
-import { InventoryItem, StockMovement } from "./types";
+import { InventoryItem, StockMovement, PropertyItem, OrderedPart, MaintenanceTask } from "./types";
 import { movementsToUsageRows, weeklyUsageTotals, UsageSheetRow } from "./usageReport";
 import { formatSheetTimestamp } from "./time";
 
@@ -76,6 +76,38 @@ const USAGE_SUMMARY_COLUMN_INDEX = { start: 7, end: 9 }; // H, I (0-based, end e
 // Usage chart's anchor position.
 const SYNC_META_SHEET_TITLE = "_sync";
 const SYNC_TOKEN_RANGE = `${SYNC_META_SHEET_TITLE}!A1`;
+// A second, entirely separate cell on the same hidden sheet for the
+// Property feature's own sync token (see getRemotePropertySyncToken/
+// setRemotePropertySyncToken) — deliberately not sharing A1 with
+// Inventory/Usage above, since a push from the Property page (its own
+// dedicated page, not part of the Inventory/Usage push-together flow in
+// AccountTab) has nothing to do with that conflict check and must never
+// be able to trip — or silently clear — it.
+const PROPERTY_SYNC_TOKEN_RANGE = `${SYNC_META_SHEET_TITLE}!A2`;
+
+// The Property tab — equipment/fixtures tracking, entirely separate from
+// the Inventory tab (see PropertyItem's comment in types.ts for why this
+// is its own feature, not a variant of inventory). Same "own tab on the
+// same linked spreadsheet" model as Usage, created on first sync the same
+// lazy way (see ensurePropertySheet). Laid out as three side-by-side
+// blocks on one sheet, the same multi-block-per-sheet approach the Usage
+// tab uses for its detail/summary split — but here purely for readability
+// (a blank gutter column between each block) rather than because anything
+// needs to sit at a fixed anchor for a chart:
+//   A:G — one row per property (the "parent" records)
+//   I:N — one row per ordered part, referencing its property by ID
+//   P:U — one row per maintenance task, referencing its property by ID
+// Parts/tasks reference their property by ID (column I/P) rather than
+// name alone — a name is what a customer sees and might reasonably edit,
+// an ID is what actually survives that edit and still resolves correctly
+// on the next pull.
+const PROPERTY_SHEET_TITLE = "Property";
+const PROPERTY_DETAIL_RANGE = `${PROPERTY_SHEET_TITLE}!A1:G`;
+const PROPERTY_DETAIL_HEADER = ["ID", "Name", "Location", "Serial Number", "Notes", "Last Edited By", "Last Edited At"];
+const PROPERTY_PARTS_RANGE = `${PROPERTY_SHEET_TITLE}!I1:N`;
+const PROPERTY_PARTS_HEADER = ["Property ID", "Property Name", "Part Description", "Status", "Last Edited At", "Part ID"];
+const PROPERTY_TASKS_RANGE = `${PROPERTY_SHEET_TITLE}!P1:U`;
+const PROPERTY_TASKS_HEADER = ["Property ID", "Property Name", "Task Description", "Status", "Last Edited At", "Task ID"];
 
 // drive.file (not the broader drive.readonly) is deliberate: it only grants
 // this app access to files the customer explicitly selects through the
@@ -600,6 +632,187 @@ export async function pullUsageFromSheet(spreadsheetId: string): Promise<UsageSh
       note: r[5] ?? "",
       syncId: r[6] ?? "",
     }));
+}
+
+// Finds the Property tab if it already exists, or creates it (unstyled,
+// no chart) if this is the first Property sync for this spreadsheet.
+// Deliberately much simpler than ensureUsageSheet above — Property has no
+// embedded chart to track a chartId for, just a plain tab.
+async function ensurePropertySheet(spreadsheetId: string, token: string): Promise<void> {
+  const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets(properties)`, token, { method: "GET" });
+  const existing = (meta.sheets ?? []).find((s: any) => s.properties?.title === PROPERTY_SHEET_TITLE);
+  if (existing) return;
+  await sheetsFetch(`/${spreadsheetId}:batchUpdate`, token, {
+    method: "POST",
+    body: JSON.stringify({ requests: [{ addSheet: { properties: { title: PROPERTY_SHEET_TITLE } } }] }),
+  });
+}
+
+// Writes the full current Property list to its own tab — same
+// clear-then-write shape as pushItemsToSheet (a plain overwrite of
+// current state, not the append/reconcile-by-id approach pushUsageToSheet
+// uses for its append-only movement log), since a PropertyItem is a
+// mutable current-state record just like an InventoryItem, not an
+// immutable historical event like a StockMovement.
+export async function pushPropertyToSheet(spreadsheetId: string, properties: PropertyItem[]): Promise<void> {
+  const token = await requestAccessToken();
+  await ensurePropertySheet(spreadsheetId, token);
+
+  const detailRows = [
+    PROPERTY_DETAIL_HEADER,
+    ...properties.map((p) => [
+      p.id,
+      p.name,
+      p.location || "",
+      p.serialNumber || "",
+      p.notes || "",
+      p.lastEditedBy || "",
+      p.updatedAt ? formatSheetTimestamp(p.updatedAt) : "",
+    ]),
+  ];
+  const partsRows = [
+    PROPERTY_PARTS_HEADER,
+    ...properties.flatMap((p) =>
+      p.orderedParts.map((part) => [
+        p.id,
+        p.name,
+        part.description,
+        part.status,
+        part.updatedAt ? formatSheetTimestamp(part.updatedAt) : "",
+        part.id,
+      ])
+    ),
+  ];
+  const tasksRows = [
+    PROPERTY_TASKS_HEADER,
+    ...properties.flatMap((p) =>
+      p.maintenanceTasks.map((task) => [
+        p.id,
+        p.name,
+        task.description,
+        task.status,
+        task.updatedAt ? formatSheetTimestamp(task.updatedAt) : "",
+        task.id,
+      ])
+    ),
+  ];
+
+  // Same reasoning as pushItemsToSheet's batchClear: a plain values write
+  // only overwrites cells within the exact dimensions of what's sent, so
+  // without clearing each open-ended range first, a property/part/task
+  // that's since been deleted locally would leave its old row stranded in
+  // the sheet forever (and a later Pull would resurrect it).
+  await sheetsFetch(`/${spreadsheetId}/values:batchClear`, token, {
+    method: "POST",
+    body: JSON.stringify({ ranges: [PROPERTY_DETAIL_RANGE, PROPERTY_PARTS_RANGE, PROPERTY_TASKS_RANGE] }),
+  });
+  await sheetsFetch(`/${spreadsheetId}/values:batchUpdate`, token, {
+    method: "POST",
+    body: JSON.stringify({
+      valueInputOption: "RAW",
+      data: [
+        { range: PROPERTY_DETAIL_RANGE, values: detailRows },
+        { range: PROPERTY_PARTS_RANGE, values: partsRows },
+        { range: PROPERTY_TASKS_RANGE, values: tasksRows },
+      ],
+    }),
+  });
+}
+
+// Reads the Property tab back into a full PropertyItem list — parts/tasks
+// rows are matched back to their parent property by ID (column I/P), not
+// row order or name, so a property renamed directly in the sheet (or
+// reordered) still resolves its parts/tasks correctly. A part/task row
+// whose Property ID doesn't match any property row is dropped rather than
+// crashing the pull — most likely a customer deleted the property row by
+// hand without also clearing its part/task rows.
+export async function pullPropertyFromSheet(spreadsheetId: string): Promise<PropertyItem[]> {
+  const token = await requestAccessToken();
+  const data = await sheetsFetch(
+    `/${spreadsheetId}/values:batchGet?ranges=${encodeURIComponent(PROPERTY_DETAIL_RANGE)}&ranges=${encodeURIComponent(PROPERTY_PARTS_RANGE)}&ranges=${encodeURIComponent(PROPERTY_TASKS_RANGE)}`,
+    token,
+    { method: "GET" }
+  );
+  const [detailResult, partsResult, tasksResult] = data.valueRanges ?? [];
+  const detailRows: string[][] = (detailResult?.values ?? []).slice(1); // drop header
+  const partsRows: string[][] = (partsResult?.values ?? []).slice(1);
+  const tasksRows: string[][] = (tasksResult?.values ?? []).slice(1);
+
+  const parseWhen = (raw: string | undefined): string => {
+    const d = raw ? new Date(raw) : null;
+    return d && !isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
+  };
+
+  const properties: PropertyItem[] = detailRows
+    .filter((r) => r.length && r[0])
+    .map((r) => ({
+      id: r[0],
+      name: r[1] ?? "",
+      location: r[2] || undefined,
+      serialNumber: r[3] || undefined,
+      notes: r[4] || undefined,
+      lastEditedBy: r[5] || undefined,
+      updatedAt: parseWhen(r[6]),
+      orderedParts: [] as OrderedPart[],
+      maintenanceTasks: [] as MaintenanceTask[],
+    }));
+  const byId = new Map(properties.map((p) => [p.id, p]));
+
+  partsRows
+    .filter((r) => r.length && r[0] && r[5])
+    .forEach((r) => {
+      const parent = byId.get(r[0]);
+      if (!parent) return;
+      parent.orderedParts.push({
+        id: r[5],
+        description: r[2] ?? "",
+        status: (r[3] as OrderedPart["status"]) || "ordered",
+        updatedAt: parseWhen(r[4]),
+      });
+    });
+
+  tasksRows
+    .filter((r) => r.length && r[0] && r[5])
+    .forEach((r) => {
+      const parent = byId.get(r[0]);
+      if (!parent) return;
+      parent.maintenanceTasks.push({
+        id: r[5],
+        description: r[2] ?? "",
+        status: (r[3] as MaintenanceTask["status"]) || "needed",
+        updatedAt: parseWhen(r[4]),
+      });
+    });
+
+  return properties;
+}
+
+// Same shape as getRemoteSyncToken/setRemoteSyncToken below, but reading/
+// writing the Property feature's own token cell (see
+// PROPERTY_SYNC_TOKEN_RANGE) — kept as fully separate functions rather
+// than parameterizing the originals, so a future change to the
+// Inventory/Usage conflict logic can't accidentally also change Property's
+// out from under it.
+export async function getRemotePropertySyncToken(spreadsheetId: string): Promise<string | null> {
+  const token = await requestAccessToken();
+  try {
+    const data = await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(PROPERTY_SYNC_TOKEN_RANGE)}`, token, {
+      method: "GET",
+    });
+    const value = data.values?.[0]?.[0];
+    return typeof value === "string" && value ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setRemotePropertySyncToken(spreadsheetId: string, newToken: string): Promise<void> {
+  const token = await requestAccessToken();
+  await ensureSyncMetaSheet(spreadsheetId, token);
+  await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(PROPERTY_SYNC_TOKEN_RANGE)}?valueInputOption=RAW`, token, {
+    method: "PUT",
+    body: JSON.stringify({ values: [[newToken]] }),
+  });
 }
 
 // Finds (or lazily creates) the hidden _sync sheet that holds the sync

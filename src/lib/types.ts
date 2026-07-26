@@ -159,6 +159,69 @@ export interface PackageTracking {
 
 export type SupportAccessState = "unknown" | "locked" | "unlocked";
 
+// --- Property management (2026-07) --------------------------------------
+// A separate tracked list from InventoryItem — this is for the physical
+// property itself (equipment, fixtures, anything with a location/serial
+// number that occasionally needs a part ordered or maintenance done),
+// not consumable stock. Lives on its own dedicated page (/property, gated
+// on a signed-in account — see PropertyManager.tsx) rather than a
+// BottomNav tab, and syncs to its own "Property" tab on the same linked
+// Google Sheet the Inventory/Usage tabs already use (see
+// ensurePropertySheet in googleSheets.ts) — never the Inventory tab
+// itself, so the two feature sets can't collide or overwrite each other.
+
+export type OrderedPartStatus = "ordered" | "shipped" | "received" | "installed" | "cancelled";
+
+export const ORDERED_PART_STATUS_OPTIONS: { label: string; value: OrderedPartStatus }[] = [
+  { label: "Ordered", value: "ordered" },
+  { label: "Shipped", value: "shipped" },
+  { label: "Received", value: "received" },
+  { label: "Installed", value: "installed" },
+  { label: "Cancelled", value: "cancelled" },
+];
+
+export interface OrderedPart {
+  id: string;
+  description: string;
+  status: OrderedPartStatus;
+  updatedAt: string;
+}
+
+export type MaintenanceTaskStatus = "needed" | "scheduled" | "in_progress" | "completed" | "cancelled";
+
+export const MAINTENANCE_TASK_STATUS_OPTIONS: { label: string; value: MaintenanceTaskStatus }[] = [
+  { label: "Needed", value: "needed" },
+  { label: "Scheduled", value: "scheduled" },
+  { label: "In progress", value: "in_progress" },
+  { label: "Completed", value: "completed" },
+  { label: "Cancelled", value: "cancelled" },
+];
+
+export interface MaintenanceTask {
+  id: string;
+  description: string;
+  status: MaintenanceTaskStatus;
+  updatedAt: string;
+}
+
+export interface PropertyItem {
+  id: string;
+  name: string;
+  location?: string;
+  serialNumber?: string;
+  notes?: string;
+  // Independently status-tracked lists, per the property's own lifecycle —
+  // see OrderedPartStatus/MaintenanceTaskStatus above. Both start empty on
+  // a freshly created property and are added to one entry at a time from
+  // PropertyManager.tsx.
+  orderedParts: OrderedPart[];
+  maintenanceTasks: MaintenanceTask[];
+  updatedAt: string;
+  // Same lightweight per-device name tag as InventoryItem.lastEditedBy —
+  // see that field's comment in this file.
+  lastEditedBy?: string;
+}
+
 // --- In-person visit booking -----------------------------------------
 // `date`/`start` below are plain "YYYY-MM-DD" / "HH:MM" strings meant to be
 // read as wall-clock time in the booking's own `timezone` field (captured

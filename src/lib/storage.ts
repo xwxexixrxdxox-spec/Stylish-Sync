@@ -1,6 +1,6 @@
 "use client";
 
-import { InventoryItem, StockMovement, PackageTracking } from "./types";
+import { InventoryItem, StockMovement, PackageTracking, PropertyItem } from "./types";
 
 // Local-first storage: the app works fully offline using localStorage as
 // the always-available cache, with Google Sheets as an optional
@@ -403,6 +403,72 @@ export function deletePackageTracking(id: string): void {
   window.localStorage.setItem(PACKAGE_TRACKING_KEY, JSON.stringify(all));
 }
 
+// --- Property management (2026-07) --------------------------------------
+// Same local-first shape as ITEMS_KEY above, but a fully separate key and
+// array — Property items are a distinct tracked list from inventory, not a
+// variant of it (see PropertyItem's comment in types.ts). Deliberately no
+// seed data here: a brand-new customer lands on an empty property list
+// rather than demo fixtures, since (unlike the inventory tab) there's no
+// natural example to seed that would apply to every business.
+const PROPERTY_KEY = "isc_property_items_v1";
+
+export function loadPropertyItems(): PropertyItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PROPERTY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as PropertyItem[];
+    return Array.isArray(parsed)
+      ? parsed.map((p) => ({ ...p, orderedParts: p.orderedParts ?? [], maintenanceTasks: p.maintenanceTasks ?? [] }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function savePropertyItems(items: PropertyItem[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PROPERTY_KEY, JSON.stringify(items));
+}
+
+// --- Property Sheets sync state (per linked spreadsheet) -----------------
+// Mirrors the Inventory/Usage sync-token and last-synced-at pattern below
+// exactly, but kept under entirely separate keys and its own token cell in
+// the sheet's hidden _sync tab (see PROPERTY_SYNC_TOKEN_RANGE in
+// googleSheets.ts) — a push from the Property page has nothing to do with
+// Inventory/Usage's own conflict tracking, so the two must never share a
+// token or a "someone else changed this" false positive/negative would
+// leak across two otherwise-unrelated feature areas of the same sheet.
+
+function propertySyncTokenKey(spreadsheetId: string): string {
+  return `isc_property_sync_token_v1:${spreadsheetId}`;
+}
+
+export function getLastPropertySyncToken(spreadsheetId: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(propertySyncTokenKey(spreadsheetId));
+}
+
+export function setLastPropertySyncToken(spreadsheetId: string, tokenValue: string | null): void {
+  if (typeof window === "undefined") return;
+  if (tokenValue) window.localStorage.setItem(propertySyncTokenKey(spreadsheetId), tokenValue);
+  else window.localStorage.removeItem(propertySyncTokenKey(spreadsheetId));
+}
+
+function propertySyncedAtKey(spreadsheetId: string): string {
+  return `isc_property_sync_time_v1:${spreadsheetId}`;
+}
+
+export function getLastPropertySyncedAt(spreadsheetId: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(propertySyncedAtKey(spreadsheetId));
+}
+
+export function setLastPropertySyncedAt(spreadsheetId: string, iso: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(propertySyncedAtKey(spreadsheetId), iso);
+}
+
 // --- Google Sheets sync state (per linked spreadsheet) ------------------
 // Both of these are namespaced by spreadsheetId (rather than one global
 // value) so switching which sheet is linked, or a customer using more than
@@ -519,6 +585,7 @@ export async function clearAppCache(): Promise<void> {
   window.localStorage.removeItem(SHEET_LINK_KEY);
   window.localStorage.removeItem(MOVEMENTS_KEY);
   window.localStorage.removeItem(PACKAGE_TRACKING_KEY);
+  window.localStorage.removeItem(PROPERTY_KEY);
   // Removing ITEMS_KEY here is also what makes isFreshInstall() true again
   // on the next load (reseeding the demo items) - clearing the tutorial
   // flag alongside it keeps those two "brand new customer" signals in
@@ -535,7 +602,9 @@ export async function clearAppCache(): Promise<void> {
       (k) =>
         k.startsWith("isc_sync_token_v1:") ||
         k.startsWith("isc_synced_usage_ids_v1:") ||
-        k.startsWith("isc_sync_time_v1:")
+        k.startsWith("isc_sync_time_v1:") ||
+        k.startsWith("isc_property_sync_token_v1:") ||
+        k.startsWith("isc_property_sync_time_v1:")
     )
     .forEach((k) => window.localStorage.removeItem(k));
 

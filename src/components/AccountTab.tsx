@@ -816,6 +816,21 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
       </div>
 
       <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+        <p className="mb-1 text-sm font-medium text-neutral-900">Property</p>
+        <p className="mb-3 text-[11px] leading-relaxed text-neutral-400">
+          Track equipment and fixtures separately from inventory — name, location, serial number, notes, plus
+          ordered-parts and maintenance/repair status. Syncs to its own &quot;Property&quot; tab on the same Google
+          Sheet as your inventory.
+        </p>
+        <a
+          href="/property"
+          className="flex w-full items-center justify-center rounded-lg bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90"
+        >
+          Manage Property
+        </a>
+      </section>
+
+      <section className="mb-5 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
         <p className="mb-1 text-sm font-medium text-neutral-900">Your name</p>
         <input
           value={editorName}
