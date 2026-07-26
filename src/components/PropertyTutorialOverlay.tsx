@@ -51,11 +51,25 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   const targetElRef = useRef<HTMLElement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const prevReceivedRef = useRef(exampleReceivedCount);
+  // Tracks which step index has already had speakStepAt() called for it —
+  // see the click-handler-driven speech calls below. Lets the fallback
+  // effect (further down) tell "already spoken synchronously by this tap"
+  // apart from "genuinely hasn't been spoken yet" without playing the same
+  // line twice.
+  const lastSpokenIndexRef = useRef(-1);
   const steps = PROPERTY_TUTORIAL_STEPS;
   const step = steps[stepIndex];
 
   useEffect(() => {
     setVoiceEnabled(getPropertyTutorialVoiceEnabled());
+    // Reading the voice list this early doesn't need a user gesture — only
+    // actually producing audio does — so priming it on mount (rather than
+    // waiting for the first speak attempt) means the female-voice pick
+    // below usually has real data to work with by the time a tap needs it,
+    // instead of racing the browser's own lazy voice-list load.
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+    }
   }, []);
 
   const finish = (reason: "finished" | "skipped") => {
@@ -72,7 +86,18 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
         onClose();
         return i;
       }
-      return i + 1;
+      const next = i + 1;
+      // Speak synchronously, right here inside the tap that's advancing the
+      // tour — not deferred into an effect that fires after React commits
+      // the re-render. Mobile browsers (Safari/WebKit in particular, and
+      // increasingly Chrome on Android) only let speechSynthesis.speak()
+      // actually produce sound when the call happens as part of handling a
+      // real user gesture; once it's pushed into a useEffect reacting to
+      // stepIndex changing, the browser no longer credits it as
+      // gesture-triggered and just drops the audio with no error — which
+      // is exactly why this played on desktop but was silent on mobile.
+      if (voiceEnabled) speakStepAt(next);
+      return next;
     });
   };
 
@@ -93,6 +118,14 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
       targetElRef.current = el;
       if (el) {
         setRect(el.getBoundingClientRect());
+        // Guarantees the spotlighted element is actually on screen rather
+        // than assuming it already is — on a short mobile viewport a target
+        // lower on the page can sit below the fold, especially once a step
+        // like "log-receipt" grows its own row taller (see the
+        // ResizeObserver below); without this, the customer would need to
+        // already know to scroll before they could reach a control the
+        // tour is telling them to tap.
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
         // A spotlighted target's own content can change height while the
         // step is showing — e.g. "log-receipt" targets the whole part row,
         // which grows taller the instant the customer taps the receipt
@@ -103,7 +136,14 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
         // that appear past the old hole boundary sit unclickable under the
         // dimmed, pointer-events-auto backdrop.
         resizeObserver = new ResizeObserver(() => {
-          if (targetElRef.current) setRect(targetElRef.current.getBoundingClientRect());
+          if (!targetElRef.current) return;
+          setRect(targetElRef.current.getBoundingClientRect());
+          // Re-center after a resize too — the same short-viewport case
+          // above, but triggered by the row growing rather than the step
+          // changing: the newly-revealed quantity input/confirm button can
+          // land past the bottom edge of the screen the instant the panel
+          // opens, on a phone where the row was already lower on the page.
+          targetElRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
         });
         resizeObserver.observe(el);
       }
@@ -179,28 +219,38 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     return pool.find((v) => hints.some((h) => v.name.toLowerCase().includes(h))) ?? pool[0] ?? null;
   };
 
-  const speakStep = () => {
+  const speakStepAt = (index: number) => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const target = steps[index];
+    if (!target) return;
     window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(`${step.title}. ${step.body}`);
+    const utter = new SpeechSynthesisUtterance(`${target.title}. ${target.body}`);
     const voice = pickVoice(window.speechSynthesis.getVoices());
     if (voice) utter.voice = voice;
     utter.pitch = 1.05;
     utter.rate = 1;
     window.speechSynthesis.speak(utter);
+    lastSpokenIndexRef.current = index;
   };
 
-  // Speaks the current step's card whenever it changes, as long as voice is
-  // on. Voice lists load asynchronously in some browsers (empty on the
-  // very first call), so this falls back to the voiceschanged event rather
-  // than speaking with no voice override that one time.
+  // Fallback for the one path that can never be gesture-driven: the very
+  // first step, when the tour auto-opens on mount for a brand-new empty
+  // property list rather than from a tap on "Take the property tour." Every
+  // other step transition is already spoken synchronously inside its own
+  // click handler (advance(), toggleVoice() below) — this effect only
+  // speaks when that hasn't already happened for the current step, so nothing
+  // plays twice.
   useEffect(() => {
     if (!voiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
+    if (lastSpokenIndexRef.current === stepIndex) return;
     if (window.speechSynthesis.getVoices().length === 0) {
-      window.speechSynthesis.onvoiceschanged = speakStep;
-    } else {
-      speakStep();
+      const onVoicesChanged = () => {
+        if (lastSpokenIndexRef.current !== stepIndex) speakStepAt(stepIndex);
+      };
+      window.speechSynthesis.addEventListener("voiceschanged", onVoicesChanged, { once: true });
+      return () => window.speechSynthesis.removeEventListener("voiceschanged", onVoicesChanged);
     }
+    speakStepAt(stepIndex);
     return () => {
       window.speechSynthesis.cancel();
     };
@@ -211,7 +261,14 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     const next = !voiceEnabled;
     setVoiceEnabled(next);
     setPropertyTutorialVoiceEnabled(next);
-    if (!next && typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+    if (next) {
+      // Same gesture-synchronicity reasoning as advance() above — speak the
+      // step already on screen right inside this tap, instead of waiting
+      // for the effect above to pick it up a render later.
+      speakStepAt(stepIndex);
+    } else if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
   };
 
   const onCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
