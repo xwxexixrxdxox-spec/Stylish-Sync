@@ -164,6 +164,24 @@ export function resetTutorialCompleted(): void {
   window.localStorage.removeItem(TUTORIAL_KEY);
 }
 
+// The main Inventory-side welcome tour's own optional voice narration,
+// added after the Property tour's identical feature (see
+// PROPERTY_TUTORIAL_VOICE_KEY below) proved out well enough that the user
+// asked for it here too. Kept under its own key, same reasoning as the
+// completion-flag pairing above: muting one tour's voice shouldn't mute
+// the other's.
+const TUTORIAL_VOICE_KEY = "isc_tutorial_voice_v1";
+
+export function getTutorialVoiceEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.localStorage.getItem(TUTORIAL_VOICE_KEY) !== "0";
+}
+
+export function setTutorialVoiceEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TUTORIAL_VOICE_KEY, enabled ? "1" : "0");
+}
+
 // Same three-function shape as the main tutorial above, kept under its own
 // key so finishing/skipping/replaying the Property tour never touches the
 // main app's own tutorial state (a customer could plausibly complete one

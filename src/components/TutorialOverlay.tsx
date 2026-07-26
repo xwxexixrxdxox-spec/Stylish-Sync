@@ -2,8 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Volume2, VolumeX } from "lucide-react";
 import { TUTORIAL_STEPS, waitForElement } from "@/lib/tutorial";
-import { getCookieConsent, setTutorialCompleted } from "@/lib/storage";
+import {
+  getCookieConsent,
+  setTutorialCompleted,
+  getTutorialVoiceEnabled,
+  setTutorialVoiceEnabled,
+} from "@/lib/storage";
 import type { TabId } from "./BottomNav";
 
 interface Rect {
@@ -34,8 +40,14 @@ interface Props {
 export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOpen, sheetId, onClose }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const targetElRef = useRef<HTMLElement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  // Tracks which step index has already been spoken via a direct click
+  // handler (advance(), toggleVoice()) so the mount-only fallback effect
+  // further down doesn't also speak it and double up — see
+  // PropertyTutorialOverlay.tsx, where this pattern was proven out first.
+  const lastSpokenIndexRef = useRef(-1);
   // Frozen once at mount (useState initializer, not useMemo) on purpose:
   // the cookie-consent step only belongs in the tour while consent is still
   // undecided, but consent gets decided DURING that very step — recomputing
@@ -45,8 +57,20 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   );
   const step = steps[stepIndex];
 
+  useEffect(() => {
+    setVoiceEnabled(getTutorialVoiceEnabled());
+    // Reading the voice list this early doesn't need a user gesture — only
+    // actually producing audio does — so priming it on mount means the
+    // female-voice pick below usually has real data to work with by the
+    // time a tap needs it, instead of racing the browser's own lazy load.
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+    }
+  }, []);
+
   const finish = (reason: "finished" | "skipped") => {
     setTutorialCompleted(reason);
+    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
     onClose();
   };
 
@@ -54,10 +78,20 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     setStepIndex((i) => {
       if (i >= steps.length - 1) {
         setTutorialCompleted("finished");
+        if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
         onClose();
         return i;
       }
-      return i + 1;
+      const next = i + 1;
+      // Speak synchronously, inside whatever click/tap triggered this
+      // advance — not deferred into an effect reacting to stepIndex. Mobile
+      // browsers (Safari/WebKit especially) only let speechSynthesis.speak()
+      // actually produce audio when called inside a real user gesture's own
+      // call stack; deferred into a post-render effect, they silently drop
+      // it. See PropertyTutorialOverlay.tsx for the full reasoning and the
+      // mobile bug this exact pattern fixed there.
+      if (voiceEnabled) speakStepAt(next);
+      return next;
     });
   };
 
@@ -158,6 +192,73 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     cardRef.current?.focus();
   }, [stepIndex]);
 
+  // Picks the closest thing to a "soft female voice" the Web Speech API
+  // actually exposes — same best-effort name-match heuristic as
+  // PropertyTutorialOverlay.tsx (no reliable gender field exists on
+  // SpeechSynthesisVoice), falling back to the first available English
+  // voice, then to no override at all. Never a hard requirement: a device
+  // with no speech support just runs this tour silently, same as before.
+  const pickVoice = (voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null => {
+    if (!voices.length) return null;
+    const english = voices.filter((v) => v.lang.toLowerCase().startsWith("en"));
+    const pool = english.length ? english : voices;
+    const hints = [
+      "female", "samantha", "victoria", "zira", "susan", "karen", "moira",
+      "tessa", "fiona", "aria", "jenny", "google us english", "google uk english female",
+    ];
+    return pool.find((v) => hints.some((h) => v.name.toLowerCase().includes(h))) ?? pool[0] ?? null;
+  };
+
+  const speakStepAt = (index: number) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const target = steps[index];
+    if (!target) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(`${target.title}. ${target.body}`);
+    const voice = pickVoice(window.speechSynthesis.getVoices());
+    if (voice) utter.voice = voice;
+    utter.pitch = 1.05;
+    utter.rate = 1;
+    window.speechSynthesis.speak(utter);
+    lastSpokenIndexRef.current = index;
+  };
+
+  // Fallback for the one path that can never be gesture-driven: the very
+  // first step, shown as soon as the tour opens rather than from a tap.
+  // Every other step transition is already spoken synchronously inside its
+  // own click handler (advance(), toggleVoice() below) — this effect only
+  // speaks when that hasn't already happened for the current step, so
+  // nothing plays twice.
+  useEffect(() => {
+    if (!voiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
+    if (lastSpokenIndexRef.current === stepIndex) return;
+    if (window.speechSynthesis.getVoices().length === 0) {
+      const onVoicesChanged = () => {
+        if (lastSpokenIndexRef.current !== stepIndex) speakStepAt(stepIndex);
+      };
+      window.speechSynthesis.addEventListener("voiceschanged", onVoicesChanged, { once: true });
+      return () => window.speechSynthesis.removeEventListener("voiceschanged", onVoicesChanged);
+    }
+    speakStepAt(stepIndex);
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex, voiceEnabled]);
+
+  const toggleVoice = () => {
+    const next = !voiceEnabled;
+    setVoiceEnabled(next);
+    setTutorialVoiceEnabled(next);
+    if (next) {
+      // Same gesture-synchronicity reasoning as advance() above — speak the
+      // step already on screen right inside this tap.
+      speakStepAt(stepIndex);
+    } else if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
   // A minimal focus trap: Tab/Shift+Tab cycles only among this card's own
   // focusable elements (its two buttons) rather than escaping into whatever
   // sits behind the dimmed mask - standard expected behavior for anything
@@ -181,6 +282,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   const nextLabel = step.nextLabel ?? "Next";
   const cardNearTop = rect ? rect.top > window.innerHeight / 2 : false;
+  const speechSupported = typeof window !== "undefined" && !!window.speechSynthesis;
 
   return createPortal(
     // pointer-events-none here is load-bearing, not decorative: this outer
@@ -243,7 +345,18 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
           onKeyDown={onCardKeyDown}
           className="w-full max-w-sm animate-tutorial-card-in rounded-xl2 bg-white p-4 shadow-card outline-none"
         >
-          <p className="text-sm font-semibold text-neutral-900">{step.title}</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-semibold text-neutral-900">{step.title}</p>
+            {speechSupported && (
+              <button
+                onClick={toggleVoice}
+                aria-label={voiceEnabled ? "Mute the tour's voice" : "Unmute the tour's voice"}
+                className="shrink-0 rounded-md p-1 text-neutral-400 hover:bg-surface-muted hover:text-neutral-600"
+              >
+                {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+              </button>
+            )}
+          </div>
           <p className="mt-1.5 text-sm leading-relaxed text-neutral-600">{step.body}</p>
           <div className="mt-3 flex items-center justify-between gap-2">
             <button
