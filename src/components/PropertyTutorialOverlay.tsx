@@ -84,16 +84,33 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   // for the main tour: the card just goes centered with a full dim, no hole.
   useEffect(() => {
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
     setRect(null);
     targetElRef.current = null;
     if (!step.targetSelector) return;
     waitForElement(step.targetSelector).then((el) => {
       if (cancelled) return;
       targetElRef.current = el;
-      if (el) setRect(el.getBoundingClientRect());
+      if (el) {
+        setRect(el.getBoundingClientRect());
+        // A spotlighted target's own content can change height while the
+        // step is showing — e.g. "log-receipt" targets the whole part row,
+        // which grows taller the instant the customer taps the receipt
+        // icon and the quantity/confirm panel expands inside it. Window
+        // resize/scroll listeners (below) don't catch that, since nothing
+        // about the window changed, so watch the element itself and keep
+        // the hole glued to its real, current size — otherwise controls
+        // that appear past the old hole boundary sit unclickable under the
+        // dimmed, pointer-events-auto backdrop.
+        resizeObserver = new ResizeObserver(() => {
+          if (targetElRef.current) setRect(targetElRef.current.getBoundingClientRect());
+        });
+        resizeObserver.observe(el);
+      }
     });
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);

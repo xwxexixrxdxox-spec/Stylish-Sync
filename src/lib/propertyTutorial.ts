@@ -44,10 +44,17 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
     body: "Description, price, quantity, and status — all in one place. This one's a fan motor that's been ordered but hasn't shown up yet.",
   },
   {
+    // Targets the whole row (same selector as "ordered-part" above), not
+    // just the receipt icon — the quantity field and "Log receipt" button
+    // that appear once you tap the icon render inside this row, and the
+    // overlay only lets clicks through inside its spotlighted element. If
+    // this only spotlighted the icon, the row would grow past the hole the
+    // instant the panel opened and those controls would sit unclickable
+    // under the dimmed backdrop.
     id: "log-receipt",
-    targetSelector: '[data-tutorial="tutorial-example-log-receipt"]',
+    targetSelector: '[data-tutorial="tutorial-example-part"]',
     title: "Try logging a receipt",
-    body: "Ordered 2, received 0 so far. Go ahead and tap this icon, then log 1 as received — I'll wait right here.",
+    body: "Ordered 2, received 0 so far. Tap the package icon in this row, then log 1 as received — I'll wait right here.",
   },
   {
     id: "eta-overdue",
