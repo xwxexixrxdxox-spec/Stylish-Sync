@@ -2,6 +2,7 @@
 
 import { InventoryItem, StockMovement } from "./types";
 import { movementsToUsageRows, weeklyUsageTotals, UsageSheetRow } from "./usageReport";
+import { formatSheetTimestamp } from "./time";
 
 // Client-side Google Sheets sync using Google Identity Services (GIS) for
 // auth, plus the Google Picker API for letting the customer browse and pick
@@ -27,8 +28,23 @@ import { movementsToUsageRows, weeklyUsageTotals, UsageSheetRow } from "./usageR
 // so this degrades gracefully rather than breaking for deployments that
 // haven't set it up yet.
 
-const SHEET_RANGE = "Inventory!A1:G";
-const HEADER_ROW = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Reorder At", "Location"];
+// Widened from A1:G to A1:I (2026-07) to carry who last touched each row
+// and when — previously tracked locally (InventoryItem.lastEditedBy/
+// updatedAt) but never actually reached the pushed sheet, which was the
+// whole point of a customer setting their name in Account in the first
+// place.
+const SHEET_RANGE = "Inventory!A1:I";
+const HEADER_ROW = [
+  "Barcode",
+  "Name",
+  "Quantity",
+  "Unit",
+  "Price Per Unit",
+  "Reorder At",
+  "Location",
+  "Last Edited By",
+  "Last Edited At",
+];
 
 // The Usage tab lives in the same spreadsheet, laid out as two side-by-side
 // blocks on one sheet (rather than two separate tabs) so the chart's source
@@ -330,7 +346,17 @@ export async function pushItemsToSheet(spreadsheetId: string, items: InventoryIt
   const token = await requestAccessToken();
   const rows = [
     HEADER_ROW,
-    ...items.map((it) => [it.barcode, it.name, it.quantity, it.unit, it.pricePerUnit, it.reorderAt, it.location || ""]),
+    ...items.map((it) => [
+      it.barcode,
+      it.name,
+      it.quantity,
+      it.unit,
+      it.pricePerUnit,
+      it.reorderAt,
+      it.location || "",
+      it.lastEditedBy || "",
+      it.updatedAt ? formatSheetTimestamp(it.updatedAt) : "",
+    ]),
   ];
   // A plain values.update (PUT) only overwrites the cells within the exact
   // dimensions of what's written - same "does NOT clear rows beyond that"
@@ -527,17 +553,27 @@ export async function pullItemsFromSheet(spreadsheetId: string): Promise<Invento
   };
   return dataRows
     .filter((r) => r.length && r[0])
-    .map((r, idx) => ({
-      id: `sheet-${idx}-${r[0]}`,
-      barcode: r[0] ?? "",
-      name: r[1] ?? "",
-      quantity: safeNumber(r[2]),
-      unit: r[3] ?? "ea",
-      pricePerUnit: safeNumber(r[4]),
-      reorderAt: safeNumber(r[5]),
-      updatedAt: new Date().toISOString(),
-      location: r[6] || undefined,
-    }));
+    .map((r, idx) => {
+      // Written by pushItemsToSheet via formatSheetTimestamp as plain text
+      // (valueInputOption: RAW never lets Sheets auto-convert it to a real
+      // date cell), so it always comes back as that same literal string —
+      // parses straightforwardly, but still guarded in case a customer
+      // hand-edited or cleared the cell in their sheet.
+      const parsedEditedAt = r[8] ? new Date(r[8]) : null;
+      return {
+        id: `sheet-${idx}-${r[0]}`,
+        barcode: r[0] ?? "",
+        name: r[1] ?? "",
+        quantity: safeNumber(r[2]),
+        unit: r[3] ?? "ea",
+        pricePerUnit: safeNumber(r[4]),
+        reorderAt: safeNumber(r[5]),
+        updatedAt:
+          parsedEditedAt && !isNaN(parsedEditedAt.getTime()) ? parsedEditedAt.toISOString() : new Date().toISOString(),
+        location: r[6] || undefined,
+        lastEditedBy: r[7] || undefined,
+      };
+    });
 }
 
 // Reads the Usage tab's detail table back out as raw rows — see

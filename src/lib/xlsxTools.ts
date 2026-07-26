@@ -3,6 +3,7 @@
 import * as XLSX from "xlsx";
 import { InventoryItem, StockMovement } from "./types";
 import { USAGE_COLUMNS, movementsToUsageRows, weeklyUsageTotals } from "./usageReport";
+import { formatSheetTimestamp } from "./time";
 
 // Import/export supporting Excel (.xlsx), LibreOffice (.ods), and CSV —
 // the same formats the original apps advertised. SheetJS reads/writes all
@@ -17,7 +18,20 @@ import { USAGE_COLUMNS, movementsToUsageRows, weeklyUsageTotals } from "./usageR
 // which *can* insert a real native chart via the Sheets API — that's a
 // plain REST call, not gated by this library's free/paid split.
 
-const COLUMNS: string[] = ["Barcode", "Name", "Quantity", "Unit", "Price Per Unit", "Reorder At", "Location"];
+// Widened (2026-07) to carry who last touched each row and when — see the
+// matching change in googleSheets.ts's HEADER_ROW for the Sheets-push side
+// of the same fix.
+const COLUMNS: string[] = [
+  "Barcode",
+  "Name",
+  "Quantity",
+  "Unit",
+  "Price Per Unit",
+  "Reorder At",
+  "Location",
+  "Last Edited By",
+  "Last Edited At",
+];
 
 export function exportItems(
   items: InventoryItem[],
@@ -27,7 +41,17 @@ export function exportItems(
 ): void {
   const inventoryRows: (string | number)[][] = [
     COLUMNS,
-    ...items.map((it) => [it.barcode, it.name, it.quantity, it.unit, it.pricePerUnit, it.reorderAt, it.location || ""]),
+    ...items.map((it) => [
+      it.barcode,
+      it.name,
+      it.quantity,
+      it.unit,
+      it.pricePerUnit,
+      it.reorderAt,
+      it.location || "",
+      it.lastEditedBy || "",
+      it.updatedAt ? formatSheetTimestamp(it.updatedAt) : "",
+    ]),
   ];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(inventoryRows), "Inventory");
@@ -112,6 +136,8 @@ export async function importItemsFromFile(file: File): Promise<ImportResult> {
       return;
     }
     const location = String(row[idx.location] ?? "").trim();
+    const lastEditedBy = String(row[idx.lastEditedBy] ?? "").trim();
+    const parsedEditedAt = parseTimestampCell(row[idx.lastEditedAt]);
     items.push({
       id: `import-${Date.now()}-${i}`,
       barcode,
@@ -120,8 +146,9 @@ export async function importItemsFromFile(file: File): Promise<ImportResult> {
       unit: String(row[idx.unit] ?? "ea"),
       pricePerUnit: Number(row[idx.price] ?? 0) || 0,
       reorderAt: Number(row[idx.reorderAt] ?? 0) || 0,
-      updatedAt: new Date().toISOString(),
+      updatedAt: parsedEditedAt ?? new Date().toISOString(),
       location: location || undefined,
+      lastEditedBy: lastEditedBy || undefined,
     });
   });
 
@@ -145,7 +172,30 @@ function buildColumnIndex(header: string[]) {
     price: find("price per unit", "price", "unit price"),
     reorderAt: find("reorder at", "reorder", "reorder level"),
     location: find("location", "storage location", "bin", "aisle"),
+    lastEditedBy: find("last edited by", "edited by"),
+    lastEditedAt: find("last edited at", "edited at", "last updated", "updated at"),
   };
+}
+
+// Parses the "Last Edited At" column back into an ISO timestamp, or null
+// if the cell is blank/unparseable (callers fall back to "now" in that
+// case). Two shapes to handle: a plain number, when Excel/LibreOffice has
+// converted the cell into a real date-typed value on open/resave (a day
+// count since 1899-12-30, with a fractional part for time-of-day - unlike
+// parseUsageDate below, that fraction is kept rather than discarded, since
+// this column's whole point is the time, not just the date); or text,
+// which covers both our own formatSheetTimestamp output and anything a
+// customer might have typed by hand.
+function parseTimestampCell(raw: any): string | null {
+  if (typeof raw === "number") {
+    const ms = Math.round((raw - 25569) * 86400 * 1000);
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 export interface UsageImportResult {
