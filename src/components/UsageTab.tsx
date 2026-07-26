@@ -235,9 +235,12 @@ export default function UsageTab({ items, onSave }: Props) {
         <div className="mb-4 space-y-2 rounded-xl2 border border-surface-border bg-white p-4 text-xs leading-relaxed text-neutral-600 shadow-card">
           <p>
             <span className="font-medium text-neutral-800">The overview list:</span> every item at once, sorted by
-            how much has moved in the selected range, with a small trend sparkline per row. Tap any item to open its
-            full detail view below — the stat tiles, suggested reorder point, and the bigger used-vs-restocked
-            chart. Use &quot;← All items&quot; at the top of the detail view to come back.
+            how much has moved, with a small trend sparkline per row. Each row uses that item&apos;s own tracking
+            window — 30 days by default, or whatever you&apos;ve set for it (&quot;Track usage by&quot;) from the
+            pencil icon in Inventory — so there&apos;s no separate filter to set here; it always matches what
+            that item is configured to show. Tap any item to open its full detail view below — the stat tiles,
+            suggested reorder point, and the bigger used-vs-restocked chart, where you can still adjust the window
+            for that visit. Use &quot;← All items&quot; at the top of the detail view to come back.
           </p>
           <p>
             <span className="font-medium text-neutral-800">What counts as usage:</span> anything that removes stock —

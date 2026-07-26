@@ -109,13 +109,27 @@ export default function HomePage() {
   };
 
   const upsertItem = (item: InventoryItem) => {
+    // Same stale-closure-safe pattern as adjust() below: the quantity delta
+    // is diffed against `prev` from inside the updater, not against the
+    // `items` this closure captured when upsertItem() was called. Needed so
+    // a customer correcting a count through the full Edit item modal (the
+    // Quantity field) logs a movement too, the same way the +/- stepper and
+    // tap-to-edit chip already do via adjust() - previously this path
+    // updated `quantity` with no StockMovement at all, so the Usage tab
+    // could show zero usage for an item a customer had visibly used and
+    // corrected by hand.
+    let delta = 0;
     setItems((prev) => {
       const idx = prev.findIndex((it) => it.id === item.id);
       if (idx === -1) return [...prev, item];
+      delta = item.quantity - prev[idx].quantity;
       const next = [...prev];
       next[idx] = item;
       return next;
     });
+    if (delta !== 0) {
+      logMovement({ itemId: item.id, delta, reason: "manual-adjust", at: new Date().toISOString(), by: item.lastEditedBy });
+    }
   };
 
   const adjust = (id: string, delta: number) => {

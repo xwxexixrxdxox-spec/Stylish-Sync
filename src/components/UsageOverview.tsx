@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Search, ChevronRight } from "lucide-react";
-import { InventoryItem, StockMovement, UsageRangeValue, USAGE_RANGE_OPTIONS } from "@/lib/types";
+import { InventoryItem, StockMovement, UsageRangeValue } from "@/lib/types";
 import { formatRelativeTime } from "@/lib/time";
 
 interface Props {
@@ -20,6 +20,7 @@ interface Props {
 // the row's width predictable no matter how long a range is selected.
 const SPARK_BINS = 20;
 const SPARK_HEIGHT_PX = 32;
+const DEFAULT_RANGE: UsageRangeValue = 30;
 
 function startOfDay(d: Date): Date {
   const copy = new Date(d);
@@ -41,61 +42,50 @@ function buildSparkline(movements: StockMovement[], start: Date, end: Date, bins
 }
 
 // Overview list: every item at a glance — total used, avg/day, and a trend
-// sparkline for whichever range is selected — so a customer with more than
-// a handful of items isn't stuck flipping through a one-item-at-a-time
-// dropdown just to see who's using the most stock. Tapping a row is the
-// "small ui" that drills into the existing full detail view (stat tiles +
-// the bigger used-vs-restocked chart, still in UsageTab.tsx) for that item.
+// sparkline, each computed over THAT item's own tracking window
+// (InventoryItem.usageTrackingDays, the same "Track usage by" default the
+// detail view opens to — see ItemEditModal.tsx / UsageTab.tsx) rather than
+// one shared filter applied to every row. A customer who's set a 90-day
+// window on a slow-moving item because it barely restocks should see that
+// item's usage over 90 days here too, not have it silently overridden by
+// whatever range happens to be selected for the rest of the list — this
+// list deliberately has no range picker of its own for exactly that
+// reason; it always reflects each item's own configured (or default)
+// window automatically. Tapping a row is the "small ui" that drills into
+// the existing full detail view (stat tiles + the bigger used-vs-restocked
+// chart, still in UsageTab.tsx) for that item, where its window can still
+// be adjusted per-visit.
 export default function UsageOverview({ items, movements, onSelectItem }: Props) {
   const [query, setQuery] = useState("");
-  const [rangeValue, setRangeValue] = useState<UsageRangeValue>(30);
 
-  // Usage-only (delta < 0) movements, grouped by item once up front — every
-  // per-item computation below then scans just its own (much smaller) list
-  // rather than re-filtering the full movement log per row.
-  const usageByItemId = useMemo(() => {
-    const map = new Map<string, StockMovement[]>();
+  // Every movement, grouped by item once up front — every per-item
+  // computation below then scans just its own (much smaller) list rather
+  // than re-filtering the full movement log per row. Kept as two maps:
+  // `usage` (delta < 0 only) for the totals/sparkline, and `all` (every
+  // sign) for finding an item's own earliest movement when ITS window is
+  // "all time" — mirrors what the detail view treats as the start of
+  // history for that item, not a restock-free subset of it.
+  const { usageByItemId, allByItemId } = useMemo(() => {
+    const usage = new Map<string, StockMovement[]>();
+    const all = new Map<string, StockMovement[]>();
     movements.forEach((m) => {
+      const allList = all.get(m.itemId);
+      if (allList) allList.push(m);
+      else all.set(m.itemId, [m]);
       if (m.delta >= 0) return;
-      const list = map.get(m.itemId);
-      if (list) list.push(m);
-      else map.set(m.itemId, [m]);
+      const usageList = usage.get(m.itemId);
+      if (usageList) usageList.push(m);
+      else usage.set(m.itemId, [m]);
     });
-    return map;
+    return { usageByItemId: usage, allByItemId: all };
   }, [movements]);
-
-  // Global earliest movement (across every item), not per-item — "All
-  // time" here means "since the earliest usage this account has ever
-  // logged," so every row's sparkline shares the same x-axis window rather
-  // than each item silently starting at a different date.
-  const earliestMovementDate = useMemo(() => {
-    if (!movements.length) return null;
-    return startOfDay(new Date(Math.min(...movements.map((m) => new Date(m.at).getTime()))));
-  }, [movements]);
-
-  const { rangeStart, rangeEnd, spanDays } = useMemo(() => {
-    const today = startOfDay(new Date());
-    const end = new Date(today);
-    end.setDate(end.getDate() + 1); // exclusive, so "today" is fully included
-    const start =
-      rangeValue === "all"
-        ? earliestMovementDate ?? today
-        : (() => {
-            const d = new Date(today);
-            d.setDate(d.getDate() - (rangeValue - 1));
-            return d;
-          })();
-    const span = Math.max(1, Math.round((today.getTime() - start.getTime()) / 86_400_000) + 1);
-    return { rangeStart: start, rangeEnd: end, spanDays: span };
-  }, [rangeValue, earliestMovementDate]);
-
-  const rangeLabel = rangeValue === "all" ? "all time" : `last ${rangeValue}d`;
 
   // Sorted by total used (descending) — the items actually moving stock
   // surface first, since that's almost always what "an overview of usage"
-  // is for. Items with zero usage in the range still show up (further
-  // down, alphabetically among themselves) rather than being hidden, so
-  // this stays a true overview of *all* items, not just the active ones.
+  // is for. Items with zero usage in their own window still show up
+  // (further down, alphabetically among themselves) rather than being
+  // hidden, so this stays a true overview of *all* items, not just the
+  // active ones.
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matching = !q
@@ -106,8 +96,25 @@ export default function UsageOverview({ items, movements, onSelectItem }: Props)
             it.barcode.toLowerCase().includes(q) ||
             (it.location || "").toLowerCase().includes(q)
         );
+    const today = startOfDay(new Date());
+    const rangeEnd = new Date(today);
+    rangeEnd.setDate(rangeEnd.getDate() + 1); // exclusive, so "today" is fully included
+
     return matching
       .map((item) => {
+        const ownRange = item.usageTrackingDays ?? DEFAULT_RANGE;
+        let rangeStart: Date;
+        if (ownRange === "all") {
+          const itemMovements = allByItemId.get(item.id);
+          rangeStart = itemMovements?.length
+            ? startOfDay(new Date(Math.min(...itemMovements.map((m) => new Date(m.at).getTime()))))
+            : today;
+        } else {
+          rangeStart = new Date(today);
+          rangeStart.setDate(rangeStart.getDate() - (ownRange - 1));
+        }
+        const spanDays = Math.max(1, Math.round((today.getTime() - rangeStart.getTime()) / 86_400_000) + 1);
+
         const inRange = (usageByItemId.get(item.id) ?? []).filter((m) => {
           const t = new Date(m.at).getTime();
           return t >= rangeStart.getTime() && t < rangeEnd.getTime();
@@ -118,40 +125,28 @@ export default function UsageOverview({ items, movements, onSelectItem }: Props)
           ? inRange.reduce((latest, m) => (m.at > latest ? m.at : latest), inRange[0].at)
           : null;
         const sparkline = buildSparkline(inRange, rangeStart, rangeEnd, SPARK_BINS);
-        return { item, totalUsed, avgPerDay, lastUsedAt, sparkline };
+        const rangeLabel = ownRange === "all" ? "all time" : `last ${ownRange}d`;
+        return { item, totalUsed, avgPerDay, lastUsedAt, sparkline, rangeLabel };
       })
       .sort((a, b) => b.totalUsed - a.totalUsed || a.item.name.localeCompare(b.item.name));
-  }, [items, query, usageByItemId, rangeStart, rangeEnd, spanDays]);
+  }, [items, query, usageByItemId, allByItemId]);
 
   return (
     <div>
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 items-center gap-2 rounded-xl2 border border-surface-border bg-white px-3 py-2 shadow-card sm:max-w-[220px]">
-          <Search size={16} className="text-neutral-400" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search items..."
-            aria-label="Search items"
-            className="w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
-          />
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {USAGE_RANGE_OPTIONS.map((r) => (
-            <button
-              key={r.label}
-              onClick={() => setRangeValue(r.value)}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                rangeValue === r.value
-                  ? "border-neutral-900 bg-neutral-900 text-white"
-                  : "border-surface-border text-neutral-600 hover:bg-surface-muted"
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
+      <div className="mb-2 flex items-center gap-2 rounded-xl2 border border-surface-border bg-white px-3 py-2 shadow-card">
+        <Search size={16} className="text-neutral-400" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search items..."
+          aria-label="Search items"
+          className="w-full bg-transparent text-sm outline-none placeholder:text-neutral-400"
+        />
       </div>
+      <p className="mb-3 text-[11px] text-neutral-400">
+        Each item shows usage over its own tracking window — 30 days by default, or whatever you&apos;ve set for it
+        (&quot;Track usage by&quot;) from the pencil icon in Inventory.
+      </p>
 
       {rows.length === 0 ? (
         <p className="rounded-xl2 border border-dashed border-surface-border bg-white p-6 text-center text-sm text-neutral-400">
@@ -159,7 +154,7 @@ export default function UsageOverview({ items, movements, onSelectItem }: Props)
         </p>
       ) : (
         <div className="space-y-2">
-          {rows.map(({ item, totalUsed, avgPerDay, lastUsedAt, sparkline }) => {
+          {rows.map(({ item, totalUsed, avgPerDay, lastUsedAt, sparkline, rangeLabel }) => {
             const maxBin = Math.max(1, ...sparkline);
             return (
               <button
