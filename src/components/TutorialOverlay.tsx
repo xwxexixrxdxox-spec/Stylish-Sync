@@ -117,7 +117,18 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     waitForElement(step.targetSelector).then((el) => {
       if (cancelled) return;
       targetElRef.current = el;
-      if (el) setRect(el.getBoundingClientRect());
+      if (el) {
+        setRect(el.getBoundingClientRect());
+        // The target isn't guaranteed to already be on screen - a step
+        // whose element sits further down the tab/list than whatever was
+        // scrolled into view a moment ago (or on a short mobile viewport)
+        // would otherwise get spotlighted using a stale/off-screen rect,
+        // which reads as the highlight ring appearing somewhere else
+        // entirely (e.g. around the fixed bottom nav) instead of around
+        // the real target. See PropertyTutorialOverlay.tsx, where this
+        // exact fix shipped first.
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
     });
     return () => {
       cancelled = true;
