@@ -180,6 +180,22 @@ export const ORDERED_PART_STATUS_OPTIONS: { label: string; value: OrderedPartSta
   { label: "Cancelled", value: "cancelled" },
 ];
 
+// A single chronological status transition (2026-07) — one entry per status
+// change, oldest first, so the array as a whole reads as "the story" of a
+// part/task's life: ordered on X, shipped on Y, received on Z, etc. `status`
+// on OrderedPart/MaintenanceTask itself stays the single source of truth for
+// "what's the current state" (nothing reads current state from this array —
+// it's a purely additive log), while `statusHistory` is what actually
+// answers "how did it get there and when." `note` covers things like a
+// cancellation reason; `by` mirrors the same lightweight per-device name tag
+// used elsewhere (see PropertyItem.lastEditedBy).
+export interface StatusHistoryEntry<TStatus extends string = string> {
+  status: TStatus;
+  at: string;
+  note?: string;
+  by?: string;
+}
+
 export interface OrderedPart {
   id: string;
   description: string;
@@ -198,6 +214,10 @@ export interface OrderedPart {
   // not the customer's own price" caveat as InventoryItem.pricePerUnit's
   // lookup path (see BarcodeLookupResult in productLookup.ts).
   pricePerUnit?: number;
+  // Chronological log of every status change, seeded with one entry at
+  // creation and appended to on every status change thereafter — see
+  // StatusHistoryEntry above.
+  statusHistory: StatusHistoryEntry<OrderedPartStatus>[];
 }
 
 export type MaintenanceTaskStatus = "needed" | "scheduled" | "in_progress" | "completed" | "cancelled";
@@ -215,6 +235,9 @@ export interface MaintenanceTask {
   description: string;
   status: MaintenanceTaskStatus;
   updatedAt: string;
+  // Chronological log of every status change — see StatusHistoryEntry above
+  // and OrderedPart.statusHistory's comment.
+  statusHistory: StatusHistoryEntry<MaintenanceTaskStatus>[];
 }
 
 export interface PropertyItem {

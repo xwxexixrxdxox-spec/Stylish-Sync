@@ -12,6 +12,7 @@ import {
   Search,
   ShoppingCart,
   ChevronDown,
+  Clock,
 } from "lucide-react";
 import {
   PropertyItem,
@@ -155,20 +156,37 @@ export default function PropertyManager() {
       pricePerUnit: input.pricePerUnit,
       status: "ordered",
       updatedAt,
+      // Seed the story with its first chapter — every part starts life
+      // "ordered," so that's the first entry rather than an empty history.
+      statusHistory: [{ status: "ordered", at: updatedAt, by: lastEditedBy }],
     };
     setProperties((prev) =>
       prev.map((p) => (p.id === propertyId ? { ...p, orderedParts: [...p.orderedParts, part], updatedAt, lastEditedBy } : p))
     );
   };
 
-  const updatePartStatus = (propertyId: string, partId: string, status: OrderedPart["status"]) => {
+  // `note` covers things like a cancellation reason (see the PropertyCard
+  // cancel-reason prompt) — optional for every other transition. Appends
+  // to statusHistory rather than replacing it, so the full chronological
+  // record survives every subsequent change; `status`/`updatedAt` stay the
+  // "current state" fields everything else in the app already reads.
+  const updatePartStatus = (propertyId: string, partId: string, status: OrderedPart["status"], note?: string) => {
     const { updatedAt, lastEditedBy } = touch();
     setProperties((prev) =>
       prev.map((p) =>
         p.id === propertyId
           ? {
               ...p,
-              orderedParts: p.orderedParts.map((part) => (part.id === partId ? { ...part, status, updatedAt } : part)),
+              orderedParts: p.orderedParts.map((part) =>
+                part.id === partId
+                  ? {
+                      ...part,
+                      status,
+                      updatedAt,
+                      statusHistory: [...part.statusHistory, { status, at: updatedAt, note, by: lastEditedBy }],
+                    }
+                  : part
+              ),
               updatedAt,
               lastEditedBy,
             }
@@ -196,6 +214,7 @@ export default function PropertyManager() {
       description: description.trim(),
       status: "needed",
       updatedAt,
+      statusHistory: [{ status: "needed", at: updatedAt, by: lastEditedBy }],
     };
     setProperties((prev) =>
       prev.map((p) =>
@@ -204,7 +223,7 @@ export default function PropertyManager() {
     );
   };
 
-  const updateTaskStatus = (propertyId: string, taskId: string, status: MaintenanceTask["status"]) => {
+  const updateTaskStatus = (propertyId: string, taskId: string, status: MaintenanceTask["status"], note?: string) => {
     const { updatedAt, lastEditedBy } = touch();
     setProperties((prev) =>
       prev.map((p) =>
@@ -212,7 +231,14 @@ export default function PropertyManager() {
           ? {
               ...p,
               maintenanceTasks: p.maintenanceTasks.map((task) =>
-                task.id === taskId ? { ...task, status, updatedAt } : task
+                task.id === taskId
+                  ? {
+                      ...task,
+                      status,
+                      updatedAt,
+                      statusHistory: [...task.statusHistory, { status, at: updatedAt, note, by: lastEditedBy }],
+                    }
+                  : task
               ),
               updatedAt,
               lastEditedBy,
@@ -401,10 +427,10 @@ export default function PropertyManager() {
               onUpdate={(patch) => updateProperty(p.id, patch)}
               onDelete={() => setConfirmDeleteId(p.id)}
               onAddPart={(input) => addPart(p.id, input)}
-              onUpdatePartStatus={(partId, status) => updatePartStatus(p.id, partId, status)}
+              onUpdatePartStatus={(partId, status, note) => updatePartStatus(p.id, partId, status, note)}
               onRemovePart={(partId) => removePart(p.id, partId)}
               onAddTask={(desc) => addTask(p.id, desc)}
-              onUpdateTaskStatus={(taskId, status) => updateTaskStatus(p.id, taskId, status)}
+              onUpdateTaskStatus={(taskId, status, note) => updateTaskStatus(p.id, taskId, status, note)}
               onRemoveTask={(taskId) => removeTask(p.id, taskId)}
             />
           ))}
@@ -470,10 +496,10 @@ interface CardProps {
   onUpdate: (patch: Partial<PropertyItem>) => void;
   onDelete: () => void;
   onAddPart: (input: NewPartInput) => void;
-  onUpdatePartStatus: (partId: string, status: OrderedPart["status"]) => void;
+  onUpdatePartStatus: (partId: string, status: OrderedPart["status"], note?: string) => void;
   onRemovePart: (partId: string) => void;
   onAddTask: (description: string) => void;
-  onUpdateTaskStatus: (taskId: string, status: MaintenanceTask["status"]) => void;
+  onUpdateTaskStatus: (taskId: string, status: MaintenanceTask["status"], note?: string) => void;
   onRemoveTask: (taskId: string) => void;
 }
 
@@ -507,6 +533,49 @@ function PropertyCard({
   const [lookupStatus, setLookupStatus] = useState<"idle" | "checking" | "found" | "multiple" | "not-found">("idle");
   const [candidates, setCandidates] = useState<BarcodeLookupResult[]>([]);
   const [findMenuForPartId, setFindMenuForPartId] = useState<string | null>(null);
+
+  // Status-history tracking (2026-07) — expandable "story" panel per
+  // part/task (ids are unique across both lists, so one piece of state
+  // covers both) and a reason-capture prompt shown specifically when a
+  // status change lands on "cancelled," since a cancellation is the one
+  // transition where "why" is worth recording alongside "when."
+  const [historyOpenFor, setHistoryOpenFor] = useState<string | null>(null);
+  const [cancelPromptFor, setCancelPromptFor] = useState<{ kind: "part" | "task"; id: string } | null>(null);
+  const [cancelNote, setCancelNote] = useState("");
+
+  const handlePartStatusChange = (part: OrderedPart, status: OrderedPart["status"]) => {
+    if (status === "cancelled") {
+      setCancelPromptFor({ kind: "part", id: part.id });
+      setCancelNote("");
+      return;
+    }
+    onUpdatePartStatus(part.id, status);
+  };
+
+  const handleTaskStatusChange = (task: MaintenanceTask, status: MaintenanceTask["status"]) => {
+    if (status === "cancelled") {
+      setCancelPromptFor({ kind: "task", id: task.id });
+      setCancelNote("");
+      return;
+    }
+    onUpdateTaskStatus(task.id, status);
+  };
+
+  const confirmCancel = () => {
+    if (!cancelPromptFor) return;
+    if (cancelPromptFor.kind === "part") {
+      onUpdatePartStatus(cancelPromptFor.id, "cancelled", cancelNote.trim() || undefined);
+    } else {
+      onUpdateTaskStatus(cancelPromptFor.id, "cancelled", cancelNote.trim() || undefined);
+    }
+    setCancelPromptFor(null);
+    setCancelNote("");
+  };
+
+  const orderedPartStatusLabel = (status: OrderedPart["status"]) =>
+    ORDERED_PART_STATUS_OPTIONS.find((opt) => opt.value === status)?.label ?? status;
+  const maintenanceTaskStatusLabel = (status: MaintenanceTask["status"]) =>
+    MAINTENANCE_TASK_STATUS_OPTIONS.find((opt) => opt.value === status)?.label ?? status;
 
   // Fills the part-number lookup fields from one candidate — same
   // "description always overwrites, price only overwrites (and only then
@@ -699,7 +768,7 @@ function PropertyCard({
                 </div>
                 <select
                   value={part.status}
-                  onChange={(e) => onUpdatePartStatus(part.id, e.target.value as OrderedPart["status"])}
+                  onChange={(e) => handlePartStatusChange(part, e.target.value as OrderedPart["status"])}
                   className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
                 >
                   {ORDERED_PART_STATUS_OPTIONS.map((opt) => (
@@ -708,6 +777,17 @@ function PropertyCard({
                     </option>
                   ))}
                 </select>
+                <button
+                  onClick={() => setHistoryOpenFor(historyOpenFor === part.id ? null : part.id)}
+                  aria-label="View status history"
+                  className={`flex items-center rounded-md border px-1.5 py-1 ${
+                    historyOpenFor === part.id
+                      ? "border-neutral-900 bg-neutral-900 text-white"
+                      : "border-surface-border bg-white text-neutral-500 hover:bg-surface-muted"
+                  }`}
+                >
+                  <Clock size={12} />
+                </button>
                 <div className="relative shrink-0">
                   <button
                     onClick={() => setFindMenuForPartId(findMenuForPartId === part.id ? null : part.id)}
@@ -745,6 +825,50 @@ function PropertyCard({
                   <Trash2 size={12} />
                 </button>
               </div>
+
+              {cancelPromptFor?.kind === "part" && cancelPromptFor.id === part.id && (
+                <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                  <p className="mb-1 text-[11px] font-medium text-amber-800">Cancelling — reason (optional)?</p>
+                  <input
+                    autoFocus
+                    value={cancelNote}
+                    onChange={(e) => setCancelNote(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && confirmCancel()}
+                    placeholder="e.g. ordered wrong part, no longer needed…"
+                    className="mb-1.5 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-amber-400"
+                  />
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setCancelPromptFor(null)}
+                      className="flex-1 rounded-md border border-surface-border bg-white py-1 text-[11px] font-medium text-neutral-600 hover:bg-surface-muted"
+                    >
+                      Never mind
+                    </button>
+                    <button
+                      onClick={confirmCancel}
+                      className="flex-1 rounded-md bg-accent-low py-1 text-[11px] font-semibold text-white hover:opacity-90"
+                    >
+                      Cancel part
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {historyOpenFor === part.id && (
+                <div className="mt-1.5 space-y-1 rounded-lg border border-surface-border bg-white p-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">Status history</p>
+                  {[...part.statusHistory]
+                    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+                    .map((entry, i) => (
+                      <div key={i} className="text-[11px] text-neutral-600">
+                        <span className="font-medium text-neutral-800">{orderedPartStatusLabel(entry.status)}</span>
+                        {" — "}
+                        {new Date(entry.at).toLocaleString()}
+                        {entry.note && <span className="block text-neutral-400">{entry.note}</span>}
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -870,26 +994,83 @@ function PropertyCard({
         </p>
         <div className="space-y-1.5">
           {property.maintenanceTasks.map((task) => (
-            <div key={task.id} className="flex items-center gap-1.5 rounded-lg bg-surface-muted px-2 py-1.5">
-              <span className="flex-1 text-xs text-neutral-700">{task.description}</span>
-              <select
-                value={task.status}
-                onChange={(e) => onUpdateTaskStatus(task.id, e.target.value as MaintenanceTask["status"])}
-                className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
-              >
-                {MAINTENANCE_TASK_STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => onRemoveTask(task.id)}
-                aria-label="Remove task"
-                className="text-neutral-400 hover:text-accent-low"
-              >
-                <Trash2 size={12} />
-              </button>
+            <div key={task.id} className="rounded-lg bg-surface-muted px-2 py-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="flex-1 text-xs text-neutral-700">{task.description}</span>
+                <select
+                  value={task.status}
+                  onChange={(e) => handleTaskStatusChange(task, e.target.value as MaintenanceTask["status"])}
+                  className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
+                >
+                  {MAINTENANCE_TASK_STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setHistoryOpenFor(historyOpenFor === task.id ? null : task.id)}
+                  aria-label="View status history"
+                  className={`flex items-center rounded-md border px-1.5 py-1 ${
+                    historyOpenFor === task.id
+                      ? "border-neutral-900 bg-neutral-900 text-white"
+                      : "border-surface-border bg-white text-neutral-500 hover:bg-surface-muted"
+                  }`}
+                >
+                  <Clock size={12} />
+                </button>
+                <button
+                  onClick={() => onRemoveTask(task.id)}
+                  aria-label="Remove task"
+                  className="text-neutral-400 hover:text-accent-low"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+
+              {cancelPromptFor?.kind === "task" && cancelPromptFor.id === task.id && (
+                <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                  <p className="mb-1 text-[11px] font-medium text-amber-800">Cancelling — reason (optional)?</p>
+                  <input
+                    autoFocus
+                    value={cancelNote}
+                    onChange={(e) => setCancelNote(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && confirmCancel()}
+                    placeholder="e.g. no longer needed, duplicate task…"
+                    className="mb-1.5 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-amber-400"
+                  />
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setCancelPromptFor(null)}
+                      className="flex-1 rounded-md border border-surface-border bg-white py-1 text-[11px] font-medium text-neutral-600 hover:bg-surface-muted"
+                    >
+                      Never mind
+                    </button>
+                    <button
+                      onClick={confirmCancel}
+                      className="flex-1 rounded-md bg-accent-low py-1 text-[11px] font-semibold text-white hover:opacity-90"
+                    >
+                      Cancel task
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {historyOpenFor === task.id && (
+                <div className="mt-1.5 space-y-1 rounded-lg border border-surface-border bg-white p-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">Status history</p>
+                  {[...task.statusHistory]
+                    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+                    .map((entry, i) => (
+                      <div key={i} className="text-[11px] text-neutral-600">
+                        <span className="font-medium text-neutral-800">{maintenanceTaskStatusLabel(entry.status)}</span>
+                        {" — "}
+                        {new Date(entry.at).toLocaleString()}
+                        {entry.note && <span className="block text-neutral-400">{entry.note}</span>}
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

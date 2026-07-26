@@ -1,6 +1,6 @@
 "use client";
 
-import { InventoryItem, StockMovement, PropertyItem, OrderedPart, MaintenanceTask } from "./types";
+import { InventoryItem, StockMovement, PropertyItem, OrderedPart, MaintenanceTask, StatusHistoryEntry } from "./types";
 import { movementsToUsageRows, weeklyUsageTotals, UsageSheetRow } from "./usageReport";
 import { formatSheetTimestamp } from "./time";
 
@@ -122,6 +122,27 @@ const PROPERTY_PARTS_HEADER = [
 ];
 const PROPERTY_TASKS_RANGE = `${PROPERTY_SHEET_TITLE}!S1:X`;
 const PROPERTY_TASKS_HEADER = ["Property ID", "Property Name", "Task Description", "Status", "Last Edited At", "Task ID"];
+// A 4th block (2026-07) — the full chronological status-change log for
+// every part and task, flattened into one long sheet so the export reads
+// as a "story": every status transition either list ever went through, one
+// row per transition, sorted (see pushPropertyToSheet) so a customer can
+// pull this sheet and read, in order, "ordered on X, shipped on Y, received
+// on Z..." for a given item. This is intentionally a loose approximation of
+// the general chronological-status-log idea behind systems like Oracle
+// GCSS — not a literal replica of its exact column layout, which isn't
+// something this app has direct knowledge of.
+const PROPERTY_HISTORY_RANGE = `${PROPERTY_SHEET_TITLE}!Z1:AH`;
+const PROPERTY_HISTORY_HEADER = [
+  "Type",
+  "Property ID",
+  "Property Name",
+  "Item Description",
+  "Item ID",
+  "Status",
+  "Status At",
+  "Note",
+  "Changed By",
+];
 
 // drive.file (not the broader drive.readonly) is deliberate: it only grants
 // this app access to files the customer explicitly selects through the
@@ -714,6 +735,38 @@ export async function pushPropertyToSheet(spreadsheetId: string, properties: Pro
     ),
   ];
 
+  // Flatten every part/task's statusHistory into one long "story" block,
+  // one row per transition. Sorted by property name, then item description,
+  // then Status At ascending — formatSheetTimestamp produces zero-padded
+  // sortable strings, so a plain string sort already puts each item's
+  // transitions in chronological order and groups items together, making
+  // the sheet readable top-to-bottom as a timeline per item without any
+  // spreadsheet-side sorting/filtering required.
+  type HistoryRow = { key: string; row: (string | number)[] };
+  const historyRowEntries: HistoryRow[] = [];
+  properties.forEach((p) => {
+    p.orderedParts.forEach((part) => {
+      (part.statusHistory ?? []).forEach((entry) => {
+        const at = entry.at ? formatSheetTimestamp(entry.at) : "";
+        historyRowEntries.push({
+          key: `${p.name} ${part.description} ${at}`,
+          row: ["Part", p.id, p.name, part.description, part.id, entry.status, at, entry.note || "", entry.by || ""],
+        });
+      });
+    });
+    p.maintenanceTasks.forEach((task) => {
+      (task.statusHistory ?? []).forEach((entry) => {
+        const at = entry.at ? formatSheetTimestamp(entry.at) : "";
+        historyRowEntries.push({
+          key: `${p.name} ${task.description} ${at}`,
+          row: ["Task", p.id, p.name, task.description, task.id, entry.status, at, entry.note || "", entry.by || ""],
+        });
+      });
+    });
+  });
+  historyRowEntries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const historyRows = [PROPERTY_HISTORY_HEADER, ...historyRowEntries.map((e) => e.row)];
+
   // Same reasoning as pushItemsToSheet's batchClear: a plain values write
   // only overwrites cells within the exact dimensions of what's sent, so
   // without clearing each open-ended range first, a property/part/task
@@ -721,7 +774,9 @@ export async function pushPropertyToSheet(spreadsheetId: string, properties: Pro
   // the sheet forever (and a later Pull would resurrect it).
   await sheetsFetch(`/${spreadsheetId}/values:batchClear`, token, {
     method: "POST",
-    body: JSON.stringify({ ranges: [PROPERTY_DETAIL_RANGE, PROPERTY_PARTS_RANGE, PROPERTY_TASKS_RANGE] }),
+    body: JSON.stringify({
+      ranges: [PROPERTY_DETAIL_RANGE, PROPERTY_PARTS_RANGE, PROPERTY_TASKS_RANGE, PROPERTY_HISTORY_RANGE],
+    }),
   });
   await sheetsFetch(`/${spreadsheetId}/values:batchUpdate`, token, {
     method: "POST",
@@ -731,6 +786,7 @@ export async function pushPropertyToSheet(spreadsheetId: string, properties: Pro
         { range: PROPERTY_DETAIL_RANGE, values: detailRows },
         { range: PROPERTY_PARTS_RANGE, values: partsRows },
         { range: PROPERTY_TASKS_RANGE, values: tasksRows },
+        { range: PROPERTY_HISTORY_RANGE, values: historyRows },
       ],
     }),
   });
@@ -746,14 +802,15 @@ export async function pushPropertyToSheet(spreadsheetId: string, properties: Pro
 export async function pullPropertyFromSheet(spreadsheetId: string): Promise<PropertyItem[]> {
   const token = await requestAccessToken();
   const data = await sheetsFetch(
-    `/${spreadsheetId}/values:batchGet?ranges=${encodeURIComponent(PROPERTY_DETAIL_RANGE)}&ranges=${encodeURIComponent(PROPERTY_PARTS_RANGE)}&ranges=${encodeURIComponent(PROPERTY_TASKS_RANGE)}`,
+    `/${spreadsheetId}/values:batchGet?ranges=${encodeURIComponent(PROPERTY_DETAIL_RANGE)}&ranges=${encodeURIComponent(PROPERTY_PARTS_RANGE)}&ranges=${encodeURIComponent(PROPERTY_TASKS_RANGE)}&ranges=${encodeURIComponent(PROPERTY_HISTORY_RANGE)}`,
     token,
     { method: "GET" }
   );
-  const [detailResult, partsResult, tasksResult] = data.valueRanges ?? [];
+  const [detailResult, partsResult, tasksResult, historyResult] = data.valueRanges ?? [];
   const detailRows: string[][] = (detailResult?.values ?? []).slice(1); // drop header
   const partsRows: string[][] = (partsResult?.values ?? []).slice(1);
   const tasksRows: string[][] = (tasksResult?.values ?? []).slice(1);
+  const historyRows: string[][] = (historyResult?.values ?? []).slice(1);
 
   const parseWhen = (raw: string | undefined): string => {
     const d = raw ? new Date(raw) : null;
@@ -775,20 +832,41 @@ export async function pullPropertyFromSheet(spreadsheetId: string): Promise<Prop
     }));
   const byId = new Map(properties.map((p) => [p.id, p]));
 
+  // Group the history block's rows by Item ID (column index 4) before
+  // attaching them to parts/tasks below — same "match by ID, not row order"
+  // reasoning as parts/tasks matching their parent property. Rows for an
+  // item are appended in whatever order the sheet has them; sorted by
+  // Status At right after, so hand-edits/reordering on the sheet side can't
+  // scramble the story.
+  const historyByItemId = new Map<string, StatusHistoryEntry[]>();
+  historyRows
+    .filter((r) => r.length && r[4] && r[5])
+    .forEach((r) => {
+      const list = historyByItemId.get(r[4]) ?? [];
+      list.push({ status: r[5], at: parseWhen(r[6]), note: r[7] || undefined, by: r[8] || undefined });
+      historyByItemId.set(r[4], list);
+    });
+  historyByItemId.forEach((list) => list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)));
+
   partsRows
     .filter((r) => r.length && r[0] && r[8])
     .forEach((r) => {
       const parent = byId.get(r[0]);
       if (!parent) return;
       const price = Number(r[5]);
+      const status = (r[6] as OrderedPart["status"]) || "ordered";
+      const updatedAt = parseWhen(r[7]);
       parent.orderedParts.push({
         id: r[8],
         partNumber: r[2] || undefined,
         description: r[3] ?? "",
         unit: (r[4] as OrderedPart["unit"]) || undefined,
         pricePerUnit: r[5] && Number.isFinite(price) ? price : undefined,
-        status: (r[6] as OrderedPart["status"]) || "ordered",
-        updatedAt: parseWhen(r[7]),
+        status,
+        updatedAt,
+        statusHistory: (historyByItemId.get(r[8]) as StatusHistoryEntry<OrderedPart["status"]>[] | undefined) ?? [
+          { status, at: updatedAt },
+        ],
       });
     });
 
@@ -797,11 +875,16 @@ export async function pullPropertyFromSheet(spreadsheetId: string): Promise<Prop
     .forEach((r) => {
       const parent = byId.get(r[0]);
       if (!parent) return;
+      const status = (r[3] as MaintenanceTask["status"]) || "needed";
+      const updatedAt = parseWhen(r[4]);
       parent.maintenanceTasks.push({
         id: r[5],
         description: r[2] ?? "",
-        status: (r[3] as MaintenanceTask["status"]) || "needed",
-        updatedAt: parseWhen(r[4]),
+        status,
+        updatedAt,
+        statusHistory: (historyByItemId.get(r[5]) as StatusHistoryEntry<MaintenanceTask["status"]>[] | undefined) ?? [
+          { status, at: updatedAt },
+        ],
       });
     });
 

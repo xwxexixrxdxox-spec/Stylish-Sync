@@ -419,7 +419,28 @@ export function loadPropertyItems(): PropertyItem[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as PropertyItem[];
     return Array.isArray(parsed)
-      ? parsed.map((p) => ({ ...p, orderedParts: p.orderedParts ?? [], maintenanceTasks: p.maintenanceTasks ?? [] }))
+      ? parsed.map((p) => ({
+          ...p,
+          // Backfill for records saved before statusHistory existed (2026-07)
+          // — same "parse-with-defaults" pattern as parseBookingRecord in
+          // booking.ts. A part/task with no history yet gets a single entry
+          // synthesized from its current status/updatedAt, so the log is
+          // never empty even for pre-existing data.
+          orderedParts: (p.orderedParts ?? []).map((part) => ({
+            ...part,
+            statusHistory:
+              part.statusHistory && part.statusHistory.length
+                ? part.statusHistory
+                : [{ status: part.status, at: part.updatedAt }],
+          })),
+          maintenanceTasks: (p.maintenanceTasks ?? []).map((task) => ({
+            ...task,
+            statusHistory:
+              task.statusHistory && task.statusHistory.length
+                ? task.statusHistory
+                : [{ status: task.status, at: task.updatedAt }],
+          })),
+        }))
       : [];
   } catch {
     return [];
