@@ -214,8 +214,13 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     // A missing file and a browser declining to autoplay both reject this
     // promise — neither is treated as fatal, same "never a hard
     // requirement" spirit the old speechSynthesis path had: the tour just
-    // runs silently for that step rather than throwing.
+    // runs silently for that step rather than throwing. AbortError is
+    // excluded from the warning entirely: it fires whenever this clip gets
+    // superseded by a pause() call before it finished — the ordinary,
+    // expected outcome of the customer advancing before narration wraps
+    // up, not a real failure worth surfacing.
     audio.play().catch((err) => {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.warn(`Tutorial narration failed for step "${target.id}":`, err);
     });
     lastSpokenIndexRef.current = index;
