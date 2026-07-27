@@ -572,6 +572,16 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
 
       {mode === "barcode" && (
         <>
+      {/* Stable wrapper for the guided tour's "scan" step to spotlight —
+          deliberately NOT the "Scan Barcode" button itself, since that
+          button unmounts the instant scanning starts ({!scanning && ...}
+          below). A spotlight locked onto a since-unmounted element would
+          freeze on a detached node's stale (0,0,0,0) rect instead of
+          following the camera view that replaces it, leaving the real,
+          now-visible UI sitting under the dim mask instead of the hole.
+          This wrapper spans both states (button and camera view) so the
+          tour keeps tracking whichever is actually on screen. */}
+      <div data-tutorial="scan-action-area">
       <div
         className={`overflow-hidden rounded-xl2 border border-surface-border bg-black shadow-card ${
           scanning ? "" : "hidden"
@@ -650,12 +660,12 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
       {!scanning && (
         <button
           onClick={startScan}
-          data-tutorial="scan-barcode-button"
           className="w-full rounded-xl2 bg-blue-500 py-4 text-center text-sm font-semibold text-white shadow-card hover:opacity-90"
         >
           📷 Scan Barcode
         </button>
       )}
+      </div>
       {cameraError && <p className="mt-2 text-xs text-accent-low">{cameraError}</p>}
 
       <input

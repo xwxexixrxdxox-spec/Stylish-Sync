@@ -42,6 +42,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const targetElRef = useRef<HTMLElement | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Tracks which step index has already been played via a direct click
@@ -111,34 +112,56 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
+  // Points the spotlight at a real element: records it, positions the
+  // rect, scrolls it into view, and (re)attaches a ResizeObserver so
+  // content that grows/shrinks after the spotlight first lands - the
+  // "scan" step's wrapper going from a plain button to a whole camera
+  // view once scanning starts is the concrete case that needed this, but
+  // it's a general fix - keeps the hole glued to the target's actual
+  // current size instead of the size it happened to be when first found.
+  // Shared by the normal per-step target search below and by
+  // switchTarget() (the "reorder" step's mid-narration retarget).
+  const attachTarget = (el: HTMLElement) => {
+    resizeObserverRef.current?.disconnect();
+    targetElRef.current = el;
+    setRect(el.getBoundingClientRect());
+    // The target isn't guaranteed to already be on screen - a step whose
+    // element sits further down the tab/list than whatever was scrolled
+    // into view a moment ago (or on a short mobile viewport) would
+    // otherwise get spotlighted using a stale/off-screen rect, which reads
+    // as the highlight ring appearing somewhere else entirely (e.g. around
+    // the fixed bottom nav) instead of around the real target. See
+    // PropertyTutorialOverlay.tsx, where this exact fix shipped first.
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const observer = new ResizeObserver(() => {
+      if (targetElRef.current) setRect(targetElRef.current.getBoundingClientRect());
+    });
+    observer.observe(el);
+    resizeObserverRef.current = observer;
+  };
+
   // Find (and re-find, once the tab/sidebar effect above actually lands)
   // this step's spotlight target.
   useEffect(() => {
     let cancelled = false;
     setRect(null);
     targetElRef.current = null;
+    resizeObserverRef.current?.disconnect();
     if (!step.targetSelector) return;
     waitForElement(step.targetSelector).then((el) => {
       if (cancelled) return;
-      targetElRef.current = el;
-      if (el) {
-        setRect(el.getBoundingClientRect());
-        // The target isn't guaranteed to already be on screen - a step
-        // whose element sits further down the tab/list than whatever was
-        // scrolled into view a moment ago (or on a short mobile viewport)
-        // would otherwise get spotlighted using a stale/off-screen rect,
-        // which reads as the highlight ring appearing somewhere else
-        // entirely (e.g. around the fixed bottom nav) instead of around
-        // the real target. See PropertyTutorialOverlay.tsx, where this
-        // exact fix shipped first.
-        el.scrollIntoView({ block: "center", behavior: "smooth" });
-      }
+      if (el) attachTarget(el);
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex, tab, accountOpen]);
+
+  // Belt-and-suspenders cleanup on unmount - attachTarget always disconnects
+  // the previous observer before creating a new one, but nothing does that
+  // for the very last one when the tour itself closes.
+  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
 
   // Keep the spotlight glued to its target through resize/scroll, and
   // catch late layout shifts (webfonts, images) a beat after it first
@@ -280,10 +303,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // fire), so there's no need to guard against re-entrancy here.
   const switchTarget = (selector: string) => {
     waitForElement(selector).then((el) => {
-      if (!el) return;
-      targetElRef.current = el;
-      setRect(el.getBoundingClientRect());
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (el) attachTarget(el);
     });
   };
 

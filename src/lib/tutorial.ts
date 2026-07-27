@@ -93,7 +93,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     // scan effect, keyed off data-tutorial-lookup-status on the scan
     // panel) — Next still works too, for a customer with nothing on hand
     // to scan right now.
-    targetSelector: '[data-tutorial="scan-barcode-button"]',
+    targetSelector: '[data-tutorial="scan-action-area"]',
     title: "Scan barcodes or receipts",
     body: "Point your camera at a barcode to add or remove stock instantly. Adding a whole order at once? Switch to Receipt mode to log several items from one photo.",
   },
