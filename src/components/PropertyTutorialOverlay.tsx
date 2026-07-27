@@ -199,10 +199,15 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   // comment above TUTORIAL_STEPS in tutorial.ts). Named by id rather than
   // stored as a field on each step, so adding a new step just means
   // dropping in a matching file; nothing here needs updating.
-  const playStepAt = (index: number) => {
-    if (typeof window === "undefined" || typeof Audio === "undefined") return;
+  // Returns the Audio element it created (or null if it didn't play one) so
+  // callers that need to clean up after *this specific* clip — see the
+  // fallback effect below — can do so without going back through the
+  // shared audioRef, which may have already moved on to a later step's
+  // clip by the time that cleanup runs.
+  const playStepAt = (index: number): HTMLAudioElement | null => {
+    if (typeof window === "undefined" || typeof Audio === "undefined") return null;
     const target = steps[index];
-    if (!target) return;
+    if (!target) return null;
     audioRef.current?.pause();
     const audio = new Audio(`/audio/property/${target.id}.mp3`);
     audioRef.current = audio;
@@ -214,6 +219,7 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
       console.warn(`Tutorial narration failed for step "${target.id}":`, err);
     });
     lastSpokenIndexRef.current = index;
+    return audio;
   };
 
   // Fallback for the one path that can never be gesture-driven: the very
@@ -227,9 +233,13 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   useEffect(() => {
     if (!voiceEnabled || typeof window === "undefined") return;
     if (lastSpokenIndexRef.current === stepIndex) return;
-    playStepAt(stepIndex);
+    const audio = playStepAt(stepIndex);
+    // Pause the exact clip this effect started, not "whatever audioRef
+    // currently points at" — see TutorialOverlay.tsx's identical comment
+    // for the full story: pausing the ref instead was cutting every step's
+    // narration off almost immediately after it started.
     return () => {
-      audioRef.current?.pause();
+      audio?.pause();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex, voiceEnabled]);
