@@ -153,7 +153,7 @@ export default function UsageOverview({ items, movements, onSelectItem }: Props)
           {query.trim() ? "No items match your search." : "Add some inventory first, then usage trends will show up here."}
         </p>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2" data-tutorial="usage-overview-list">
           {rows.map(({ item, totalUsed, avgPerDay, lastUsedAt, sparkline, rangeLabel }) => {
             const maxBin = Math.max(1, ...sparkline);
             return (

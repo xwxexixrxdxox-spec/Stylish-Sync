@@ -106,7 +106,10 @@ export default function SupportChatWidget() {
   };
 
   return (
-    <div className="flex h-[70vh] max-h-[560px] flex-col overflow-hidden rounded-xl2 border border-surface-border bg-white shadow-card">
+    <div
+      className="flex h-[70vh] max-h-[560px] flex-col overflow-hidden rounded-xl2 border border-surface-border bg-white shadow-card"
+      data-tutorial="support-chat"
+    >
       <div className="border-b border-surface-border bg-neutral-900 px-4 py-3 text-white">
         <p className="text-sm font-semibold">Clyde</p>
         <p className="text-xs text-white/60">

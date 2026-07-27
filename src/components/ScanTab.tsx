@@ -535,7 +535,16 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pb-24 pt-5 sm:px-6">
+    <div
+      className="mx-auto max-w-2xl px-4 pb-24 pt-5 sm:px-6"
+      data-tutorial="scan-panel"
+      // Read-only mirror of lookupStatus, for the guided tour's "scan" step
+      // (TutorialOverlay.tsx) to watch via MutationObserver so it can
+      // self-resolve the instant a real scan produces a lookup response,
+      // instead of requiring a Next tap. "idle"/"checking" are the two
+      // in-flight states; anything else means a real answer came back.
+      data-tutorial-lookup-status={lookupStatus}
+    >
       <h1 className="mb-4 flex items-center gap-2 text-lg font-semibold text-neutral-900">
         <span aria-hidden>📷</span> Scan
       </h1>
@@ -641,6 +650,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
       {!scanning && (
         <button
           onClick={startScan}
+          data-tutorial="scan-barcode-button"
           className="w-full rounded-xl2 bg-blue-500 py-4 text-center text-sm font-semibold text-white shadow-card hover:opacity-90"
         >
           📷 Scan Barcode

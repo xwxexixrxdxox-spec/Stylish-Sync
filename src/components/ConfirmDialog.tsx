@@ -15,12 +15,18 @@ interface Props {
 
 // Small popup confirmation, shared by every destructive one-tap action that
 // needs a "are you sure" step (deleting an item, clearing the app cache).
-// z-50 so it always sits above a parent modal (e.g. the item edit modal,
+// z-[210] so it always sits above a parent modal (e.g. the item edit modal,
 // z-40) when triggered from inside one — deliberately a real popup rather
 // than the app's other "tap again to confirm" inline-arm pattern, since
 // that pattern relies on the button staying in view, which doesn't hold
 // once a click can also close whatever it's sitting inside (the edit
-// modal, in this case).
+// modal, in this case). Also has to clear the guided tour's own overlay
+// (TutorialOverlay.tsx/PropertyTutorialOverlay.tsx, z-[200]) — the tour's
+// final "Start Fresh" step spotlights the button that opens this exact
+// dialog, and at the old z-50 the tour's dim mask visually swallowed it
+// (rendered underneath the mask, outside the tour's own spotlight hole),
+// making the real confirm button unreachable. A user-triggered confirmation
+// should always win over a coach-mark overlay, so this sits above both.
 export default function ConfirmDialog({
   title,
   message,
@@ -72,7 +78,7 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+      className="fixed inset-0 z-[210] flex items-end justify-center bg-black/40 p-4 sm:items-center"
       onClick={onCancel}
     >
       <div

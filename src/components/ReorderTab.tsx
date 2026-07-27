@@ -152,7 +152,7 @@ export default function ReorderTab({ items }: Props) {
           automatic &quot;delivered&quot; detection.
         </p>
         <div className="space-y-2.5">
-          {low.map((it) => {
+          {low.map((it, itemIndex) => {
             const itemTracking = trackingByItem.get(it.id) ?? [];
             return (
             <div key={it.id} className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
@@ -163,7 +163,16 @@ export default function ReorderTab({ items }: Props) {
                     In stock: {it.quantity} {it.unit} · reorder at {it.reorderAt}
                     {it.location && <> · 📍 {it.location}</>}
                   </p>
-                  <p className="mt-1 text-xs font-medium text-accent-low">
+                  <p
+                    className="mt-1 text-xs font-medium text-accent-low"
+                    // Tour hook: the guided tour's "reorder" step spotlights
+                    // this red warning text on the first low-stock item —
+                    // the concrete "here's why this screen matters" — before
+                    // switching to the Find-at button below. Scoped to the
+                    // first row only, same as ItemCard's tutorialTarget
+                    // convention for the Inventory tab's stock-controls step.
+                    data-tutorial={itemIndex === 0 ? "reorder-low-stock-text" : undefined}
+                  >
                     Need {Math.max(Math.ceil(it.reorderAt - getEffectiveQuantity(it, items) + 1), 1)} more
                   </p>
                 </div>
@@ -177,6 +186,7 @@ export default function ReorderTab({ items }: Props) {
                 <div className="relative shrink-0">
                   <button
                     onClick={() => setFindMenuFor(findMenuFor === it.id ? null : it.id)}
+                    data-tutorial={itemIndex === 0 ? "reorder-find-at-button" : undefined}
                     className="flex items-center gap-1.5 rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
                   >
                     <ShoppingCart size={13} /> Find at <ChevronDown size={12} />

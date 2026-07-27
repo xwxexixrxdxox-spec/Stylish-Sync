@@ -24,6 +24,16 @@ export interface TutorialStep {
   // Defaults to "Next" - only the final step overrides this, since tapping
   // it there closes the tour rather than moving to another step.
   nextLabel?: string;
+  // A second spotlight target this one step switches to partway through -
+  // used by "reorder", which starts by pointing at a real low-stock item's
+  // warning text (concrete: "here's an item that needs attention") and
+  // switches to the "Find at" button once the narration has moved on to
+  // talking about sourcing it. TutorialOverlay switches the moment the
+  // step's own audio clip crosses the halfway mark (audio.currentTime >=
+  // duration/2), or after phase2FallbackMs if voice is muted and there's no
+  // clip playing to key off of.
+  targetSelectorPhase2?: string;
+  phase2FallbackMs?: number;
 }
 
 export const TUTORIAL_STEPS: TutorialStep[] = [
@@ -49,19 +59,41 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "First, a quick choice",
     body: "Pick Accept or Decline below — either is fine, the app only uses essential cookies. Choosing now also clears this banner out of the way for the rest of the tour.",
   },
+  // Split from a single "stock-controls" step into two, each waiting for
+  // the real gesture it's describing before moving on, rather than reading
+  // both instructions aloud back-to-back while the customer just watches.
+  // See TutorialOverlay.tsx's stock-controls effect: it self-resolves off
+  // data-tutorial-burst-count/-phase attributes ItemCard already reflects
+  // from its own real press/hold state, for the one item this tour points
+  // at (InventoryTab passes tutorialTarget only to the first item).
   {
-    id: "stock-controls",
+    id: "stock-controls-tap",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-stock-controls"]',
     title: "Adjust stock in a tap",
-    body: "Tap − or + to log one unit. Press and hold either button to adjust several at once — handy for a big restock or a big pull.",
+    body: "Go ahead and tap − or + on this item to log one unit.",
+  },
+  {
+    id: "stock-controls-hold",
+    tab: "inventory",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="item-stock-controls"]',
+    title: "Hold for bigger changes",
+    body: "Now try pressing and holding either button — that adjusts several at once, handy for a big restock or a big pull.",
   },
   {
     id: "scan",
     tab: "scan",
     sidebarOpen: false,
-    targetSelector: '[data-tutorial="tab-scan"]',
+    // Points at the real blue "Scan Barcode" button rather than the
+    // bottom-nav tab icon that got you here — the tab icon is where you
+    // came from, not what this step is actually about. Self-resolves once
+    // a real scan produces a lookup response (see TutorialOverlay.tsx's
+    // scan effect, keyed off data-tutorial-lookup-status on the scan
+    // panel) — Next still works too, for a customer with nothing on hand
+    // to scan right now.
+    targetSelector: '[data-tutorial="scan-barcode-button"]',
     title: "Scan barcodes or receipts",
     body: "Point your camera at a barcode to add or remove stock instantly. Adding a whole order at once? Switch to Receipt mode to log several items from one photo.",
   },
@@ -69,7 +101,12 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "reorder",
     tab: "reorder",
     sidebarOpen: false,
-    targetSelector: '[data-tutorial="tab-reorder"]',
+    // Starts on the concrete "why" - a real low-stock item's red warning
+    // text - then switches to the "Find at" button partway through the
+    // narration; see targetSelectorPhase2 above.
+    targetSelector: '[data-tutorial="reorder-low-stock-text"]',
+    targetSelectorPhase2: '[data-tutorial="reorder-find-at-button"]',
+    phase2FallbackMs: 4200,
     title: "Never run out unexpectedly",
     body: "Reorder automatically lists everything at or below the reorder point you set for it. Tap Share to text or email that list straight to a supplier.",
   },
@@ -77,7 +114,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "usage",
     tab: "usage",
     sidebarOpen: false,
-    targetSelector: '[data-tutorial="tab-usage"]',
+    // The real usage list, not the bottom-nav tab icon - there's nothing
+    // to see by pointing at the icon you just tapped to get here.
+    targetSelector: '[data-tutorial="usage-overview-list"]',
     title: "See how fast things move",
     body: "Usage charts how quickly each item gets used and estimates how many days of stock are left at that pace — pick any item and any date range.",
   },
@@ -85,7 +124,11 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "support",
     tab: "support",
     sidebarOpen: false,
-    targetSelector: '[data-tutorial="tab-support"]',
+    // The real chat widget, not the bottom-nav tab icon - the spotlight's
+    // cutout leaves the chat's real input/messages fully clickable/typable
+    // during this step, so a customer can actually try it while the card
+    // is still up rather than just being shown where the tab lives.
+    targetSelector: '[data-tutorial="support-chat"]',
     title: "Stuck? We're here",
     body: "Support has a chat you can open any time a question comes up — no need to leave the app.",
   },

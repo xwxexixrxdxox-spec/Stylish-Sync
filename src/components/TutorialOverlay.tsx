@@ -49,6 +49,15 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // further down doesn't also play it and double up — see
   // PropertyTutorialOverlay.tsx, where this pattern was proven out first.
   const lastSpokenIndexRef = useRef(-1);
+  // Mirrors stepIndex for the async callbacks below (audio timeupdate, a
+  // setTimeout fallback) that fire well after their own effect ran — React
+  // state captured in a closure at that moment would be stale by the time
+  // they actually run, so they check this ref instead to confirm the step
+  // they were scheduled for is still the one showing before acting on it.
+  const stepIndexRef = useRef(0);
+  useEffect(() => {
+    stepIndexRef.current = stepIndex;
+  }, [stepIndex]);
   // Frozen once at mount (useState initializer, not useMemo) on purpose:
   // the cookie-consent step only belongs in the tour while consent is still
   // undecided, but consent gets decided DURING that very step — recomputing
@@ -164,6 +173,73 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetId]);
 
+  // stock-controls-tap/-hold resolve themselves off the real press state
+  // ItemCard mirrors onto its data-tutorial-burst-count/-phase attributes
+  // (see ItemCard.tsx) for whichever item this tour is pointing at. A tap
+  // step is satisfied by any real press at all (count reaches 1 the
+  // instant a press starts, tap or hold alike); a hold step needs the
+  // press to have actually reached the repeat-interval "holding" phase (or
+  // a count of 2+, which only real hold-repeat ticks produce) - a plain
+  // tap during the hold step leaves count at 1 and correctly doesn't
+  // resolve it. Watches the target via MutationObserver rather than
+  // polling, since the attributes only change when a real press does.
+  useEffect(() => {
+    if (step.id !== "stock-controls-tap" && step.id !== "stock-controls-hold") return;
+    if (!rect || !targetElRef.current) return;
+    const el = targetElRef.current;
+    const satisfied = () => {
+      const count = Number(el.getAttribute("data-tutorial-burst-count") || "0");
+      const phase = el.getAttribute("data-tutorial-burst-phase") || "";
+      if (step.id === "stock-controls-tap") return count >= 1;
+      return phase === "holding" || count >= 2;
+    };
+    if (satisfied()) {
+      advance();
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (satisfied()) advance();
+    });
+    observer.observe(el, { attributes: true, attributeFilter: ["data-tutorial-burst-count", "data-tutorial-burst-phase"] });
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex, rect]);
+
+  // "scan" resolves itself once a real scan produces a lookup response —
+  // ScanTab mirrors its own lookupStatus state onto
+  // data-tutorial-lookup-status on the scan panel (see ScanTab.tsx).
+  // "idle"/"checking" are the two in-flight states; anything else (found,
+  // existing, multiple, not-found, ...) means a real answer came back, so
+  // any of those advances. Watches the scan panel itself rather than
+  // targetElRef.current, since the status attribute lives on an ancestor
+  // of the spotlighted button, not the button itself. Next still works too
+  // - a customer with nothing on hand to scan right now isn't stuck.
+  useEffect(() => {
+    if (step.id !== "scan") return;
+    let cancelled = false;
+    let observer: MutationObserver | null = null;
+    waitForElement('[data-tutorial="scan-panel"]').then((el) => {
+      if (cancelled || !el) return;
+      const satisfied = () => {
+        const status = el.getAttribute("data-tutorial-lookup-status") || "idle";
+        return status !== "idle" && status !== "checking";
+      };
+      if (satisfied()) {
+        advance();
+        return;
+      }
+      observer = new MutationObserver(() => {
+        if (satisfied()) advance();
+      });
+      observer.observe(el, { attributes: true, attributeFilter: ["data-tutorial-lookup-status"] });
+    });
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
+
   // The cookie-consent step resolves itself: the banner's Accept/Decline
   // buttons write straight to localStorage (no event this component could
   // subscribe to, and no prop that changes), so a light poll is the
@@ -198,6 +274,19 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     cardRef.current?.focus();
   }, [stepIndex]);
 
+  // Moves the spotlight to a new target mid-step, for the "reorder" step's
+  // targetSelectorPhase2 (see tutorial.ts). Only called once per step (the
+  // callers that use this each remove their own trigger the moment they
+  // fire), so there's no need to guard against re-entrancy here.
+  const switchTarget = (selector: string) => {
+    waitForElement(selector).then((el) => {
+      if (!el) return;
+      targetElRef.current = el;
+      setRect(el.getBoundingClientRect());
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  };
+
   // Recorded narration lives in public/audio/tutorial/<step id>.mp3 — one
   // clip per step, generated from a local ComfyUI/Chatterbox TTS pipeline
   // (see the comment above TUTORIAL_STEPS in tutorial.ts for how). Named by
@@ -228,6 +317,34 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
       console.warn(`Tutorial narration failed for step "${target.id}":`, err);
     });
     lastSpokenIndexRef.current = index;
+
+    // Mid-step target switch (currently only "reorder"): once this clip
+    // crosses its own halfway point, move the spotlight to the step's
+    // second target. Keyed off the *playing clip's* progress rather than a
+    // flat delay so it stays in sync with whatever the narration is saying
+    // at that moment, even if a future re-recording changes the clip's
+    // length. audio.currentTime resets to 0 and starts climbing from the
+    // very first timeupdate tick, so this can't fire before playback
+    // genuinely begins.
+    if (target.targetSelectorPhase2) {
+      const onTimeUpdate = () => {
+        if (!audio.duration || audio.currentTime < audio.duration / 2) return;
+        audio.removeEventListener("timeupdate", onTimeUpdate);
+        window.clearTimeout(fallbackTimer);
+        if (stepIndexRef.current === index) switchTarget(target.targetSelectorPhase2!);
+      };
+      audio.addEventListener("timeupdate", onTimeUpdate);
+      // Fallback for when there's no clip actually playing to key off (the
+      // customer has voice muted, or this device declined to play it) —
+      // same switch, on a plain timer instead of real playback progress.
+      // Cleared above the moment real playback progress does the job
+      // instead, so a normal play-through never double-switches.
+      const fallbackTimer = window.setTimeout(() => {
+        audio.removeEventListener("timeupdate", onTimeUpdate);
+        if (stepIndexRef.current === index) switchTarget(target.targetSelectorPhase2!);
+      }, target.phase2FallbackMs ?? 4000);
+    }
+
     return audio;
   };
 

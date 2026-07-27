@@ -294,7 +294,21 @@ export default function ItemCard({
               .join(", ")}
           </p>
         )}
-        <div className="mt-2 flex items-center gap-2" data-tutorial={tutorialTarget ? "item-stock-controls" : undefined}>
+        <div
+          className="mt-2 flex items-center gap-2"
+          data-tutorial={tutorialTarget ? "item-stock-controls" : undefined}
+          // Read-only mirror of the burst state below, for the guided
+          // tour's stock-controls-tap/-hold steps (TutorialOverlay.tsx) to
+          // watch via MutationObserver — a real press bumps count to at
+          // least 1 immediately, and a real hold (as opposed to a quick
+          // tap) is the only thing that ever reaches phase "holding" or a
+          // count of 2+, since that only happens once the hold-repeat
+          // interval has actually fired at least once. Purely observational:
+          // nothing here reads these attributes back, so they can't create
+          // a stale-state bug in the app's own logic.
+          data-tutorial-burst-count={tutorialTarget ? (burst?.count ?? 0) : undefined}
+          data-tutorial-burst-phase={tutorialTarget ? (burst?.phase ?? "") : undefined}
+        >
           <div className="relative">
             <Tooltip label="Hold to decrease stock">
               <button
