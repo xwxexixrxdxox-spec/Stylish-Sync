@@ -43,9 +43,10 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const targetElRef = useRef<HTMLElement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  // Tracks which step index has already been spoken via a direct click
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Tracks which step index has already been played via a direct click
   // handler (advance(), toggleVoice()) so the mount-only fallback effect
-  // further down doesn't also speak it and double up — see
+  // further down doesn't also play it and double up — see
   // PropertyTutorialOverlay.tsx, where this pattern was proven out first.
   const lastSpokenIndexRef = useRef(-1);
   // Frozen once at mount (useState initializer, not useMemo) on purpose:
@@ -59,18 +60,11 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   useEffect(() => {
     setVoiceEnabled(getTutorialVoiceEnabled());
-    // Reading the voice list this early doesn't need a user gesture — only
-    // actually producing audio does — so priming it on mount means the
-    // female-voice pick below usually has real data to work with by the
-    // time a tap needs it, instead of racing the browser's own lazy load.
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.getVoices();
-    }
   }, []);
 
   const finish = (reason: "finished" | "skipped") => {
     setTutorialCompleted(reason);
-    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+    audioRef.current?.pause();
     onClose();
   };
 
@@ -78,19 +72,20 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     setStepIndex((i) => {
       if (i >= steps.length - 1) {
         setTutorialCompleted("finished");
-        if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+        audioRef.current?.pause();
         onClose();
         return i;
       }
       const next = i + 1;
-      // Speak synchronously, inside whatever click/tap triggered this
+      // Play synchronously, inside whatever click/tap triggered this
       // advance — not deferred into an effect reacting to stepIndex. Mobile
-      // browsers (Safari/WebKit especially) only let speechSynthesis.speak()
+      // browsers (Safari/WebKit especially) only let HTMLMediaElement.play()
       // actually produce audio when called inside a real user gesture's own
-      // call stack; deferred into a post-render effect, they silently drop
-      // it. See PropertyTutorialOverlay.tsx for the full reasoning and the
-      // mobile bug this exact pattern fixed there.
-      if (voiceEnabled) speakStepAt(next);
+      // call stack; deferred into a post-render effect, they silently
+      // reject the play() promise instead. Same constraint this file used
+      // to work around for speechSynthesis.speak() — see
+      // PropertyTutorialOverlay.tsx for the fuller history.
+      if (voiceEnabled) playStepAt(next);
       return next;
     });
   };
@@ -203,56 +198,41 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     cardRef.current?.focus();
   }, [stepIndex]);
 
-  // Picks the closest thing to a "soft female voice" the Web Speech API
-  // actually exposes — same best-effort name-match heuristic as
-  // PropertyTutorialOverlay.tsx (no reliable gender field exists on
-  // SpeechSynthesisVoice), falling back to the first available English
-  // voice, then to no override at all. Never a hard requirement: a device
-  // with no speech support just runs this tour silently, same as before.
-  const pickVoice = (voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null => {
-    if (!voices.length) return null;
-    const english = voices.filter((v) => v.lang.toLowerCase().startsWith("en"));
-    const pool = english.length ? english : voices;
-    const hints = [
-      "female", "samantha", "victoria", "zira", "susan", "karen", "moira",
-      "tessa", "fiona", "aria", "jenny", "google us english", "google uk english female",
-    ];
-    return pool.find((v) => hints.some((h) => v.name.toLowerCase().includes(h))) ?? pool[0] ?? null;
-  };
-
-  const speakStepAt = (index: number) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
+  // Recorded narration lives in public/audio/tutorial/<step id>.mp3 — one
+  // clip per step, generated from a local ComfyUI/Chatterbox TTS pipeline
+  // (see the comment above TUTORIAL_STEPS in tutorial.ts for how). Named by
+  // id rather than stored as a field on each step, so adding a new step
+  // just means dropping in a matching file; nothing here needs updating.
+  const playStepAt = (index: number) => {
+    if (typeof window === "undefined" || typeof Audio === "undefined") return;
     const target = steps[index];
     if (!target) return;
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(`${target.title}. ${target.body}`);
-    const voice = pickVoice(window.speechSynthesis.getVoices());
-    if (voice) utter.voice = voice;
-    utter.pitch = 1.05;
-    utter.rate = 1;
-    window.speechSynthesis.speak(utter);
+    audioRef.current?.pause();
+    const audio = new Audio(`/audio/tutorial/${target.id}.mp3`);
+    audioRef.current = audio;
+    // A missing file and a browser declining to autoplay both reject this
+    // promise — neither is treated as fatal, same "never a hard
+    // requirement" spirit the old speechSynthesis path had: the tour just
+    // runs silently for that step rather than throwing.
+    audio.play().catch((err) => {
+      console.warn(`Tutorial narration failed for step "${target.id}":`, err);
+    });
     lastSpokenIndexRef.current = index;
   };
 
   // Fallback for the one path that can never be gesture-driven: the very
   // first step, shown as soon as the tour opens rather than from a tap.
-  // Every other step transition is already spoken synchronously inside its
+  // Every other step transition is already played synchronously inside its
   // own click handler (advance(), toggleVoice() below) — this effect only
-  // speaks when that hasn't already happened for the current step, so
-  // nothing plays twice.
+  // plays when that hasn't already happened for the current step, so
+  // nothing plays twice. Unlike the old speechSynthesis version there's no
+  // async voice list to wait on here, so this just plays immediately.
   useEffect(() => {
-    if (!voiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
+    if (!voiceEnabled || typeof window === "undefined") return;
     if (lastSpokenIndexRef.current === stepIndex) return;
-    if (window.speechSynthesis.getVoices().length === 0) {
-      const onVoicesChanged = () => {
-        if (lastSpokenIndexRef.current !== stepIndex) speakStepAt(stepIndex);
-      };
-      window.speechSynthesis.addEventListener("voiceschanged", onVoicesChanged, { once: true });
-      return () => window.speechSynthesis.removeEventListener("voiceschanged", onVoicesChanged);
-    }
-    speakStepAt(stepIndex);
+    playStepAt(stepIndex);
     return () => {
-      window.speechSynthesis.cancel();
+      audioRef.current?.pause();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex, voiceEnabled]);
@@ -262,11 +242,11 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     setVoiceEnabled(next);
     setTutorialVoiceEnabled(next);
     if (next) {
-      // Same gesture-synchronicity reasoning as advance() above — speak the
+      // Same gesture-synchronicity reasoning as advance() above — play the
       // step already on screen right inside this tap.
-      speakStepAt(stepIndex);
-    } else if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      playStepAt(stepIndex);
+    } else {
+      audioRef.current?.pause();
     }
   };
 
@@ -293,7 +273,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   const nextLabel = step.nextLabel ?? "Next";
   const cardNearTop = rect ? rect.top > window.innerHeight / 2 : false;
-  const speechSupported = typeof window !== "undefined" && !!window.speechSynthesis;
+  const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
   return createPortal(
     // pointer-events-none here is load-bearing, not decorative: this outer
@@ -358,7 +338,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
         >
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm font-semibold text-neutral-900">{step.title}</p>
-            {speechSupported && (
+            {audioSupported && (
               <button
                 onClick={toggleVoice}
                 aria-label={voiceEnabled ? "Mute the tour's voice" : "Unmute the tour's voice"}

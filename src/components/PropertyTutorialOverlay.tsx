@@ -40,41 +40,33 @@ interface Props {
 // the standalone /property page, and duplicating the ~150 lines of
 // presentational JSX was judged lower-risk this round than refactoring the
 // already-shipped, working main tutorial to share it. Adds one thing the
-// main tour doesn't have: an optional spoken read-aloud of each step,
-// using the browser's own speech synthesis (see speak() below) — genuinely
-// optional and off with one tap, never on without the customer's device
-// supporting it in the first place.
+// main tour doesn't have: an optional read-aloud of each step, using a
+// prerecorded audio clip (see playStepAt() below) — genuinely optional and
+// off with one tap, never required for the tour to make sense.
 export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const targetElRef = useRef<HTMLElement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevReceivedRef = useRef(exampleReceivedCount);
-  // Tracks which step index has already had speakStepAt() called for it —
-  // see the click-handler-driven speech calls below. Lets the fallback
-  // effect (further down) tell "already spoken synchronously by this tap"
-  // apart from "genuinely hasn't been spoken yet" without playing the same
-  // line twice.
+  // Tracks which step index has already had playStepAt() called for it —
+  // see the click-handler-driven calls below. Lets the fallback effect
+  // (further down) tell "already played synchronously by this tap" apart
+  // from "genuinely hasn't been played yet" without playing the same line
+  // twice.
   const lastSpokenIndexRef = useRef(-1);
   const steps = PROPERTY_TUTORIAL_STEPS;
   const step = steps[stepIndex];
 
   useEffect(() => {
     setVoiceEnabled(getPropertyTutorialVoiceEnabled());
-    // Reading the voice list this early doesn't need a user gesture — only
-    // actually producing audio does — so priming it on mount (rather than
-    // waiting for the first speak attempt) means the female-voice pick
-    // below usually has real data to work with by the time a tap needs it,
-    // instead of racing the browser's own lazy voice-list load.
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.getVoices();
-    }
   }, []);
 
   const finish = (reason: "finished" | "skipped") => {
     setPropertyTutorialCompleted(reason);
-    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+    audioRef.current?.pause();
     onClose();
   };
 
@@ -82,21 +74,22 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     setStepIndex((i) => {
       if (i >= steps.length - 1) {
         setPropertyTutorialCompleted("finished");
-        if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+        audioRef.current?.pause();
         onClose();
         return i;
       }
       const next = i + 1;
-      // Speak synchronously, right here inside the tap that's advancing the
+      // Play synchronously, right here inside the tap that's advancing the
       // tour — not deferred into an effect that fires after React commits
       // the re-render. Mobile browsers (Safari/WebKit in particular, and
-      // increasingly Chrome on Android) only let speechSynthesis.speak()
+      // increasingly Chrome on Android) only let HTMLMediaElement.play()
       // actually produce sound when the call happens as part of handling a
       // real user gesture; once it's pushed into a useEffect reacting to
       // stepIndex changing, the browser no longer credits it as
-      // gesture-triggered and just drops the audio with no error — which
-      // is exactly why this played on desktop but was silent on mobile.
-      if (voiceEnabled) speakStepAt(next);
+      // gesture-triggered and the play() promise just rejects — which is
+      // exactly why the old speechSynthesis version of this played on
+      // desktop but was silent on mobile.
+      if (voiceEnabled) playStepAt(next);
       return next;
     });
   };
@@ -201,58 +194,42 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     cardRef.current?.focus();
   }, [stepIndex]);
 
-  // Picks the closest thing to a "soft female voice" the Web Speech API
-  // actually exposes — it has no reliable gender field, so this is a
-  // best-effort name match against common female-sounding system/browser
-  // voices, falling back to whatever English voice is first available (and
-  // ultimately to no voice override at all, which still speaks in the
-  // browser's own default). Never a hard requirement: if speech synthesis
-  // isn't supported at all, the tour is silent and otherwise unaffected.
-  const pickVoice = (voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null => {
-    if (!voices.length) return null;
-    const english = voices.filter((v) => v.lang.toLowerCase().startsWith("en"));
-    const pool = english.length ? english : voices;
-    const hints = [
-      "female", "samantha", "victoria", "zira", "susan", "karen", "moira",
-      "tessa", "fiona", "aria", "jenny", "google us english", "google uk english female",
-    ];
-    return pool.find((v) => hints.some((h) => v.name.toLowerCase().includes(h))) ?? pool[0] ?? null;
-  };
-
-  const speakStepAt = (index: number) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
+  // Recorded narration lives in public/audio/property/<step id>.mp3 — one
+  // clip per step, generated the same way as the main tour's (see the
+  // comment above TUTORIAL_STEPS in tutorial.ts). Named by id rather than
+  // stored as a field on each step, so adding a new step just means
+  // dropping in a matching file; nothing here needs updating.
+  const playStepAt = (index: number) => {
+    if (typeof window === "undefined" || typeof Audio === "undefined") return;
     const target = steps[index];
     if (!target) return;
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(`${target.title}. ${target.body}`);
-    const voice = pickVoice(window.speechSynthesis.getVoices());
-    if (voice) utter.voice = voice;
-    utter.pitch = 1.05;
-    utter.rate = 1;
-    window.speechSynthesis.speak(utter);
+    audioRef.current?.pause();
+    const audio = new Audio(`/audio/property/${target.id}.mp3`);
+    audioRef.current = audio;
+    // A missing file and a browser declining to autoplay both reject this
+    // promise — neither is treated as fatal, same "never a hard
+    // requirement" spirit the old speechSynthesis path had: the tour just
+    // runs silently for that step rather than throwing.
+    audio.play().catch((err) => {
+      console.warn(`Tutorial narration failed for step "${target.id}":`, err);
+    });
     lastSpokenIndexRef.current = index;
   };
 
   // Fallback for the one path that can never be gesture-driven: the very
   // first step, when the tour auto-opens on mount for a brand-new empty
   // property list rather than from a tap on "Take the property tour." Every
-  // other step transition is already spoken synchronously inside its own
+  // other step transition is already played synchronously inside its own
   // click handler (advance(), toggleVoice() below) — this effect only
-  // speaks when that hasn't already happened for the current step, so nothing
-  // plays twice.
+  // plays when that hasn't already happened for the current step, so
+  // nothing plays twice. Unlike the old speechSynthesis version there's no
+  // async voice list to wait on here, so this just plays immediately.
   useEffect(() => {
-    if (!voiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
+    if (!voiceEnabled || typeof window === "undefined") return;
     if (lastSpokenIndexRef.current === stepIndex) return;
-    if (window.speechSynthesis.getVoices().length === 0) {
-      const onVoicesChanged = () => {
-        if (lastSpokenIndexRef.current !== stepIndex) speakStepAt(stepIndex);
-      };
-      window.speechSynthesis.addEventListener("voiceschanged", onVoicesChanged, { once: true });
-      return () => window.speechSynthesis.removeEventListener("voiceschanged", onVoicesChanged);
-    }
-    speakStepAt(stepIndex);
+    playStepAt(stepIndex);
     return () => {
-      window.speechSynthesis.cancel();
+      audioRef.current?.pause();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex, voiceEnabled]);
@@ -262,12 +239,12 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     setVoiceEnabled(next);
     setPropertyTutorialVoiceEnabled(next);
     if (next) {
-      // Same gesture-synchronicity reasoning as advance() above — speak the
+      // Same gesture-synchronicity reasoning as advance() above — play the
       // step already on screen right inside this tap, instead of waiting
       // for the effect above to pick it up a render later.
-      speakStepAt(stepIndex);
-    } else if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      playStepAt(stepIndex);
+    } else {
+      audioRef.current?.pause();
     }
   };
 
@@ -290,7 +267,7 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
 
   const nextLabel = step.nextLabel ?? "Next";
   const cardNearTop = rect ? rect.top > window.innerHeight / 2 : false;
-  const speechSupported = typeof window !== "undefined" && !!window.speechSynthesis;
+  const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
   return createPortal(
     // pointer-events-none is load-bearing here too, same reason as
@@ -344,7 +321,7 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
         >
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm font-semibold text-neutral-900">{step.title}</p>
-            {speechSupported && (
+            {audioSupported && (
               <button
                 onClick={toggleVoice}
                 aria-label={voiceEnabled ? "Mute the tour's voice" : "Unmute the tour's voice"}
