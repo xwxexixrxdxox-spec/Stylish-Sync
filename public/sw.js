@@ -41,6 +41,22 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Tutorial narration clips are fetched by <audio> elements, which issue
+  // Range-request GETs (destination "audio") rather than plain document/
+  // asset GETs. Chrome has a long-standing bug where forwarding a media
+  // element's Range request through a service worker's
+  // respondWith(fetch(request)) hangs forever — neither resolving nor
+  // rejecting — even though the exact same URL fetches instantly outside
+  // the service worker (confirmed directly: a plain fetch() with the same
+  // Range header returns 206 immediately, while <audio>.play() against the
+  // same file never leaves readyState 0). Since these clips are optional
+  // narration rather than core app data, there's no real loss in letting
+  // them go straight to network instead of through the cache — leaving
+  // this path unintercepted avoids the hang entirely.
+  if (url.pathname.startsWith("/audio/")) {
+    return;
+  }
+
   event.respondWith(
     fetch(request)
       .then((response) => {
