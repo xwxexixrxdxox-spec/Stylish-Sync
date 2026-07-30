@@ -41,6 +41,13 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  // Measured height of the callout card itself, used (alongside the target
+  // rect) to decide whether it can sit near the bottom of the screen without
+  // covering the very thing it's pointing at - see the cardNearTop comment
+  // near the render below. Seeded with a reasonable guess close to a typical
+  // card's real height so the very first paint (before the ResizeObserver
+  // below reports in) is already close, rather than assuming 0.
+  const [cardHeight, setCardHeight] = useState(160);
   const targetElRef = useRef<HTMLElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -297,6 +304,26 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     cardRef.current?.focus();
   }, [stepIndex]);
 
+  // Keeps cardHeight (see above) in sync with the card's real rendered
+  // height, for every step - body text length varies a lot step to step
+  // ("Go ahead and tap..." vs. the three-line reorder explanation), and a
+  // step's card can also reflow if the viewport resizes underneath it. This
+  // was worth doing after finding, while live-testing the "support" step,
+  // that a tall spotlight target (the whole chat widget, stretching almost
+  // to the bottom of the screen) let the bottom-anchored card overlap the
+  // real chat input it was supposed to leave clickable - the card's actual
+  // height matters for detecting that, not just a guess.
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    setCardHeight(el.getBoundingClientRect().height);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setCardHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [stepIndex]);
+
   // Moves the spotlight to a new target mid-step, for the "reorder" step's
   // targetSelectorPhase2 (see tutorial.ts). Only called once per step (the
   // callers that use this each remove their own trigger the moment they
@@ -428,7 +455,23 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   if (typeof document === "undefined") return null;
 
   const nextLabel = step.nextLabel ?? "Next";
-  const cardNearTop = rect ? rect.top > window.innerHeight / 2 : false;
+  // Near-bottom is the default (matches "bottom-24" in the JSX below, which
+  // reserves BOTTOM_CARD_CLEARANCE px so the card clears the bottom nav) -
+  // near-top only kicks in when that default would actually collide with
+  // something: either the target itself starts in the lower half (the
+  // original heuristic - e.g. the account-gear/google-signin steps, whose
+  // target sits low on screen), or, regardless of where the target
+  // *starts*, its own bottom edge reaches far enough down to land inside
+  // the zone a bottom-anchored card would occupy - true for any tall
+  // target, like the "support" step's whole-chat-widget spotlight, which
+  // starts near the top but stretches down past where the card would sit.
+  // Checking only rect.top (the original logic) missed that second case
+  // entirely, letting the card render on top of the real chat input.
+  const BOTTOM_CARD_CLEARANCE = 96; // px - matches bottom-24 below
+  const cardNearTop = rect
+    ? rect.top > window.innerHeight / 2 ||
+      rect.top + rect.height + PAD > window.innerHeight - BOTTOM_CARD_CLEARANCE - cardHeight
+    : false;
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
   return createPortal(
