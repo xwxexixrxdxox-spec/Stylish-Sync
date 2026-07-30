@@ -114,6 +114,7 @@ export default function ReorderTab({ items }: Props) {
         <h1 className="text-lg font-semibold text-neutral-900">Items to reorder</h1>
         <button
           onClick={share}
+          data-tutorial="reorder-share-button"
           className="flex items-center gap-1.5 rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-surface-muted"
         >
           <Share2 size={14} /> Share
@@ -130,7 +131,10 @@ export default function ReorderTab({ items }: Props) {
           &quot;Find at&quot; searches each store by this item&apos;s barcode or name — results may not meet
           expectations, so always verify it&apos;s the right product before purchasing.
         </p>
-        <div className="mb-3 flex items-center gap-1.5 text-[11px] text-neutral-500">
+        <div
+          className="mb-3 flex items-center gap-1.5 text-[11px] text-neutral-500"
+          data-tutorial="reorder-search-by-toggle"
+        >
           <span>Search by:</span>
           {(["auto", "barcode", "name"] as RetailerSearchBy[]).map((opt) => (
             <button
@@ -155,7 +159,15 @@ export default function ReorderTab({ items }: Props) {
           {low.map((it, itemIndex) => {
             const itemTracking = trackingByItem.get(it.id) ?? [];
             return (
-            <div key={it.id} className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+            <div
+              key={it.id}
+              className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card"
+              // Tour hook: the "reorder" step keeps this whole card (not
+              // just the low-stock text or the Find-at button individually)
+              // out of the blur mask for its entire duration - see
+              // focusSelectors on the "reorder" step in tutorial.ts.
+              data-tutorial={itemIndex === 0 ? "reorder-item-card" : undefined}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-medium text-neutral-900">{it.name}</p>
@@ -186,7 +198,6 @@ export default function ReorderTab({ items }: Props) {
                 <div className="relative shrink-0">
                   <button
                     onClick={() => setFindMenuFor(findMenuFor === it.id ? null : it.id)}
-                    data-tutorial={itemIndex === 0 ? "reorder-find-at-button" : undefined}
                     className="flex items-center gap-1.5 rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
                   >
                     <ShoppingCart size={13} /> Find at <ChevronDown size={12} />

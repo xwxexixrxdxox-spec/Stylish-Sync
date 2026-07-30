@@ -10,14 +10,8 @@ import {
   getTutorialVoiceEnabled,
   setTutorialVoiceEnabled,
 } from "@/lib/storage";
+import { computeMaskBands, inflateRect, type Rect } from "@/lib/tutorialMask";
 import type { TabId } from "./BottomNav";
-
-interface Rect {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-}
 
 // Gap between the spotlighted element and both the cutout ring and the
 // masking bands around it, in px.
@@ -58,6 +52,17 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const [captionHeight, setCaptionHeight] = useState(90);
   const targetElRef = useRef<HTMLElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  // The step's own focusSelectors (see tutorial.ts) - elements that stay
+  // sharp/unblurred for the whole step alongside whatever the glow is
+  // currently pointing at. Tracked the same way as the main target: a ref
+  // to the real elements (for measuring + observing resize) and a bit of
+  // state holding their current rects (for rendering).
+  const focusElsRef = useRef<HTMLElement[]>([]);
+  const focusResizeObserversRef = useRef<ResizeObserver[]>([]);
+  const [focusRects, setFocusRects] = useState<Rect[]>([]);
+  const recomputeFocusRects = () => {
+    setFocusRects(focusElsRef.current.map((el) => el.getBoundingClientRect()));
+  };
   // Wraps every focusable control this step renders (the corner pill's
   // mute/skip buttons, the caption's own Next button) - queried by
   // onOverlayKeyDown below for the Tab focus trap, since those controls now
@@ -178,10 +183,45 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex, tab, accountOpen]);
 
+  // Same idea as the main target above, for this step's focusSelectors (if
+  // any) - resolved independently of the glow target so a step can keep
+  // several unrelated elements sharp at once (e.g. "reorder"'s item card
+  // AND its search-by toggle, alongside whichever one the glow itself is
+  // currently visiting).
+  useEffect(() => {
+    let cancelled = false;
+    focusResizeObserversRef.current.forEach((o) => o.disconnect());
+    focusResizeObserversRef.current = [];
+    focusElsRef.current = [];
+    setFocusRects([]);
+    const selectors = step.focusSelectors ?? [];
+    if (!selectors.length) return;
+    Promise.all(selectors.map((sel) => waitForElement(sel))).then((els) => {
+      if (cancelled) return;
+      const found = els.filter((e): e is HTMLElement => !!e);
+      focusElsRef.current = found;
+      recomputeFocusRects();
+      focusResizeObserversRef.current = found.map((el) => {
+        const observer = new ResizeObserver(recomputeFocusRects);
+        observer.observe(el);
+        return observer;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex, tab, accountOpen]);
+
   // Belt-and-suspenders cleanup on unmount - attachTarget always disconnects
   // the previous observer before creating a new one, but nothing does that
   // for the very last one when the tour itself closes.
-  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
+  useEffect(() => {
+    return () => {
+      resizeObserverRef.current?.disconnect();
+      focusResizeObserversRef.current.forEach((o) => o.disconnect());
+    };
+  }, []);
 
   // Keep the spotlight glued to its target through resize/scroll, and
   // catch late layout shifts (webfonts, images) a beat after it first
@@ -189,6 +229,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   useEffect(() => {
     const recompute = () => {
       if (targetElRef.current) setRect(targetElRef.current.getBoundingClientRect());
+      if (focusElsRef.current.length) recomputeFocusRects();
     };
     window.addEventListener("resize", recompute);
     window.addEventListener("scroll", recompute, true);
@@ -198,6 +239,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
       window.removeEventListener("scroll", recompute, true);
       window.clearTimeout(settleTimer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
   // Opening the account sidebar organically (a real tap on the real gear
@@ -491,66 +533,61 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     : false;
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
+  // Every element that should stay sharp and interactive right now: the
+  // glow's own current target, plus this step's focusSelectors (e.g.
+  // "reorder"'s item card and search-by toggle, which stay in focus for the
+  // whole step regardless of which one the glow itself is visiting).
+  // computeMaskBands turns that into however many rectangles still need to
+  // be blurred - one band when there's a single hole (the common case,
+  // visually equivalent to the old four-band cutout), more when a step
+  // keeps several separate elements in focus at once.
+  const glowRect = rect ? inflateRect(rect, PAD) : null;
+  const focusHoles = focusRects.map((r) => inflateRect(r, PAD));
+  const maskHoles = glowRect ? [glowRect, ...focusHoles] : focusHoles;
+  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0;
+  const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 0;
+  const maskBands = computeMaskBands(maskHoles, viewportWidth, viewportHeight);
+
   return createPortal(
     // pointer-events-none here is load-bearing, not decorative: this outer
     // div's own box spans the full viewport at z-[200], so without this it
-    // would swallow every click - including ones aimed at the "hole" over
-    // the spotlighted element - regardless of the mask bands below only
-    // painting around that hole. Each interactive piece (the masks, the
-    // corner pill, the caption bubble) opts back into pointer-events-auto
-    // individually; the real element under the hole is never covered by
-    // anything here, so it falls through to receive the click normally.
+    // would swallow every click - including ones aimed at any of the "holes"
+    // over the focused elements - regardless of the mask bands below only
+    // painting around them. Each interactive piece (the masks, the corner
+    // pill, the caption bubble) opts back into pointer-events-auto
+    // individually; the real elements under the holes are never covered by
+    // anything here, so they fall through to receive clicks normally.
     <div ref={overlayRef} className="pointer-events-none fixed inset-0 z-[200]" onKeyDown={onOverlayKeyDown}>
-      {rect ? (
+      {/* Blurred + dimmed bands cover everything that isn't currently in
+          focus, real, clickable holes left over each focused element rather
+          than a single dim overlay - see computeMaskBands. Blurring (rather
+          than the old flat dim) is what makes the in-focus elements read as
+          in-focus: everything else visibly falls out of focus around them,
+          the same depth-of-field cue a game uses to say "look here." */}
+      {maskBands.map((band, i) => (
+        <div
+          key={i}
+          className="pointer-events-auto fixed bg-black/45 backdrop-blur-md transition-all duration-200"
+          style={{ top: band.top, left: band.left, width: band.width, height: band.height }}
+        />
+      ))}
+      {glowRect && (
         <>
-          {/* Four masking bands leave a real, clickable hole over the
-              target rect instead of dimming the whole viewport with one
-              div - the highlighted element underneath (a real button, e.g.
-              "Sign in with Google" or "Start Fresh") stays genuinely
-              interactive rather than just visible. */}
-          <div
-            className="pointer-events-auto fixed left-0 right-0 top-0 bg-black/70 transition-all duration-200"
-            style={{ height: Math.max(0, rect.top - PAD) }}
-          />
-          <div
-            className="pointer-events-auto fixed bottom-0 left-0 right-0 bg-black/70 transition-all duration-200"
-            style={{ top: rect.top + rect.height + PAD }}
-          />
-          <div
-            className="pointer-events-auto fixed bg-black/70 transition-all duration-200"
-            style={{ top: rect.top - PAD, left: 0, width: Math.max(0, rect.left - PAD), height: rect.height + PAD * 2 }}
-          />
-          <div
-            className="pointer-events-auto fixed bg-black/70 transition-all duration-200"
-            style={{ top: rect.top - PAD, left: rect.left + rect.width + PAD, right: 0, height: rect.height + PAD * 2 }}
-          />
           {/* The "quest marker" glow: an expanding, fading ping ring behind
-              a breathing blurred-glow ring, both keyed to the same rect the
-              plain white ring used to occupy. Amber rather than the app's
-              existing accent colors (red is reserved for low-stock warnings,
-              green for "all clear") - a color that reads as "here, this one"
-              without also reading as a status. */}
+              a breathing blurred-glow ring, around whichever element the
+              narration is currently talking about. Amber rather than the
+              app's existing accent colors (red is reserved for low-stock
+              warnings, green for "all clear") - a color that reads as
+              "here, this one" without also reading as a status. */}
           <div
             className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300/70 animate-tutorial-glow-ping"
-            style={{
-              top: rect.top - PAD,
-              left: rect.left - PAD,
-              width: rect.width + PAD * 2,
-              height: rect.height + PAD * 2,
-            }}
+            style={{ top: glowRect.top, left: glowRect.left, width: glowRect.width, height: glowRect.height }}
           />
           <div
             className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300 animate-tutorial-glow-pulse transition-all duration-200"
-            style={{
-              top: rect.top - PAD,
-              left: rect.left - PAD,
-              width: rect.width + PAD * 2,
-              height: rect.height + PAD * 2,
-            }}
+            style={{ top: glowRect.top, left: glowRect.left, width: glowRect.width, height: glowRect.height }}
           />
         </>
-      ) : (
-        <div className="pointer-events-auto fixed inset-0 bg-black/70" />
       )}
 
       {/* Minimal corner HUD: step counter, voice mute toggle, and skip/exit

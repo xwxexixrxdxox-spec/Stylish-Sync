@@ -34,6 +34,16 @@ export interface TutorialStep {
   // clip playing to key off of.
   targetSelectorPhase2?: string;
   phase2FallbackMs?: number;
+  // Other elements that stay in sharp focus (excluded from the blur mask)
+  // for this step's entire duration, in addition to whatever the glow
+  // itself is currently pointing at (targetSelector, then
+  // targetSelectorPhase2). Use this for controls that are relevant context
+  // for the step but that the narration never actually names - e.g.
+  // "reorder" keeps the whole item card and the search-by toggle visible
+  // and interactive throughout, even though the glow itself only ever
+  // visits the low-stock text and the Share button, the two things the
+  // narration actually mentions by name.
+  focusSelectors?: string[];
 }
 
 export const TUTORIAL_STEPS: TutorialStep[] = [
@@ -102,11 +112,24 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: "reorder",
     sidebarOpen: false,
     // Starts on the concrete "why" - a real low-stock item's red warning
-    // text - then switches to the "Find at" button partway through the
-    // narration; see targetSelectorPhase2 above.
+    // text - then switches to the Share button partway through the
+    // narration; see targetSelectorPhase2 above. (This used to switch to
+    // the "Find at" button instead, which doesn't match what the narration
+    // actually says in its second half - a mismatch the customer caught by
+    // screenshotting the live glow next to the step's own body text. Find
+    // at stays visible and interactive via focusSelectors below; it just
+    // isn't what the glow itself visits, since the voice never names it.)
     targetSelector: '[data-tutorial="reorder-low-stock-text"]',
-    targetSelectorPhase2: '[data-tutorial="reorder-find-at-button"]',
+    targetSelectorPhase2: '[data-tutorial="reorder-share-button"]',
     phase2FallbackMs: 4200,
+    // The rest of this step's relevant UI - the search-by toggle and the
+    // whole item card (which already contains the low-stock text, Find at,
+    // and Add tracking number) - stays sharp and clickable the entire step,
+    // even during the phase where the glow itself has moved on to Share.
+    focusSelectors: [
+      '[data-tutorial="reorder-search-by-toggle"]',
+      '[data-tutorial="reorder-item-card"]',
+    ],
     title: "Never run out unexpectedly",
     body: "Reorder automatically lists everything at or below the reorder point you set for it. Tap Share to text or email that list straight to a supplier.",
   },

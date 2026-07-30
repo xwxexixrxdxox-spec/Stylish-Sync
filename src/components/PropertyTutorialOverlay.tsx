@@ -10,13 +10,7 @@ import {
   getPropertyTutorialVoiceEnabled,
   setPropertyTutorialVoiceEnabled,
 } from "@/lib/storage";
-
-interface Rect {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-}
+import { computeMaskBands, inflateRect, type Rect } from "@/lib/tutorialMask";
 
 // Gap between the spotlighted element and both the cutout ring and the
 // masking bands around it, in px. Same value as TutorialOverlay.tsx.
@@ -323,51 +317,44 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     : false;
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
+  // Same blur-mask approach as TutorialOverlay.tsx - see that file's
+  // comment above its own maskBands for the full rationale. This tour only
+  // ever has one thing in focus at a time (no focusSelectors equivalent
+  // here yet), so maskHoles is just the current glow target, but
+  // computeMaskBands handles that as the single-hole case automatically.
+  const glowRect = rect ? inflateRect(rect, PAD) : null;
+  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0;
+  const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 0;
+  const maskBands = computeMaskBands(glowRect ? [glowRect] : [], viewportWidth, viewportHeight);
+
   return createPortal(
     // pointer-events-none is load-bearing here too, same reason as
     // TutorialOverlay.tsx — see that file's comment.
     <div ref={overlayRef} className="pointer-events-none fixed inset-0 z-[200]" onKeyDown={onOverlayKeyDown}>
-      {rect ? (
+      {/* Blurred + dimmed bands cover everything outside the current
+          target - see TutorialOverlay.tsx's identical block for the full
+          rationale (blur rather than a flat dim, so the focused element
+          reads as in-focus by contrast). */}
+      {maskBands.map((band, i) => (
+        <div
+          key={i}
+          className="pointer-events-auto fixed bg-black/45 backdrop-blur-md transition-all duration-200"
+          style={{ top: band.top, left: band.left, width: band.width, height: band.height }}
+        />
+      ))}
+      {glowRect && (
         <>
-          <div
-            className="pointer-events-auto fixed left-0 right-0 top-0 bg-black/70 transition-all duration-200"
-            style={{ height: Math.max(0, rect.top - PAD) }}
-          />
-          <div
-            className="pointer-events-auto fixed bottom-0 left-0 right-0 bg-black/70 transition-all duration-200"
-            style={{ top: rect.top + rect.height + PAD }}
-          />
-          <div
-            className="pointer-events-auto fixed bg-black/70 transition-all duration-200"
-            style={{ top: rect.top - PAD, left: 0, width: Math.max(0, rect.left - PAD), height: rect.height + PAD * 2 }}
-          />
-          <div
-            className="pointer-events-auto fixed bg-black/70 transition-all duration-200"
-            style={{ top: rect.top - PAD, left: rect.left + rect.width + PAD, right: 0, height: rect.height + PAD * 2 }}
-          />
           {/* The "quest marker" glow - see TutorialOverlay.tsx's identical
               pair of divs for the full rationale. */}
           <div
             className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300/70 animate-tutorial-glow-ping"
-            style={{
-              top: rect.top - PAD,
-              left: rect.left - PAD,
-              width: rect.width + PAD * 2,
-              height: rect.height + PAD * 2,
-            }}
+            style={{ top: glowRect.top, left: glowRect.left, width: glowRect.width, height: glowRect.height }}
           />
           <div
             className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300 animate-tutorial-glow-pulse transition-all duration-200"
-            style={{
-              top: rect.top - PAD,
-              left: rect.left - PAD,
-              width: rect.width + PAD * 2,
-              height: rect.height + PAD * 2,
-            }}
+            style={{ top: glowRect.top, left: glowRect.left, width: glowRect.width, height: glowRect.height }}
           />
         </>
-      ) : (
-        <div className="pointer-events-auto fixed inset-0 bg-black/70" />
       )}
 
       {/* Minimal corner HUD - see TutorialOverlay.tsx's identical element
