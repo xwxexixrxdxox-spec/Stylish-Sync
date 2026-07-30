@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 interface Props {
   title: string;
@@ -27,6 +28,23 @@ interface Props {
 // (rendered underneath the mask, outside the tour's own spotlight hole),
 // making the real confirm button unreachable. A user-triggered confirmation
 // should always win over a coach-mark overlay, so this sits above both.
+//
+// Portaled straight to document.body (like TutorialOverlay/
+// PropertyTutorialOverlay already do) rather than rendered inline: when
+// this dialog is opened from inside AccountSidebar.tsx, its parent panel
+// slides in via a CSS `transform` (translate-x), and per the CSS spec any
+// `transform`d ancestor becomes the containing block for descendant
+// `position: fixed` elements - not the viewport. Rendered inline, this
+// dialog's own "fixed inset-0" was silently being confined to that
+// slide-in panel's box instead of the full screen, and the transform also
+// gives the panel its own stacking context, so no z-index on this dialog
+// could ever escape it to actually beat the tour's overlay - live-testing
+// the "Start Fresh" tour step is what surfaced this: the confirm buttons
+// looked right (same white card, right title/message) but tapping Cancel
+// silently did nothing, because the click was landing on the tour's dim
+// mask underneath instead. Portaling to document.body sidesteps the whole
+// containing-block/stacking-context problem, the same way the tour
+// overlays already do for the identical reason.
 export default function ConfirmDialog({
   title,
   message,
@@ -76,7 +94,9 @@ export default function ConfirmDialog({
     }
   };
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-[210] flex items-end justify-center bg-black/40 p-4 sm:items-center"
       onClick={onCancel}
@@ -117,6 +137,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
