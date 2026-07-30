@@ -363,6 +363,7 @@ export default function ItemCard({
             <button
               onClick={startEditQty}
               aria-label={`Quantity ${item.quantity} ${item.unit} — tap to edit`}
+              data-tutorial={tutorialTarget ? "item-quantity-chip" : undefined}
               className={`min-w-[64px] select-none rounded-md px-1 py-0.5 text-center text-sm font-semibold hover:bg-surface-muted ${
                 low ? "text-accent-low" : "text-neutral-800"
               }`}
@@ -404,7 +405,7 @@ export default function ItemCard({
         </div>
       </div>
       <div className="ml-3 flex shrink-0 flex-col items-end gap-2">
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5" data-tutorial={tutorialTarget ? "item-action-icons" : undefined}>
           {eachItem && (
             <Tooltip label={`Break down into "${eachItem.name}"`}>
               <button

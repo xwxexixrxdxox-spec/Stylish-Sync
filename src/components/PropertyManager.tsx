@@ -424,7 +424,7 @@ export default function PropertyManager() {
             (Account → Google Sheets → Sign in with Google), then come back here.
           </p>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2" data-tutorial="property-sync-actions">
             <a
               href={sheetUrl(sheetId)}
               target="_blank"
@@ -466,6 +466,7 @@ export default function PropertyManager() {
             </button>
             <button
               onClick={replayPropertyTutorial}
+              data-tutorial="property-replay-tour"
               className="mt-2 w-full text-center text-xs font-medium text-neutral-400 hover:text-neutral-600"
             >
               ↻ Take the property tour
@@ -894,6 +895,7 @@ function PropertyCard({
             <select
               value={part.status}
               onChange={(e) => handlePartStatusChange(part, e.target.value as OrderedPart["status"])}
+              data-tutorial={isTutorialExamplePart ? "tutorial-example-status-dropdown" : undefined}
               className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
             >
               {ORDERED_PART_STATUS_OPTIONS.map((opt) => (
@@ -1260,6 +1262,7 @@ function PropertyCard({
           <div className="flex shrink-0 gap-1">
             <button
               onClick={() => setEditing(true)}
+              data-tutorial={isTutorialExample ? "tutorial-example-edit" : undefined}
               className="rounded-lg px-2 py-1 text-xs font-medium text-neutral-500 hover:bg-surface-muted"
             >
               Edit
@@ -1331,6 +1334,7 @@ function PropertyCard({
         {!addPartOpen ? (
           <button
             onClick={() => setAddPartOpen(true)}
+            data-tutorial={isTutorialExample ? "tutorial-example-add-part" : undefined}
             className="mt-1.5 flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-700"
           >
             <Plus size={13} /> Add a part
@@ -1515,7 +1519,7 @@ function PropertyCard({
             .filter((task) => !isTaskClosed(task.status))
             .map((task) => renderTaskRow(task, true))}
         </div>
-        <div className="mt-1.5 flex gap-1.5">
+        <div className="mt-1.5 flex gap-1.5" data-tutorial={isTutorialExample ? "tutorial-example-add-task" : undefined}>
           <input
             value={newTask}
             onChange={(e) => setNewTask(e.target.value)}

@@ -47,7 +47,15 @@ interface OverlayOrigin {
   maxRadius: number;
 }
 
-export default function ClearCacheButton() {
+interface Props {
+  // Optional tour hook - see ThemeToggle.tsx's identical prop for why this
+  // forwards onto the real <button> rather than a wrapping element. The
+  // tour only ever points at and narrates this button; it never simulates
+  // the hold gesture itself, since that would actually wipe local data.
+  dataTutorial?: string;
+}
+
+export default function ClearCacheButton({ dataTutorial }: Props) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const holdTimerRef = useRef<number | null>(null);
   const graceTimerRef = useRef<number | null>(null);
@@ -200,6 +208,7 @@ export default function ClearCacheButton() {
           onContextMenu={(e) => e.preventDefault()}
           disabled={!!overlayPhase}
           aria-label="Hold to clear cache and reload"
+          data-tutorial={dataTutorial}
           className={`relative select-none rounded-lg p-1.5 disabled:opacity-50 ${
             // A shade of red at rest (this is a destructive "wipe local data"
             // action, so the standing red hints it isn't the ordinary

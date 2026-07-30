@@ -824,6 +824,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
         </p>
         <a
           href="/property"
+          data-tutorial="account-manage-property"
           className="flex w-full items-center justify-center rounded-lg bg-neutral-900 py-2 text-sm font-semibold text-white hover:opacity-90"
         >
           Manage Property
@@ -837,6 +838,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
           onChange={(e) => setEditorNameState(e.target.value)}
           onBlur={commitEditorName}
           placeholder="e.g. Alex"
+          data-tutorial="account-name-tag"
           className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900"
         />
         <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
@@ -1019,20 +1021,22 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
               </div>
             )}
 
-            <button
-              disabled={busy === "push"}
-              onClick={pushNow}
-              className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
-            >
-              <UploadCloud size={14} /> {busy === "push" ? "Pushing…" : "Push to Sheet"}
-            </button>
-            <button
-              disabled={busy === "pull"}
-              onClick={pullNow}
-              className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
-            >
-              <DownloadCloud size={14} /> {busy === "pull" ? "Pulling…" : "Pull from Sheet"}
-            </button>
+            <div className="space-y-2" data-tutorial="account-sheets-actions">
+              <button
+                disabled={busy === "push"}
+                onClick={pushNow}
+                className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+              >
+                <UploadCloud size={14} /> {busy === "push" ? "Pushing…" : "Push to Sheet"}
+              </button>
+              <button
+                disabled={busy === "pull"}
+                onClick={pullNow}
+                className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
+              >
+                <DownloadCloud size={14} /> {busy === "pull" ? "Pulling…" : "Pull from Sheet"}
+              </button>
+            </div>
             {lastSyncedAt && (
               <p className="px-1 text-[11px] text-neutral-400">Last synced on this device: {formatRelativeTime(lastSyncedAt)}</p>
             )}
@@ -1076,6 +1080,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
         {onReplayTutorial && (
           <button
             onClick={onReplayTutorial}
+            data-tutorial="account-replay-tour"
             className="mt-3 w-full text-center text-xs font-medium text-neutral-400 hover:text-neutral-600"
           >
             ↻ Replay the welcome tour
@@ -1104,6 +1109,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
           <button
             disabled={remindersBusy || remindersState === "unknown"}
             onClick={toggleReminders}
+            data-tutorial="account-reminders-toggle"
             className={`flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
               remindersState === "on"
                 ? "border border-surface-border text-neutral-700 hover:bg-surface-muted"
@@ -1171,6 +1177,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
           <button
             disabled={installing}
             onClick={installApp}
+            data-tutorial="account-install-app"
             className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
           >
             <Download size={14} /> {installing ? "Installing…" : "Install app on this device"}

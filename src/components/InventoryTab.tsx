@@ -187,14 +187,19 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
         <span aria-hidden>📦</span> Inventory
       </h1>
 
-      <ImportExportPanel items={items} onImport={onImport} />
+      <div data-tutorial="inventory-import-export">
+        <ImportExportPanel items={items} onImport={onImport} />
+      </div>
 
-      <div className="mt-3">
+      <div className="mt-3" data-tutorial="inventory-share-barcodes">
         <ShareBarcodeDatabase />
       </div>
 
       <div className="mb-3 mt-4 flex items-center gap-2">
-        <div className="flex flex-1 items-center gap-2 rounded-xl2 border border-surface-border bg-white px-3 py-2 shadow-card">
+        <div
+          className="flex flex-1 items-center gap-2 rounded-xl2 border border-surface-border bg-white px-3 py-2 shadow-card"
+          data-tutorial="inventory-search"
+        >
           <Search size={16} className="text-neutral-400" />
           <input
             value={query}
@@ -208,6 +213,7 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
           value={sort}
           onChange={(e) => handleSortChange(e.target.value as InventorySort)}
           aria-label="Sort items"
+          data-tutorial="inventory-sort"
           className="shrink-0 rounded-xl2 border border-surface-border bg-white px-2.5 py-2 text-xs font-medium text-neutral-600 shadow-card"
         >
           <option value="recent">Recently changed</option>

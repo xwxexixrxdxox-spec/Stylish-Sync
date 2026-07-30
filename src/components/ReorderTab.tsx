@@ -198,6 +198,7 @@ export default function ReorderTab({ items }: Props) {
                 <div className="relative shrink-0">
                   <button
                     onClick={() => setFindMenuFor(findMenuFor === it.id ? null : it.id)}
+                    data-tutorial={itemIndex === 0 ? "reorder-find-at-button" : undefined}
                     className="flex items-center gap-1.5 rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-surface-muted"
                   >
                     <ShoppingCart size={13} /> Find at <ChevronDown size={12} />
@@ -227,7 +228,10 @@ export default function ReorderTab({ items }: Props) {
                 </div>
               </div>
 
-              <div className="mt-3 border-t border-surface-border pt-3">
+              <div
+                className="mt-3 border-t border-surface-border pt-3"
+                data-tutorial={itemIndex === 0 ? "reorder-package-tracking" : undefined}
+              >
                 <div className="mb-1.5 flex items-center gap-1.5">
                   <span className="text-[11px] font-medium text-neutral-500">Package tracking</span>
                   <ExperimentalBadge />

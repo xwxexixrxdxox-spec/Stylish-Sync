@@ -457,8 +457,8 @@ export default function HomePage() {
               <span className="text-base font-semibold text-neutral-900">WS Inventory Management</span>
             </button>
             <div className="flex items-center gap-1">
-              <ThemeToggle />
-              <ClearCacheButton />
+              <ThemeToggle dataTutorial="header-theme-toggle" />
+              <ClearCacheButton dataTutorial="header-clear-cache" />
               <Tooltip label="Account & settings" side="bottom">
                 <button
                   onClick={() => setAccountOpen(true)}

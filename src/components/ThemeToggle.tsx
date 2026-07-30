@@ -16,7 +16,15 @@ import Tooltip from "./Tooltip";
 // not an oversight - a customer who wants that back can always match
 // their device's own setting from here again with one more tap once it's
 // showing what they want.
-export default function ThemeToggle() {
+interface Props {
+  // Optional tour hook, forwarded onto the real <button> rather than a
+  // wrapping element - a wrapper span's own box doesn't reliably match the
+  // button's, which would leave the tour's spotlight glow slightly
+  // misaligned. Same pattern used for ClearCacheButton below.
+  dataTutorial?: string;
+}
+
+export default function ThemeToggle({ dataTutorial }: Props) {
   // Starts "light" on the server and until mount (matches the pre-hydration
   // DOM the layout's bootstrap script may have already dark-ified) - synced
   // for real in the effect below right after mount, same pattern used
@@ -42,6 +50,7 @@ export default function ThemeToggle() {
       <button
         onClick={toggle}
         aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+        data-tutorial={dataTutorial}
         className="rounded-lg p-1.5 text-neutral-500 hover:bg-surface-muted"
       >
         {dark ? <Sun size={18} /> : <Moon size={18} />}

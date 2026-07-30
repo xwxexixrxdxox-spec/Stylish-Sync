@@ -26,6 +26,18 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
     body: "We've added one example below — a rooftop HVAC unit — so you can see exactly how everything works before you add your own. Tap Next to start, or Skip tour to explore on your own.",
   },
   {
+    id: "property-sync-actions",
+    targetSelector: '[data-tutorial="property-sync-actions"]',
+    title: "Syncs to its own tab, same sheet",
+    body: "Once Google Sheets is connected from the Account panel, Property gets its own \"Property\" tab on that same spreadsheet — Push sends this device's list there, Pull brings it back.",
+  },
+  {
+    id: "add-property",
+    targetSelector: '[data-tutorial="add-property-button"]',
+    title: "Add your own whenever you're ready",
+    body: "This button opens a short form — name, location, serial number, and notes — for anything you want to track going forward.",
+  },
+  {
     id: "example-property",
     targetSelector: '[data-tutorial="tutorial-example-property"]',
     title: "This one's just a sample",
@@ -36,6 +48,12 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
     targetSelector: '[data-tutorial="tutorial-example-health"]',
     title: "One line tells you what needs attention",
     body: "This line always shows what's open on a property, so you don't have to open every one just to check. Right now it's flagging one overdue part.",
+  },
+  {
+    id: "example-edit",
+    targetSelector: '[data-tutorial="tutorial-example-edit"]',
+    title: "Edit the details any time",
+    body: "Tap Edit to update a property's name, location, serial number, or notes — nothing here is locked in once it's added.",
   },
   {
     id: "ordered-part",
@@ -57,6 +75,12 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
     body: "Ordered 2, received 0 so far. Tap the package icon in this row, then log 1 as received — I'll wait right here.",
   },
   {
+    id: "example-status-dropdown",
+    targetSelector: '[data-tutorial="tutorial-example-status-dropdown"]',
+    title: "Or just set the status directly",
+    body: "Logging a receipt isn't the only way to move a part along — this dropdown lets you jump straight to Ordered, Shipped, Received, Installed, or Cancelled whenever that's a better fit.",
+  },
+  {
     id: "eta-overdue",
     targetSelector: '[data-tutorial="tutorial-example-eta"]',
     title: "Never lose track of a late delivery",
@@ -69,10 +93,28 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
     body: "Ordering a part for a specific repair? Tie it to that task so nobody has to guess what it was for later.",
   },
   {
+    id: "example-add-part",
+    targetSelector: '[data-tutorial="tutorial-example-add-part"]',
+    title: "Add a part right from here",
+    body: "Type or scan a part number to look it up, or just fill in the description yourself — quantity, price, and an expected delivery date are all optional.",
+  },
+  {
     id: "status-history",
     targetSelector: '[data-tutorial="tutorial-example-history-button"]',
     title: "See the full story, any time",
     body: "Tap the clock icon to see every status change, timestamped, with who made it — handy when more than one person works on the same property.",
+  },
+  {
+    id: "example-add-task",
+    targetSelector: '[data-tutorial="tutorial-example-add-task"]',
+    title: "Track maintenance the same way",
+    body: "Type a repair or maintenance job here and hit enter to add it to the list — its own status and history work exactly like an ordered part's.",
+  },
+  {
+    id: "replay-tour",
+    targetSelector: '[data-tutorial="property-replay-tour"]',
+    title: "Come back to this tour any time",
+    body: "This link brings this exact walkthrough back whenever you want a refresher.",
   },
   {
     id: "wrap-up",

@@ -549,7 +549,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
         <span aria-hidden>📷</span> Scan
       </h1>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex gap-2" data-tutorial="scan-mode-toggle">
         <button
           type="button"
           onClick={() => setMode("barcode")}
