@@ -351,6 +351,29 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Covers a gap in playStepAt's own phase2FallbackMs: that timer only ever
+  // gets scheduled as a side effect of playStepAt() actually running, but
+  // playStepAt() is never called at all while voiceEnabled is false (see
+  // advance() and the mount-only effect below, both gated on it) - so a
+  // customer who has the tour muted for a step's entire duration would
+  // never see the glow move to targetSelectorPhase2, no matter how long
+  // they waited. That defeats the point of a step like "reorder" tracking
+  // what's being said - the caption still names Share, but the glow itself
+  // would stay stuck on the low-stock text forever. This schedules the
+  // exact same switch independently whenever voice is already off the
+  // moment this step starts, so a fully-muted customer still gets it.
+  // (Toggling voice on mid-step re-runs this effect, sees voiceEnabled is
+  // now true, and cleans up without scheduling - playStepAt's own
+  // audio-driven switch takes over from there.)
+  useEffect(() => {
+    if (voiceEnabled || !step.targetSelectorPhase2) return;
+    const timer = window.setTimeout(() => {
+      switchTarget(step.targetSelectorPhase2!);
+    }, step.phase2FallbackMs ?? 4000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex, voiceEnabled]);
+
   // Send focus into the caption bubble each time a new step appears, so
   // keyboard/screen-reader users land somewhere inside the dialog instead
   // of wherever focus happened to be on the underlying page (which, for a
