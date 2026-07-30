@@ -139,6 +139,32 @@ const config: Config = {
           "0%, 100%": { opacity: "0.9", transform: "scale(1)" },
           "50%": { opacity: "0.55", transform: "scale(1.03)" },
         },
+        // The tour's second generation (TutorialOverlay.tsx/
+        // PropertyTutorialOverlay.tsx): replaced the callout card's
+        // explanatory prose with a game-style "quest marker" treatment on
+        // the spotlighted element itself — the customer's own request was
+        // literally to make it "feel like the start of a kind of inventory
+        // game." Two layered pieces make that read: a soft, blurred glow
+        // that breathes in and out around the target (tutorial-glow-pulse,
+        // a multi-layer box-shadow so it looks like real bloom rather than
+        // a flat outline), plus an expanding, fading outer ring behind it
+        // (tutorial-glow-ping, a radar-style "ping") that repeats — the
+        // same visual grammar as an in-game objective marker, not a UI
+        // tooltip.
+        "tutorial-glow-pulse": {
+          "0%, 100%": {
+            "box-shadow":
+              "0 0 0 2px rgba(252,211,77,0.95), 0 0 22px 6px rgba(252,211,77,0.55), 0 0 46px 16px rgba(252,211,77,0.25)",
+          },
+          "50%": {
+            "box-shadow":
+              "0 0 0 2px rgba(252,211,77,0.65), 0 0 34px 10px rgba(252,211,77,0.35), 0 0 64px 24px rgba(252,211,77,0.12)",
+          },
+        },
+        "tutorial-glow-ping": {
+          "0%": { transform: "scale(1)", opacity: "0.7" },
+          "75%, 100%": { transform: "scale(1.35)", opacity: "0" },
+        },
       },
       animation: {
         "mark-in": "mark-in 0.5s cubic-bezier(0.22,1,0.36,1) both",
@@ -157,6 +183,8 @@ const config: Config = {
         "clear-cache-grace-countdown": "clear-cache-grace-countdown 4000ms linear forwards",
         "tutorial-card-in": "tutorial-card-in 260ms cubic-bezier(0.22,1,0.36,1) both",
         "tutorial-ring-pulse": "tutorial-ring-pulse 1.6s ease-in-out infinite",
+        "tutorial-glow-pulse": "tutorial-glow-pulse 1.8s ease-in-out infinite",
+        "tutorial-glow-ping": "tutorial-glow-ping 1.8s cubic-bezier(0,0,0.2,1) infinite",
       },
     },
   },

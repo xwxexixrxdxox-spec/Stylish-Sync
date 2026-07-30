@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX, X } from "lucide-react";
 import { TUTORIAL_STEPS, waitForElement } from "@/lib/tutorial";
 import {
   getCookieConsent,
@@ -33,24 +33,37 @@ interface Props {
 }
 
 // Coach-mark style walkthrough: dims the screen except for a cutout around
-// whatever this step is pointing at, with a small callout explaining it.
-// Drives the app's own tab/sidebar state directly (rather than rendering
-// fake copies of each screen) so what the customer sees during the tour is
-// exactly the real app, not a mockup of it.
+// whatever this step is pointing at. Second generation of this component —
+// the original explained each step through a full callout card; this one
+// leans on the voice narration (playStepAt below) to do that job instead,
+// and puts the visual emphasis on the spotlighted element itself: a
+// pulsating, game-style glow (see the tutorial-glow-* keyframes in
+// tailwind.config.ts) around whatever the customer needs to interact with,
+// with only a small caption bubble alongside it as a readable fallback for
+// a muted or autoplay-blocked device. Drives the app's own tab/sidebar
+// state directly (rather than rendering fake copies of each screen) so
+// what the customer sees during the tour is exactly the real app, not a
+// mockup of it.
 export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOpen, sheetId, onClose }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  // Measured height of the callout card itself, used (alongside the target
-  // rect) to decide whether it can sit near the bottom of the screen without
-  // covering the very thing it's pointing at - see the cardNearTop comment
-  // near the render below. Seeded with a reasonable guess close to a typical
-  // card's real height so the very first paint (before the ResizeObserver
-  // below reports in) is already close, rather than assuming 0.
-  const [cardHeight, setCardHeight] = useState(160);
+  // Measured height of the caption bubble itself, used (alongside the
+  // target rect) to decide whether it can sit near the bottom of the screen
+  // without covering the very thing it's pointing at - see the
+  // captionNearTop comment near the render below. Seeded with a reasonable
+  // guess close to a typical caption's real height so the very first paint
+  // (before the ResizeObserver below reports in) is already close, rather
+  // than assuming 0.
+  const [captionHeight, setCaptionHeight] = useState(90);
   const targetElRef = useRef<HTMLElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
+  // Wraps every focusable control this step renders (the corner pill's
+  // mute/skip buttons, the caption's own Next button) - queried by
+  // onOverlayKeyDown below for the Tab focus trap, since those controls now
+  // live in two visually separate pieces rather than one callout card.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const captionRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Tracks which step index has already been played via a direct click
   // handler (advance(), toggleVoice()) so the mount-only fallback effect
@@ -296,29 +309,31 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Send focus into the callout card each time a new step appears, so
+  // Send focus into the caption bubble each time a new step appears, so
   // keyboard/screen-reader users land somewhere inside the dialog instead
   // of wherever focus happened to be on the underlying page (which, for a
   // spotlighted step, might not even be visible under the dim mask).
   useEffect(() => {
-    cardRef.current?.focus();
+    captionRef.current?.focus();
   }, [stepIndex]);
 
-  // Keeps cardHeight (see above) in sync with the card's real rendered
-  // height, for every step - body text length varies a lot step to step
-  // ("Go ahead and tap..." vs. the three-line reorder explanation), and a
-  // step's card can also reflow if the viewport resizes underneath it. This
-  // was worth doing after finding, while live-testing the "support" step,
-  // that a tall spotlight target (the whole chat widget, stretching almost
-  // to the bottom of the screen) let the bottom-anchored card overlap the
-  // real chat input it was supposed to leave clickable - the card's actual
-  // height matters for detecting that, not just a guess.
+  // Keeps captionHeight (see above) in sync with the caption's real
+  // rendered height, for every step - body text length varies a lot step to
+  // step ("Go ahead and tap..." vs. the three-line reorder explanation), and
+  // a step's caption can also reflow if the viewport resizes underneath it.
+  // This was worth doing after finding, while live-testing the old card
+  // version's "support" step, that a tall spotlight target (the whole chat
+  // widget, stretching almost to the bottom of the screen) let a
+  // bottom-anchored callout overlap the real chat input it was supposed to
+  // leave clickable - the caption's actual height matters for detecting
+  // that, not just a guess, and still applies now that it's a smaller
+  // bubble rather than a full card.
   useEffect(() => {
-    const el = cardRef.current;
+    const el = captionRef.current;
     if (!el) return;
-    setCardHeight(el.getBoundingClientRect().height);
+    setCaptionHeight(el.getBoundingClientRect().height);
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setCardHeight(entry.contentRect.height);
+      if (entry) setCaptionHeight(entry.contentRect.height);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -433,13 +448,15 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     }
   };
 
-  // A minimal focus trap: Tab/Shift+Tab cycles only among this card's own
-  // focusable elements (its two buttons) rather than escaping into whatever
-  // sits behind the dimmed mask - standard expected behavior for anything
-  // marked aria-modal.
-  const onCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Tab" || !cardRef.current) return;
-    const focusable = cardRef.current.querySelectorAll<HTMLElement>("button");
+  // A minimal focus trap: Tab/Shift+Tab cycles only among this step's own
+  // focusable elements - the corner pill's mute/skip buttons and the
+  // caption's Next button, now split across two visually separate pieces
+  // rather than one card, so this queries the whole overlay rather than a
+  // single container - instead of escaping into whatever sits behind the
+  // dimmed mask, standard expected behavior for anything marked aria-modal.
+  const onOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !overlayRef.current) return;
+    const focusable = overlayRef.current.querySelectorAll<HTMLElement>("button");
     if (!focusable.length) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -456,21 +473,21 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   const nextLabel = step.nextLabel ?? "Next";
   // Near-bottom is the default (matches "bottom-24" in the JSX below, which
-  // reserves BOTTOM_CARD_CLEARANCE px so the card clears the bottom nav) -
-  // near-top only kicks in when that default would actually collide with
-  // something: either the target itself starts in the lower half (the
+  // reserves BOTTOM_CAPTION_CLEARANCE px so the caption clears the bottom
+  // nav) - near-top only kicks in when that default would actually collide
+  // with something: either the target itself starts in the lower half (the
   // original heuristic - e.g. the account-gear/google-signin steps, whose
   // target sits low on screen), or, regardless of where the target
   // *starts*, its own bottom edge reaches far enough down to land inside
-  // the zone a bottom-anchored card would occupy - true for any tall
+  // the zone a bottom-anchored caption would occupy - true for any tall
   // target, like the "support" step's whole-chat-widget spotlight, which
-  // starts near the top but stretches down past where the card would sit.
-  // Checking only rect.top (the original logic) missed that second case
-  // entirely, letting the card render on top of the real chat input.
-  const BOTTOM_CARD_CLEARANCE = 96; // px - matches bottom-24 below
-  const cardNearTop = rect
+  // starts near the top but stretches down past where the caption would
+  // sit. Checking only rect.top (the original logic) missed that second
+  // case entirely.
+  const BOTTOM_CAPTION_CLEARANCE = 96; // px - matches bottom-24 below
+  const captionNearTop = rect
     ? rect.top > window.innerHeight / 2 ||
-      rect.top + rect.height + PAD > window.innerHeight - BOTTOM_CARD_CLEARANCE - cardHeight
+      rect.top + rect.height + PAD > window.innerHeight - BOTTOM_CAPTION_CLEARANCE - captionHeight
     : false;
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
@@ -480,10 +497,10 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // would swallow every click - including ones aimed at the "hole" over
     // the spotlighted element - regardless of the mask bands below only
     // painting around that hole. Each interactive piece (the masks, the
-    // callout card) opts back into pointer-events-auto individually; the
-    // real element under the hole is never covered by anything here, so it
-    // falls through to receive the click normally.
-    <div className="pointer-events-none fixed inset-0 z-[200]">
+    // corner pill, the caption bubble) opts back into pointer-events-auto
+    // individually; the real element under the hole is never covered by
+    // anything here, so it falls through to receive the click normally.
+    <div ref={overlayRef} className="pointer-events-none fixed inset-0 z-[200]" onKeyDown={onOverlayKeyDown}>
       {rect ? (
         <>
           {/* Four masking bands leave a real, clickable hole over the
@@ -507,8 +524,23 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
             className="pointer-events-auto fixed bg-black/70 transition-all duration-200"
             style={{ top: rect.top - PAD, left: rect.left + rect.width + PAD, right: 0, height: rect.height + PAD * 2 }}
           />
+          {/* The "quest marker" glow: an expanding, fading ping ring behind
+              a breathing blurred-glow ring, both keyed to the same rect the
+              plain white ring used to occupy. Amber rather than the app's
+              existing accent colors (red is reserved for low-stock warnings,
+              green for "all clear") - a color that reads as "here, this one"
+              without also reading as a status. */}
           <div
-            className="pointer-events-none fixed rounded-lg ring-2 ring-white/90 animate-tutorial-ring-pulse transition-all duration-200"
+            className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300/70 animate-tutorial-glow-ping"
+            style={{
+              top: rect.top - PAD,
+              left: rect.left - PAD,
+              width: rect.width + PAD * 2,
+              height: rect.height + PAD * 2,
+            }}
+          />
+          <div
+            className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300 animate-tutorial-glow-pulse transition-all duration-200"
             style={{
               top: rect.top - PAD,
               left: rect.left - PAD,
@@ -521,51 +553,64 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
         <div className="pointer-events-auto fixed inset-0 bg-black/70" />
       )}
 
+      {/* Minimal corner HUD: step counter, voice mute toggle, and skip/exit
+          - everything the old callout card's button row held that isn't
+          "what do I do right now" (that lives in the caption below,
+          anchored to the glow itself). Fixed in the corner rather than
+          following the spotlight, so it reads as a persistent status
+          readout - like a game's HUD - instead of competing with the glow
+          for attention. */}
+      <div className="pointer-events-auto fixed right-3 top-3 z-[201] flex animate-label-in items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur">
+        {audioSupported && (
+          <button
+            onClick={toggleVoice}
+            aria-label={voiceEnabled ? "Mute the tour's voice" : "Unmute the tour's voice"}
+            className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white"
+          >
+            {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+          </button>
+        )}
+        <span className="px-1 text-[11px] tabular-nums text-white/70">
+          {stepIndex + 1}/{steps.length}
+        </span>
+        <button
+          onClick={() => finish("skipped")}
+          aria-label="Skip tour"
+          className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* The caption: a small, game-dialogue-style bubble anchored near the
+          glow (or centered, for the one step with nothing to point at yet -
+          "welcome"). Replaces the old full callout card's prose - the voice
+          narration (playStepAt above) carries the actual explanation now,
+          so this only needs to hold a short readable fallback for a muted
+          or autoplay-blocked device, plus the one control every step still
+          needs regardless of whether it self-resolves: a way to move on. */}
       <div
-        className={`pointer-events-auto fixed inset-x-0 flex justify-center px-4 ${
-          !rect ? "inset-y-0 items-center" : cardNearTop ? "top-[76px]" : "bottom-24"
+        className={`pointer-events-none fixed inset-x-0 flex justify-center px-4 ${
+          !rect ? "inset-y-0 items-center" : captionNearTop ? "top-[76px]" : "bottom-24"
         }`}
       >
         <div
-          ref={cardRef}
+          ref={captionRef}
           role="dialog"
           aria-modal="true"
           aria-label={step.title}
           tabIndex={-1}
-          onKeyDown={onCardKeyDown}
-          className="w-full max-w-sm animate-tutorial-card-in rounded-xl2 bg-white p-4 shadow-card outline-none"
+          className="pointer-events-auto w-full max-w-xs animate-tutorial-card-in rounded-2xl border border-amber-300/40 bg-neutral-900/90 p-3 text-white shadow-card outline-none backdrop-blur"
         >
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold text-neutral-900">{step.title}</p>
-            {audioSupported && (
-              <button
-                onClick={toggleVoice}
-                aria-label={voiceEnabled ? "Mute the tour's voice" : "Unmute the tour's voice"}
-                className="shrink-0 rounded-md p-1 text-neutral-400 hover:bg-surface-muted hover:text-neutral-600"
-              >
-                {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-              </button>
-            )}
-          </div>
-          <p className="mt-1.5 text-sm leading-relaxed text-neutral-600">{step.body}</p>
-          <div className="mt-3 flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-white">{step.title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-white/70">{step.body}</p>
+          <div className="mt-2 flex justify-end">
             <button
-              onClick={() => finish("skipped")}
-              className="text-xs font-medium text-neutral-400 hover:text-neutral-600"
+              onClick={advance}
+              className="rounded-full bg-amber-300 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-amber-200"
             >
-              Skip tour
+              {nextLabel} ›
             </button>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-neutral-400">
-                {stepIndex + 1}/{steps.length}
-              </span>
-              <button
-                onClick={advance}
-                className="rounded-lg bg-neutral-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-              >
-                {nextLabel}
-              </button>
-            </div>
           </div>
         </div>
       </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX, X } from "lucide-react";
 import { PROPERTY_TUTORIAL_STEPS } from "@/lib/propertyTutorial";
 import { waitForElement } from "@/lib/tutorial";
 import {
@@ -34,21 +34,30 @@ interface Props {
 }
 
 // Visually and behaviorally a sibling of TutorialOverlay.tsx (same masking
-// bands + spotlight ring + callout card + focus trap + Escape-to-skip), kept
-// as a separate component rather than a shared one: the main tour is driven
-// by tab/sidebar state on the single-page app, this one runs entirely on
-// the standalone /property page, and duplicating the ~150 lines of
-// presentational JSX was judged lower-risk this round than refactoring the
-// already-shipped, working main tutorial to share it. Adds one thing the
-// main tour doesn't have: an optional read-aloud of each step, using a
-// prerecorded audio clip (see playStepAt() below) — genuinely optional and
-// off with one tap, never required for the tour to make sense.
+// bands + spotlight glow + caption bubble + focus trap + Escape-to-skip),
+// kept as a separate component rather than a shared one: the main tour is
+// driven by tab/sidebar state on the single-page app, this one runs
+// entirely on the standalone /property page, and duplicating the ~150
+// lines of presentational JSX was judged lower-risk this round than
+// refactoring the already-shipped, working main tutorial to share it. Both
+// were reworked together from an original callout-card design to this
+// game-style glow-and-voice one — see TutorialOverlay.tsx's top comment for
+// the fuller rationale.
 export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  // Measured height of the caption bubble - see TutorialOverlay.tsx's
+  // identical field for the full rationale (the caption's own height
+  // matters when deciding whether it can sit near the bottom without
+  // covering a tall spotlight target).
+  const [captionHeight, setCaptionHeight] = useState(90);
   const targetElRef = useRef<HTMLElement | null>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
+  // Wraps every focusable control this step renders (the corner pill's
+  // mute/skip buttons, the caption's own Next button) - queried by
+  // onOverlayKeyDown below for the Tab focus trap.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const captionRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevReceivedRef = useRef(exampleReceivedCount);
   // Tracks which step index has already had playStepAt() called for it —
@@ -190,8 +199,29 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Send focus into the caption bubble each time a new step appears - see
+  // TutorialOverlay.tsx's identical effect for the full rationale.
   useEffect(() => {
-    cardRef.current?.focus();
+    captionRef.current?.focus();
+  }, [stepIndex]);
+
+  // Keeps captionHeight in sync with the caption's real rendered height.
+  // Brought over from TutorialOverlay.tsx's fix for the main tour's
+  // "support" step (a tall spotlight target reaching into a bottom-anchored
+  // caption's zone despite starting near the top) - this tour's own
+  // "log-receipt" step has the same shape of risk, since its target row
+  // grows taller the instant the quantity/confirm panel expands (see the
+  // ResizeObserver effect above), so the same more-accurate placement check
+  // applies here too rather than just the simpler rect.top heuristic.
+  useEffect(() => {
+    const el = captionRef.current;
+    if (!el) return;
+    setCaptionHeight(el.getBoundingClientRect().height);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setCaptionHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [stepIndex]);
 
   // Recorded narration lives in public/audio/property/<step id>.mp3 — one
@@ -263,9 +293,12 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     }
   };
 
-  const onCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Tab" || !cardRef.current) return;
-    const focusable = cardRef.current.querySelectorAll<HTMLElement>("button");
+  // A minimal focus trap across both the corner pill and the caption's own
+  // Next button - see TutorialOverlay.tsx's identical handler for the full
+  // rationale.
+  const onOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !overlayRef.current) return;
+    const focusable = overlayRef.current.querySelectorAll<HTMLElement>("button");
     if (!focusable.length) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -281,13 +314,19 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   if (typeof document === "undefined") return null;
 
   const nextLabel = step.nextLabel ?? "Next";
-  const cardNearTop = rect ? rect.top > window.innerHeight / 2 : false;
+  // Same more-accurate placement check as TutorialOverlay.tsx - see the
+  // captionHeight effect above for why this looks past just rect.top.
+  const BOTTOM_CAPTION_CLEARANCE = 96; // px - matches bottom-24 below
+  const captionNearTop = rect
+    ? rect.top > window.innerHeight / 2 ||
+      rect.top + rect.height + PAD > window.innerHeight - BOTTOM_CAPTION_CLEARANCE - captionHeight
+    : false;
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
   return createPortal(
     // pointer-events-none is load-bearing here too, same reason as
     // TutorialOverlay.tsx — see that file's comment.
-    <div className="pointer-events-none fixed inset-0 z-[200]">
+    <div ref={overlayRef} className="pointer-events-none fixed inset-0 z-[200]" onKeyDown={onOverlayKeyDown}>
       {rect ? (
         <>
           <div
@@ -306,8 +345,19 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
             className="pointer-events-auto fixed bg-black/70 transition-all duration-200"
             style={{ top: rect.top - PAD, left: rect.left + rect.width + PAD, right: 0, height: rect.height + PAD * 2 }}
           />
+          {/* The "quest marker" glow - see TutorialOverlay.tsx's identical
+              pair of divs for the full rationale. */}
           <div
-            className="pointer-events-none fixed rounded-lg ring-2 ring-white/90 animate-tutorial-ring-pulse transition-all duration-200"
+            className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300/70 animate-tutorial-glow-ping"
+            style={{
+              top: rect.top - PAD,
+              left: rect.left - PAD,
+              width: rect.width + PAD * 2,
+              height: rect.height + PAD * 2,
+            }}
+          />
+          <div
+            className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300 animate-tutorial-glow-pulse transition-all duration-200"
             style={{
               top: rect.top - PAD,
               left: rect.left - PAD,
@@ -320,51 +370,54 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
         <div className="pointer-events-auto fixed inset-0 bg-black/70" />
       )}
 
+      {/* Minimal corner HUD - see TutorialOverlay.tsx's identical element
+          for the full rationale. */}
+      <div className="pointer-events-auto fixed right-3 top-3 z-[201] flex animate-label-in items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur">
+        {audioSupported && (
+          <button
+            onClick={toggleVoice}
+            aria-label={voiceEnabled ? "Mute the tour's voice" : "Unmute the tour's voice"}
+            className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white"
+          >
+            {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+          </button>
+        )}
+        <span className="px-1 text-[11px] tabular-nums text-white/70">
+          {stepIndex + 1}/{steps.length}
+        </span>
+        <button
+          onClick={() => finish("skipped")}
+          aria-label="Skip tour"
+          className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* The caption bubble - see TutorialOverlay.tsx's identical element
+          for the full rationale. */}
       <div
-        className={`pointer-events-auto fixed inset-x-0 flex justify-center px-4 ${
-          !rect ? "inset-y-0 items-center" : cardNearTop ? "top-[76px]" : "bottom-24"
+        className={`pointer-events-none fixed inset-x-0 flex justify-center px-4 ${
+          !rect ? "inset-y-0 items-center" : captionNearTop ? "top-[76px]" : "bottom-24"
         }`}
       >
         <div
-          ref={cardRef}
+          ref={captionRef}
           role="dialog"
           aria-modal="true"
           aria-label={step.title}
           tabIndex={-1}
-          onKeyDown={onCardKeyDown}
-          className="w-full max-w-sm animate-tutorial-card-in rounded-xl2 bg-white p-4 shadow-card outline-none"
+          className="pointer-events-auto w-full max-w-xs animate-tutorial-card-in rounded-2xl border border-amber-300/40 bg-neutral-900/90 p-3 text-white shadow-card outline-none backdrop-blur"
         >
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold text-neutral-900">{step.title}</p>
-            {audioSupported && (
-              <button
-                onClick={toggleVoice}
-                aria-label={voiceEnabled ? "Mute the tour's voice" : "Unmute the tour's voice"}
-                className="shrink-0 rounded-md p-1 text-neutral-400 hover:bg-surface-muted hover:text-neutral-600"
-              >
-                {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-              </button>
-            )}
-          </div>
-          <p className="mt-1.5 text-sm leading-relaxed text-neutral-600">{step.body}</p>
-          <div className="mt-3 flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-white">{step.title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-white/70">{step.body}</p>
+          <div className="mt-2 flex justify-end">
             <button
-              onClick={() => finish("skipped")}
-              className="text-xs font-medium text-neutral-400 hover:text-neutral-600"
+              onClick={advance}
+              className="rounded-full bg-amber-300 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-amber-200"
             >
-              Skip tour
+              {nextLabel} ›
             </button>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-neutral-400">
-                {stepIndex + 1}/{steps.length}
-              </span>
-              <button
-                onClick={advance}
-                className="rounded-lg bg-neutral-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-              >
-                {nextLabel}
-              </button>
-            </div>
           </div>
         </div>
       </div>
