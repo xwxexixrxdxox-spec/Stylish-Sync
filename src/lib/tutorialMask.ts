@@ -26,6 +26,77 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(Math.max(n, min), max);
 }
 
+// A spotlight hole that also knows how round its own corners are, so the
+// cutout can match the real control's shape (a circular icon button gets a
+// circular hole, not a rounded square around it).
+export interface MaskHole extends Rect {
+  radius?: number;
+}
+
+function round(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// One rounded-rectangle subpath, drawn clockwise.
+function holeSubpath(h: MaskHole): string | null {
+  const left = round(h.left);
+  const top = round(h.top);
+  const w = round(h.width);
+  const hh = round(h.height);
+  if (w <= 0 || hh <= 0) return null;
+  const r = round(clamp(h.radius ?? 12, 0, Math.min(w / 2, hh / 2)));
+  const right = round(left + w);
+  const bottom = round(top + hh);
+  if (r <= 0) {
+    return `M${left} ${top} H${right} V${bottom} H${left} Z`;
+  }
+  return [
+    `M${round(left + r)} ${top}`,
+    `H${round(right - r)}`,
+    `A${r} ${r} 0 0 1 ${right} ${round(top + r)}`,
+    `V${round(bottom - r)}`,
+    `A${r} ${r} 0 0 1 ${round(right - r)} ${bottom}`,
+    `H${round(left + r)}`,
+    `A${r} ${r} 0 0 1 ${left} ${round(bottom - r)}`,
+    `V${round(top + r)}`,
+    `A${r} ${r} 0 0 1 ${round(left + r)} ${top}`,
+    "Z",
+  ].join(" ");
+}
+
+// Builds a single `clip-path` value: the whole viewport, with each hole
+// punched out of it by the even-odd fill rule.
+//
+// This replaces computeMaskBands() for the main tour. Tiling the dim out of
+// separate rectangles meant each band applied its own backdrop-filter, so
+// wherever two bands abutted the blur doubled and drew a visible bright
+// seam - a full-height and full-width cross through the page on a typical
+// step, four separate lines on the Reorder share step. Band counts also
+// swung between zero and seventeen across the tour, and at zero there was no
+// dim at all. One element with one filter has no seams to draw and no count
+// to get wrong.
+//
+// Returns null when there's no viewport to speak of yet (server render, or a
+// measurement taken before layout), which callers read as "don't clip."
+export function buildMaskClipPath(
+  holes: MaskHole[],
+  viewportWidth: number,
+  viewportHeight: number
+): string | null {
+  if (viewportWidth <= 0 || viewportHeight <= 0) return null;
+  const outer = `M0 0 H${round(viewportWidth)} V${round(viewportHeight)} H0 Z`;
+  const inner = holes
+    .map((h) =>
+      holeSubpath({
+        ...h,
+        left: clamp(h.left, -viewportWidth, viewportWidth * 2),
+        top: clamp(h.top, -viewportHeight, viewportHeight * 2),
+      })
+    )
+    .filter((d): d is string => d !== null);
+  return `path(evenodd, "${[outer, ...inner].join(" ")}")`;
+}
+
 // Splits the viewport into a grid using every hole's edges as cut lines,
 // then returns every grid cell that doesn't fall inside any hole - the set
 // of rectangles that still need to be blurred/dimmed. This generalizes the

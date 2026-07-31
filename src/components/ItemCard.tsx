@@ -323,6 +323,11 @@ export default function ItemCard({
             <Tooltip label="Hold to decrease stock">
               <button
                 aria-label="Decrease stock"
+                // The guided tour spotlights this button (and the + below)
+                // directly rather than the whole row: the row is ~470px
+                // wide while the two controls the narration actually names
+                // are 28px each, so the old highlight covered half the card.
+                data-tutorial={tutorialTarget ? "item-stock-decrement" : undefined}
                 onPointerDown={(e) => startPress(-1, e.pointerId)}
                 onPointerUp={endPress}
                 onPointerLeave={endPress}
@@ -385,6 +390,7 @@ export default function ItemCard({
             <Tooltip label="Hold to increase stock">
               <button
                 aria-label="Increase stock"
+                data-tutorial={tutorialTarget ? "item-stock-increment" : undefined}
                 onPointerDown={(e) => startPress(1, e.pointerId)}
                 onPointerUp={endPress}
                 onPointerLeave={endPress}

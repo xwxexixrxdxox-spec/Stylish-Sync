@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Compass, Menu } from "lucide-react";
+import { Compass, Menu, X, Check } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import {
   loadItems,
@@ -11,6 +11,10 @@ import {
   logMovement,
   resetTutorialCompleted,
   getEditorName,
+  isFreshInstall,
+  getTutorialCompleted,
+  getTourInviteDismissed,
+  setTourInviteDismissed,
 } from "@/lib/storage";
 import { itemMergeKey, countByBarcode } from "@/lib/itemMatch";
 import { syncPushDigest } from "@/lib/pushReminders";
@@ -52,6 +56,17 @@ export default function HomePage() {
   // (below), and UsageTab narrows its overview list to one item only
   // while the "usage" step specifically is showing.
   const [tutorialStepId, setTutorialStepId] = useState<string | null>(null);
+  // The first-visit "New here? Take the tour" chip. Nothing in the app used
+  // to announce that a guided tour existed at all - the only way in was the
+  // compass icon in the header, which reads as "explore" to someone who has
+  // never seen this app before. The chip is the invitation; it is shown once,
+  // to a genuinely new customer, and never returns once it's been answered
+  // either way.
+  const [showTourInvite, setShowTourInvite] = useState(false);
+  // Shown for a few seconds after the tour reaches its last step, so the
+  // walkthrough ends on "you're done, here's what to do next" rather than
+  // just vanishing mid-thought.
+  const [tourFinished, setTourFinished] = useState(false);
 
   // If the matched booking gets cleared (e.g. Google sign-out) while the
   // customer is sitting on the Status tab, don't strand them on a tab that
@@ -65,6 +80,10 @@ export default function HomePage() {
     // the instant it finds ITEMS_KEY missing - that write is exactly the
     // signal this is checking for, so calling loadItems() first would
     // erase it before this ever saw it.
+    const fresh = isFreshInstall();
+    setShowTourInvite(
+      fresh && !getTutorialCompleted() && !getTourInviteDismissed(),
+    );
     setItems(loadItems());
     setSheetIdState(getLinkedSheetId());
     const timer = setTimeout(() => setLoadScreenExiting(true), LOAD_SCREEN_MIN_MS);
@@ -85,11 +104,37 @@ export default function HomePage() {
     setTutorialActive(true);
   };
 
+  // Both ways out of the invitation chip mark it answered, so it never
+  // appears a second time. Taking the tour counts as an answer too - if the
+  // customer bails on step 3 we don't want the chip waiting for them when
+  // they get back; the compass in the header is there for a second attempt.
+  const acceptTourInvite = () => {
+    setTourInviteDismissed();
+    setShowTourInvite(false);
+    setTourFinished(false);
+    setTab("inventory");
+    setAccountOpen(false);
+    setTutorialActive(true);
+  };
+
+  const dismissTourInvite = () => {
+    setTourInviteDismissed();
+    setShowTourInvite(false);
+  };
+
   useEffect(() => {
     if (!loadScreenExiting) return;
     const timer = setTimeout(() => setShowLoadScreen(false), LOAD_SCREEN_FADE_MS);
     return () => clearTimeout(timer);
   }, [loadScreenExiting]);
+
+  // Clears itself so finishing the tour doesn't leave one last thing to
+  // close. Long enough to read twice; the X is there for anyone faster.
+  useEffect(() => {
+    if (!tourFinished) return;
+    const timer = setTimeout(() => setTourFinished(false), 9000);
+    return () => clearTimeout(timer);
+  }, [tourFinished]);
 
   useEffect(() => {
     if (items.length) saveItems(items);
@@ -485,6 +530,39 @@ export default function HomePage() {
           </div>
         </header>
 
+        {/* First-visit invitation. Deliberately not a modal: a brand new
+            customer who'd rather poke around first shouldn't have to answer
+            a dialog to reach their own screen. It sits under the header, in
+            the reading path, and disappears for good either way. Hidden
+            during the tour itself so it isn't sitting in the spotlight of
+            the very first step. */}
+        {showTourInvite && !tutorialActive && !showLoadScreen && (
+          <div className="mx-auto max-w-2xl px-4 pt-3 sm:px-6">
+            <div className="flex items-center gap-3 rounded-xl2 border border-surface-border bg-white px-4 py-3 shadow-card">
+              <Compass size={18} className="shrink-0 text-neutral-500" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-neutral-900">New here?</p>
+                <p className="text-[11px] text-neutral-500">
+                  A short guided tour shows you around the app.
+                </p>
+              </div>
+              <button
+                onClick={acceptTourInvite}
+                className="shrink-0 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+              >
+                Take the tour
+              </button>
+              <button
+                onClick={dismissTourInvite}
+                aria-label="Dismiss tour invitation"
+                className="shrink-0 rounded-lg p-1 text-neutral-400 hover:bg-surface-muted hover:text-neutral-700"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {tab === "inventory" && (
           <InventoryTab
             items={items}
@@ -539,6 +617,35 @@ export default function HomePage() {
             while the tour has the screen's attention. */}
         <SpotifyWidget suppressed={tutorialActive} />
 
+        {/* The tour used to just stop - the last step's overlay disappeared
+            and the customer was returned to an ordinary screen with no
+            acknowledgement that they'd finished anything. This is the
+            sign-off, and it names the two things a real first-day customer
+            actually does next. Non-blocking and self-dismissing: it sits
+            above the bottom nav, nothing is behind it, and it clears itself
+            so there's no chore attached to finishing. */}
+        {tourFinished && (
+          <div className="fixed inset-x-0 bottom-16 z-40 px-3">
+            <div className="mx-auto flex max-w-2xl items-start gap-3 rounded-xl2 border border-surface-border bg-white px-4 py-3 shadow-card">
+              <Check size={18} className="mt-0.5 shrink-0 text-accent-ok" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-neutral-900">That&apos;s the tour</p>
+                <p className="text-[11px] text-neutral-500">
+                  Ready when you are — add your first item with the + button, or
+                  import a spreadsheet from Account &amp; settings.
+                </p>
+              </div>
+              <button
+                onClick={() => setTourFinished(false)}
+                aria-label="Dismiss"
+                className="shrink-0 rounded-lg p-1 text-neutral-400 hover:bg-surface-muted hover:text-neutral-700"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
         <BottomNav active={tab} onChange={setTab} showStatusTab={!!trackedBookingId} />
 
         {/* Gated on !showLoadScreen so the tour never stacks on top of the
@@ -551,9 +658,14 @@ export default function HomePage() {
             accountOpen={accountOpen}
             setAccountOpen={setAccountOpen}
             sheetId={sheetId}
-            onClose={() => {
+            onClose={(reason) => {
               setTutorialActive(false);
               setTutorialStepId(null);
+              // Only a completed tour earns the sign-off. Someone who hit
+              // "Skip" has just told us they want the screen back; handing
+              // them one more thing to dismiss would be the opposite of
+              // listening.
+              if (reason === "finished") setTourFinished(true);
             }}
             onStepChange={setTutorialStepId}
           />

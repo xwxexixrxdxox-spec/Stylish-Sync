@@ -21,6 +21,10 @@ const INVENTORY_SORT_KEY = "isc_inventory_sort_v1";
 // derived from it, so a customer who clears their cache and gets reseeded
 // demo items also genuinely gets the tour again - see clearAppCache.
 const TUTORIAL_KEY = "isc_tutorial_completed_v1";
+// Whether the first-visit "New here? Take the tour" chip has been waved
+// off. See getTourInviteDismissed for why this is separate from
+// TUTORIAL_KEY above.
+const TOUR_INVITE_DISMISSED_KEY = "isc_tour_invite_dismissed_v1";
 // Whether the customer has dismissed the "Install app" banner (the
 // closeable pop-up on the main screen). Present once dismissed, missing
 // otherwise — so the banner nags at most until the first dismissal, then
@@ -65,17 +69,43 @@ const RETAILER_SEARCH_BY_KEY = "isc_retailer_search_by_v1";
 // way around that without moving history off localStorage entirely.
 const MAX_MOVEMENTS = 20000;
 
+// The three demo items a brand-new device starts with. The count is pinned
+// at three because the tour's opening narration says so out loud ("we
+// loaded 3 sample items") — changing it would silently make a recorded
+// clip wrong.
+//
+// They're deliberately not three unrelated products any more. Two of the
+// three (seed-1 and seed-3) are the same product at two levels — sealed
+// cases in dry storage, loose bottles in the cooler — linked by
+// breaksDownIntoBarcode. That relationship is what makes the break-down
+// feature visible at all: ItemCard only renders the break-down icon for an
+// item that actually has an each-level counterpart, so before this the
+// tour's "break down a case" step pointed at a control that didn't exist
+// on any sample item and simply had nothing to show.
+//
+// Order matters twice over. The inventory list defaults to "Recently
+// changed", and the tour only ever targets the first card, so seed-1
+// carries the newest updatedAt and is the case (parent) side — its child
+// renders indented beneath it via groupBreakDownChildren. The Usage step
+// likewise focuses items[0], which is this same item.
+const SEED_NOW = Date.now();
+const DAY_MS = 86_400_000;
+const seedDaysAgo = (days: number, hours = 0) =>
+  new Date(SEED_NOW - days * DAY_MS - hours * 3_600_000).toISOString();
+
 const SEED_ITEMS: InventoryItem[] = [
   {
     id: "seed-1",
     barcode: "8412345678905",
-    name: "Premium Notebook A5",
-    quantity: 14,
-    unit: "ea",
-    pricePerUnit: 3.5,
-    reorderAt: 5,
-    updatedAt: new Date().toISOString(),
+    name: "Spring Water 500ml — Case of 24",
+    quantity: 6,
+    unit: "case",
+    pricePerUnit: 11.5,
+    reorderAt: 3,
+    updatedAt: seedDaysAgo(0),
     location: "Dry Stock",
+    breaksDownIntoBarcode: "8412345678929",
+    breaksDownIntoQty: 24,
   },
   {
     id: "seed-2",
@@ -85,7 +115,7 @@ const SEED_ITEMS: InventoryItem[] = [
     unit: "pack",
     pricePerUnit: 2.0,
     reorderAt: 4,
-    updatedAt: new Date().toISOString(),
+    updatedAt: seedDaysAgo(0, 6),
     location: "Dry Stock",
   },
   {
@@ -96,10 +126,64 @@ const SEED_ITEMS: InventoryItem[] = [
     unit: "bottle",
     pricePerUnit: 0.75,
     reorderAt: 12,
-    updatedAt: new Date().toISOString(),
+    updatedAt: seedDaysAgo(1),
     location: "Cooler",
   },
 ];
+
+// Six weeks of plausible history for the three demo items above, written
+// once alongside them on a brand-new device.
+//
+// The reason this exists: the Usage tab charts consumption from the
+// movement log, and a freshly-seeded device had an empty log — so the tour
+// step that promises "see how fast things move, and how many days of stock
+// you have left" spotlighted a card reading "No usage last 30d." The tour's
+// own example disproved its own pitch. Synthetic history is the honest fix:
+// it's demo data on demo items, and Start Fresh clears it exactly the same
+// way it clears the demo items themselves.
+//
+// The arithmetic is deliberately closed: starting from zero, every item's
+// deltas sum to exactly the quantity it's seeded with. A history that
+// contradicts the number printed on the card would be worse than no
+// history at all.
+//   seed-1: 3 deliveries x 12 = +36, one case opened per open day = -30 -> 6
+//   seed-3: 30 breakdowns x 24 = +720, six weeks of the cycle below = -672 -> 48
+//   seed-2: one +6 restock, three -1 pulls                                -> 3
+// The window is exactly six 7-day weeks, and the site is "closed" two days
+// a week (no cases opened, no bottles consumed), which is both realistic
+// and what makes those totals land on whole numbers. Breaking a case is
+// logged on both sides (see StockMovement.reason), so seed-1's and seed-3's
+// histories are two halves of the same events — meaning the Usage tab ends
+// up demonstrating the case/each relationship too, not just a line sloping
+// down.
+const SEED_WINDOW_DAYS = 42;
+// Bottles consumed by day-of-cycle. The two zeroes are the closed days.
+const SEED_BOTTLE_CYCLE = [0, 0, 24, 22, 24, 20, 22];
+const SEED_DELIVERY_DAYS = new Set([40, 26, 12]);
+
+function buildSeedMovements(): Omit<StockMovement, "id">[] {
+  const entries: Omit<StockMovement, "id">[] = [];
+
+  for (let d = SEED_WINDOW_DAYS - 1; d >= 0; d--) {
+    const consumed = SEED_BOTTLE_CYCLE[d % 7];
+    const open = consumed > 0;
+    if (SEED_DELIVERY_DAYS.has(d)) {
+      entries.push({ itemId: "seed-1", delta: 12, reason: "scan-add", at: seedDaysAgo(d, 9) });
+    }
+    if (open) {
+      entries.push({ itemId: "seed-1", delta: -1, reason: "break-case", at: seedDaysAgo(d, 7) });
+      entries.push({ itemId: "seed-3", delta: 24, reason: "break-case", at: seedDaysAgo(d, 7) });
+      entries.push({ itemId: "seed-3", delta: -consumed, reason: "scan-remove", at: seedDaysAgo(d, 2) });
+    }
+  }
+
+  entries.push({ itemId: "seed-2", delta: 6, reason: "scan-add", at: seedDaysAgo(38, 9) });
+  for (const d of [30, 20, 10]) {
+    entries.push({ itemId: "seed-2", delta: -1, reason: "manual-adjust", at: seedDaysAgo(d, 4) });
+  }
+
+  return entries.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+}
 
 // Guards against a null/undefined/NaN numeric field crashing a render
 // somewhere downstream (e.g. ItemCard's pricePerUnit.toFixed(2)) — seen in
@@ -122,6 +206,13 @@ export function loadItems(): InventoryItem[] {
     const raw = window.localStorage.getItem(ITEMS_KEY);
     if (!raw) {
       window.localStorage.setItem(ITEMS_KEY, JSON.stringify(SEED_ITEMS));
+      // Seed the demo history alongside the demo items, but only if there
+      // genuinely isn't a movement log yet - a customer who wiped just
+      // their item list keeps whatever real history they'd built up, and
+      // never gets fake entries mixed into it.
+      if (!window.localStorage.getItem(MOVEMENTS_KEY)) {
+        logMovements(buildSeedMovements());
+      }
       return SEED_ITEMS;
     }
     const parsed = JSON.parse(raw) as InventoryItem[];
@@ -154,6 +245,23 @@ export function getTutorialCompleted(): boolean {
 export function setTutorialCompleted(reason: TutorialCompletionReason): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(TUTORIAL_KEY, reason);
+}
+
+// Whether the customer has waved off the first-visit "take the tour"
+// invitation. Separate from TUTORIAL_KEY because they answer different
+// questions: TUTORIAL_KEY means "the tour has run," this means "we've
+// already asked." A customer who dismisses the chip without taking the
+// tour shouldn't be asked twice, but should still be offered the tour
+// again if they later clear their cache - which is exactly what removing
+// the key alongside everything else in clearAppCache gives us.
+export function getTourInviteDismissed(): boolean {
+  if (typeof window === "undefined") return true; // never flash the chip during SSR
+  return window.localStorage.getItem(TOUR_INVITE_DISMISSED_KEY) !== null;
+}
+
+export function setTourInviteDismissed(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TOUR_INVITE_DISMISSED_KEY, "1");
 }
 
 // Used by the "Replay tutorial" link in AccountTab - lets a customer pull
@@ -673,6 +781,9 @@ export async function clearAppCache(): Promise<void> {
   // sync, so a full cache clear genuinely resets to a first-open experience
   // rather than reseeding demo items with no tour to explain them.
   window.localStorage.removeItem(TUTORIAL_KEY);
+  // The invitation chip goes with it - a customer looking at freshly
+  // reseeded demo items should be offered the tour that explains them.
+  window.localStorage.removeItem(TOUR_INVITE_DISMISSED_KEY);
   // Same reasoning, same pairing, for Property: clearing PROPERTY_KEY empties
   // the list again, so the Property tour's completion flag resets alongside
   // it rather than leaving a blank list with no tour to explain it either.

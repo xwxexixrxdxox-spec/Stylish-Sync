@@ -3,14 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from "lucide-react";
-import { TUTORIAL_STEPS, waitForElement } from "@/lib/tutorial";
+import { TUTORIAL_STEPS, waitForElement, type TutorialStep } from "@/lib/tutorial";
 import {
   getCookieConsent,
   setTutorialCompleted,
   getTutorialVoiceEnabled,
   setTutorialVoiceEnabled,
 } from "@/lib/storage";
-import { computeMaskBands, inflateRect, type Rect } from "@/lib/tutorialMask";
+import { buildMaskClipPath, inflateRect, type MaskHole, type Rect } from "@/lib/tutorialMask";
 import TutorialSoundBar from "./TutorialSoundBar";
 import type { TabId } from "./BottomNav";
 
@@ -32,7 +32,9 @@ interface Props {
   accountOpen: boolean;
   setAccountOpen: (v: boolean) => void;
   sheetId: string | null;
-  onClose: () => void;
+  // Reports HOW the tour ended, so page.tsx can show a short confirmation
+  // for a genuine finish and stay quiet for a skip.
+  onClose: (reason: "finished" | "skipped") => void;
   // Reports the id of whichever step is currently showing (or null once
   // the tour closes) - page.tsx uses this to make a couple of real
   // features tutorial-aware without this component needing to know
@@ -72,7 +74,102 @@ interface Props {
 // of the small chevron, so a customer can tap ±/hold as many times as they
 // want before choosing to continue. A HUD back arrow and drag-to-reposition
 // (this HUD can now sit somewhere less in-the-way) are both new too.
-export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOpen, sheetId, onClose, onStepChange }: Props) {
+
+// An element's top-left corner radius in plain pixels. Browsers resolve
+// even a "9999px" pill radius down to a real used value here, so a fully
+// round button reports half its own height and the mask's arcs come out
+// matching the real control rather than a rounded-ish approximation of it.
+function readRadiusPx(el: HTMLElement): number {
+  const raw = window.getComputedStyle(el).borderTopLeftRadius;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : 12;
+}
+
+// Titles are written as headlines and often end in their own punctuation
+// ("That's the tour!"), so joining title and body with a full stop produced
+// "That's the tour!. You're all set" - which any screen reader or TTS pass
+// dutifully reads as a doubled stop.
+function stripTrailingPunctuation(s: string): string {
+  return s.replace(/[.!?,;:\s]+$/u, "");
+}
+
+// Does this step actually have a recorded voice clip on the server?
+//
+// Since the visible dialog cards were removed, the recording is a step's
+// ONLY explanation - so a step whose clip 404s shows a dimmed screen, one
+// amber glow, and total silence. Twenty-one of the thirty-two steps were in
+// that state, which is what made the tour miserable rather than merely
+// rough. Rather than show them, the tour asks the server up front which
+// clips exist and quietly drops the rest: a short tour that talks beats a
+// long one that doesn't, and a future missing file now degrades quietly
+// instead of producing another silent wall.
+//
+// A network/CORS failure returns true, not false - "I couldn't ask" must
+// never be mistaken for "it isn't there," or one flaky moment would gut the
+// whole tour.
+async function hasNarration(stepId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/audio/tutorial/${stepId}.mp3`, { method: "HEAD" });
+    return res.ok;
+  } catch {
+    return true;
+  }
+}
+
+// Thin wrapper that resolves the step list BEFORE the real overlay mounts,
+// then hands it down as a prop. Deliberately a separate component rather
+// than a piece of state inside the overlay: roughly ten of the overlay's
+// effects are keyed on [stepIndex], and stepIndex stays 0 while an async
+// step list resolves - so those effects would never re-run once it landed,
+// and step 1's narration would never play. Mounting the overlay only once
+// the list is final means every one of its hooks starts life with a stable,
+// non-null array and none of them need to know this happened at all.
+export default function TutorialOverlay(props: Props) {
+  const [steps, setSteps] = useState<TutorialStep[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // The cookie-consent step only belongs in the tour while consent is
+    // still undecided - consent gets decided DURING that very step, so this
+    // is settled once, here, and never recomputed mid-tour.
+    const candidates = TUTORIAL_STEPS.filter(
+      (s) => s.id !== "cookie-consent" || getCookieConsent() === null
+    );
+    Promise.all(candidates.map((s) => hasNarration(s.id))).then((present) => {
+      if (cancelled) return;
+      // The closing step is exempt from the drop. It is the only step in the
+      // tour that isn't teaching a control - it's the goodbye - and it now
+      // has a *visible* sign-off waiting for it (the confirmation the page
+      // shows once the tour reports "finished"), so it doesn't need a voice
+      // clip to do its job. Without this exemption the last surviving step
+      // would be whichever teaching step happens to be last on disk, and
+      // today that's "Start Fresh" - so a brand new customer's tour would end
+      // with the wipe-everything button spotlit and then nothing. A silent
+      // dimmed beat that says "you're done" is a much better last impression.
+      const narratable = candidates.filter((_, i) => present[i]);
+      // If literally nothing came back present, something is wrong with the
+      // request rather than with the audio - fall back to the full list so
+      // the customer gets the old behaviour rather than an empty tour. Tested
+      // on `narratable` specifically, before the exemption below, so a tour
+      // consisting of nothing but the goodbye never counts as a real result.
+      if (!narratable.length) {
+        setSteps(candidates);
+        return;
+      }
+      setSteps(
+        candidates.filter((s, i) => present[i] || s.id === "tour-complete")
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!steps) return null;
+  return <TutorialOverlayInner {...props} steps={steps} />;
+}
+
+function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetId, onClose, onStepChange, steps }: Props & { steps: TutorialStep[] }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -82,8 +179,15 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // glow, matching whatever the real element actually looks like rather
   // than an approximation of it.
   const [targetRadius, setTargetRadius] = useState<string>("0.75rem");
+  // The same radius as a plain number of pixels, for the clip-path mask -
+  // it draws its corner arcs itself and can't work with a CSS string.
+  const [targetRadiusPx, setTargetRadiusPx] = useState(12);
   const targetElRef = useRef<HTMLElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  // False once this component unmounts - checked by the rAF loop in
+  // settleRect(), which would otherwise keep calling setState on a tour that
+  // has already closed.
+  const aliveRef = useRef(true);
   // The step's own focusSelectors (see tutorial.ts) - elements that stay
   // sharp/unblurred for the whole step alongside whatever the glow is
   // currently pointing at. Tracked the same way as the main target: a ref
@@ -91,9 +195,20 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // state holding their current rects (for rendering).
   const focusElsRef = useRef<HTMLElement[]>([]);
   const focusResizeObserversRef = useRef<ResizeObserver[]>([]);
-  const [focusRects, setFocusRects] = useState<Rect[]>([]);
+  const [focusRects, setFocusRects] = useState<MaskHole[]>([]);
   const recomputeFocusRects = () => {
-    setFocusRects(focusElsRef.current.map((el) => el.getBoundingClientRect()));
+    setFocusRects(
+      focusElsRef.current.map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          top: r.top,
+          left: r.left,
+          width: r.width,
+          height: r.height,
+          radius: readRadiusPx(el),
+        };
+      })
+    );
   };
   // Wraps every focusable control the corner HUD renders (mute, back,
   // next/move-on, skip) - queried by onOverlayKeyDown below for the Tab
@@ -114,6 +229,21 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   useEffect(() => {
     hasAdvancedRef.current = false;
   }, [stepIndex]);
+  // Which direction the customer arrived at the current step from. Three
+  // steps advance themselves once the real thing is done (cookie consent
+  // chosen, a scan lookup resolved, the usage detail view opened), and
+  // their "is it done yet?" check re-runs the instant the step is entered.
+  // Entered BACKWARDS - i.e. the customer pressed the back arrow to hear it
+  // again - the answer is permanently yes, so the step immediately fires
+  // "done, move forward" and throws them straight back where they came
+  // from. That's the loop: from step 21 onward the back arrow was dead.
+  // Those checks read this ref and stay quiet when the arrival was
+  // backwards; a step you've already satisfied should sit still and let you
+  // listen to it again. Deliberately NOT read by the account-gear or
+  // google-signin checks: those key off live app state (accountOpen,
+  // sheetId) rather than a permanently-true fact, and backing into
+  // account-gear closes the sidebar again anyway, so they self-correct.
+  const enteredBackwardsRef = useRef(false);
   // Mirrors stepIndex for the async callbacks below (audio timeupdate, a
   // setTimeout fallback) that fire well after their own effect ran — React
   // state captured in a closure at that moment would be stale by the time
@@ -147,13 +277,9 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     origTop: number;
     dragging: boolean;
   } | null>(null);
-  // Frozen once at mount (useState initializer, not useMemo) on purpose:
-  // the cookie-consent step only belongs in the tour while consent is still
-  // undecided, but consent gets decided DURING that very step — recomputing
-  // the list at that moment would shift every later step's index mid-tour.
-  const [steps] = useState(() =>
-    TUTORIAL_STEPS.filter((s) => s.id !== "cookie-consent" || getCookieConsent() === null)
-  );
+  // `steps` arrives already narrowed and frozen by the wrapper above - it
+  // never changes identity for this component's whole lifetime, so every
+  // [stepIndex]-keyed effect below can treat it as a constant.
   const step = steps[stepIndex];
 
   useEffect(() => {
@@ -184,20 +310,31 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
+  // Ending the tour used to just make the overlay vanish, leaving the
+  // customer sitting inside the Account settings sidebar - the last place
+  // the tour navigated to, not anywhere anyone would want to start working,
+  // and with nothing to confirm they'd actually finished. Completing it now
+  // closes the sidebar and puts them back on Inventory; page.tsx shows the
+  // brief confirmation from there. Skipping is left exactly where they are,
+  // since someone bailing out mid-tour usually wants the screen they bailed
+  // out on.
   const finish = (reason: "finished" | "skipped") => {
     setTutorialCompleted(reason);
     audioRef.current?.pause();
-    onClose();
+    if (reason === "finished") {
+      setAccountOpen(false);
+      setTab("inventory");
+    }
+    onClose(reason);
   };
 
   const advance = () => {
     if (hasAdvancedRef.current) return;
     hasAdvancedRef.current = true;
+    enteredBackwardsRef.current = false;
     setStepIndex((i) => {
       if (i >= steps.length - 1) {
-        setTutorialCompleted("finished");
-        audioRef.current?.pause();
-        onClose();
+        finish("finished");
         return i;
       }
       const next = i + 1;
@@ -220,9 +357,11 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const goBack = () => {
     if (hasAdvancedRef.current) return;
     hasAdvancedRef.current = true;
+    enteredBackwardsRef.current = true;
     setStepIndex((i) => {
       if (i <= 0) {
         hasAdvancedRef.current = false;
+        enteredBackwardsRef.current = false;
         return i;
       }
       const prev = i - 1;
@@ -253,26 +392,76 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     resizeObserverRef.current?.disconnect();
     targetElRef.current = el;
     setRect(el.getBoundingClientRect());
-    setTargetRadius(window.getComputedStyle(el).borderRadius || "0.75rem");
+    const style = window.getComputedStyle(el);
+    setTargetRadius(style.borderRadius || "0.75rem");
+    // Numeric companion to the CSS-string radius above, for the clip-path
+    // mask (which needs real numbers to draw arcs with, not "9999px").
+    setTargetRadiusPx(readRadiusPx(el));
     el.scrollIntoView({ block: "center", behavior: "smooth" });
     const observer = new ResizeObserver(() => {
       if (targetElRef.current) setRect(targetElRef.current.getBoundingClientRect());
     });
     observer.observe(el);
     resizeObserverRef.current = observer;
+    settleRect(el);
+  };
+
+  // Follow a target that's still moving when we first measure it.
+  //
+  // The account sidebar slides in over about two seconds, and a
+  // ResizeObserver only fires on size changes - a panel translating into
+  // place keeps its size the whole way, so the spotlight was measured at the
+  // panel's off-screen starting position (I measured a hole at x=1949 on a
+  // 1920-wide viewport) and sat there until some unrelated recompute
+  // happened to correct it. Re-measuring every frame for a beat, and only
+  // committing state when the numbers actually change, makes the glow travel
+  // with the panel instead of arriving late.
+  const settleRect = (el: HTMLElement, ms = 1600) => {
+    let elapsed = 0;
+    let last = "";
+    const tick = () => {
+      if (!aliveRef.current || targetElRef.current !== el) return;
+      const r = el.getBoundingClientRect();
+      const key = `${r.top},${r.left},${r.width},${r.height}`;
+      if (key !== last) {
+        last = key;
+        setRect(r);
+      }
+      elapsed += 16;
+      if (elapsed < ms) window.requestAnimationFrame(tick);
+    };
+    window.requestAnimationFrame(tick);
   };
 
   // Find (and re-find, once the tab/sidebar effect above actually lands)
   // this step's spotlight target.
+  //
+  // When the target genuinely never turns up, the step is skipped in
+  // whichever direction the customer was already travelling. Three steps
+  // (break down a case, Push to Sheet, Pull from Sheet) point at controls
+  // that only exist under conditions a first-time customer may not have met,
+  // and a step with no target used to render as a single grey rectangle over
+  // part of the page - it looked like the app had crashed mid-render. Moving
+  // past it is both honest and quiet. Skipping in the direction of travel
+  // matters: skipping forward while someone is pressing Back is its own
+  // little trap.
   useEffect(() => {
     let cancelled = false;
+    const enteredBackwards = enteredBackwardsRef.current;
     setRect(null);
     targetElRef.current = null;
     resizeObserverRef.current?.disconnect();
     if (!step.targetSelector) return;
-    waitForElement(step.targetSelector).then((el) => {
+    // Generous timeout: the sidebar's own transition can take most of two
+    // seconds, and a step inside it shouldn't be dropped for being slow.
+    waitForElement(step.targetSelector, 2500).then((el) => {
       if (cancelled) return;
-      if (el) attachTarget(el);
+      if (el) {
+        attachTarget(el);
+        return;
+      }
+      if (enteredBackwards) goBack();
+      else advance();
     });
     return () => {
       cancelled = true;
@@ -313,6 +502,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // for the very last one when the tour itself closes.
   useEffect(() => {
     return () => {
+      aliveRef.current = false;
       resizeObserverRef.current?.disconnect();
       focusResizeObserversRef.current.forEach((o) => o.disconnect());
     };
@@ -365,6 +555,9 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // scan right now isn't stuck.
   useEffect(() => {
     if (step.id !== "scan") return;
+    // Entered backwards: the lookup already resolved, so this check would
+    // fire instantly and bounce the customer forward again. Sit still.
+    if (enteredBackwardsRef.current) return;
     let cancelled = false;
     let observer: MutationObserver | null = null;
     waitForElement('[data-tutorial="scan-panel"]').then((el) => {
@@ -399,6 +592,10 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // from this overlay).
   useEffect(() => {
     if (step.id !== "usage") return;
+    // Entered backwards: the detail view is still open from last time, so
+    // the timeframe buttons are still in the DOM and this would bounce
+    // straight forward again. Sit still and let the clip replay.
+    if (enteredBackwardsRef.current) return;
     let cancelled = false;
     let observer: MutationObserver | null = null;
     const check = () => {
@@ -421,6 +618,9 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // would otherwise leave this step spotlighting empty space.
   useEffect(() => {
     if (step.id !== "cookie-consent") return;
+    // Entered backwards: consent was already chosen, and it stays chosen
+    // forever, so this poll would re-advance within a quarter second.
+    if (enteredBackwardsRef.current) return;
     const timer = window.setInterval(() => {
       if (getCookieConsent() !== null) advance();
     }, 250);
@@ -635,9 +835,21 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   if (typeof document === "undefined") return null;
 
-  const nextLabel = step.moveOnLabel ?? step.nextLabel ?? "Next";
-  const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
   const isFirstStep = stepIndex === 0;
+  const isLastStep = stepIndex === steps.length - 1;
+  // "Finish tour" is derived from position rather than read off the step,
+  // because the step that used to carry that label can now be dropped by the
+  // narration preflight - whichever step ends up last has to say it.
+  const nextLabel = step.moveOnLabel ?? (isLastStep ? "Finish tour" : step.nextLabel ?? "Next");
+  const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
+  // How far through the current chapter this step is, e.g. "Inventory 3/9".
+  // A raw "1/32" was the very first thing a customer read on step one, and
+  // thirty-two is a daunting number to open with; a chapter shows them the
+  // end of the section they're in rather than the end of everything. Counted
+  // over the steps that actually survived the preflight, so it stays honest.
+  const chapter = step.chapter;
+  const chapterSteps = chapter ? steps.filter((s) => s.chapter === chapter) : [];
+  const chapterPosition = chapter ? chapterSteps.indexOf(step) + 1 : 0;
 
   // Every element that should stay sharp and interactive right now: the
   // glow's own current target, plus this step's focusSelectors. Suppressed
@@ -645,11 +857,16 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // while blurSuppressed is true, for a step that explicitly asked for a
   // few seconds of a completely clear view (see suppressBlurMs above).
   const glowRect = rect ? inflateRect(rect, PAD) : null;
-  const focusHoles = focusRects.map((r) => inflateRect(r, PAD));
-  const maskHoles = glowRect ? [glowRect, ...focusHoles] : focusHoles;
+  const focusHoles: MaskHole[] = focusRects.map((r) => ({
+    ...inflateRect(r, PAD),
+    radius: (r.radius ?? 12) + PAD,
+  }));
+  const maskHoles: MaskHole[] = glowRect
+    ? [{ ...glowRect, radius: targetRadiusPx + PAD }, ...focusHoles]
+    : focusHoles;
   const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0;
   const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 0;
-  const maskBands = blurSuppressed ? [] : computeMaskBands(maskHoles, viewportWidth, viewportHeight);
+  const maskClipPath = buildMaskClipPath(maskHoles, viewportWidth, viewportHeight);
 
   return createPortal(
     // pointer-events-none here is load-bearing, not decorative: this outer
@@ -669,20 +886,22 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
           live region keeps that text available to screen readers even
           though nothing shows it visually. */}
       <div className="sr-only" aria-live="polite">
-        {step.title}. {step.body}
+        {`${stripTrailingPunctuation(step.title)}. ${step.body}`}
       </div>
-      {/* Blurred + dimmed bands cover everything that isn't currently in
-          focus - real, clickable holes left over each focused element
-          rather than a single dim overlay. Kept light (a quarter of the
-          original blur strength) so the rest of the app stays legible in
-          the background. Suppressed entirely for suppressBlurMs. */}
-      {maskBands.map((band, i) => (
+      {/* One blurred + dimmed surface covering the whole viewport, with a
+          real hole cut through it over each focused element. clip-path also
+          governs hit testing, so clicks genuinely pass through those holes
+          to the app underneath. Kept light (a quarter of the original blur
+          strength) so the rest of the app stays legible in the background.
+          Suppressed entirely for suppressBlurMs. No CSS transition here on
+          purpose: two paths with different numbers of subpaths can't be
+          interpolated, so animating it would flicker rather than glide. */}
+      {!blurSuppressed && maskClipPath && (
         <div
-          key={i}
-          className="pointer-events-auto fixed bg-black/45 backdrop-blur-[3px] transition-all duration-200"
-          style={{ top: band.top, left: band.left, width: band.width, height: band.height }}
+          className="pointer-events-auto fixed inset-0 bg-black/45 backdrop-blur-[3px]"
+          style={{ clipPath: maskClipPath, WebkitClipPath: maskClipPath }}
         />
-      ))}
+      )}
       {glowRect && (
         <>
           {/* The "quest marker" glow: an expanding, fading ping ring behind
@@ -747,8 +966,19 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
             <TutorialSoundBar speaking={speaking && voiceEnabled} />
           </div>
         )}
-        <span className="px-1 text-[11px] tabular-nums text-white/70">
-          {stepIndex + 1}/{steps.length}
+        <span className="px-1 text-[11px] text-white/70">
+          {chapter && chapterPosition > 0 ? (
+            <>
+              {chapter}{" "}
+              <span className="tabular-nums">
+                {chapterPosition}/{chapterSteps.length}
+              </span>
+            </>
+          ) : (
+            <span className="tabular-nums">
+              {stepIndex + 1}/{steps.length}
+            </span>
+          )}
         </span>
         <button
           onClick={goBack}

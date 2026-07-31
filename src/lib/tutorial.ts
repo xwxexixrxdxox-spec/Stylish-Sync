@@ -22,6 +22,13 @@ import type { TabId } from "@/components/BottomNav";
 // propertyTutorial.ts's own comment.
 export interface TutorialStep {
   id: string;
+  // Which section of the tour this step belongs to, shown in the HUD as
+  // e.g. "Inventory 3/9". A bare "1/32" was the first thing a customer read
+  // on the opening step, and thirty-two is a daunting number to lead with -
+  // a chapter shows them the end of the section they're actually in.
+  // TutorialOverlay counts positions over the steps that survived its
+  // narration preflight, so these stay correct even when steps get dropped.
+  chapter?: string;
   // Bottom-nav tab this step needs active, or null to leave whatever tab
   // is already showing alone (used for steps about the header/sidebar,
   // which don't care which tab is behind them).
@@ -71,6 +78,7 @@ export interface TutorialStep {
 export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "welcome",
+    chapter: "Getting started",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: null,
@@ -88,6 +96,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // there's nothing to narrate here that a "Next" tap would add to.
   {
     id: "cookie-consent",
+    chapter: "Getting started",
     tab: null,
     sidebarOpen: false,
     targetSelector: '[data-tutorial="cookie-banner"]',
@@ -96,6 +105,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "header-theme-toggle",
+    chapter: "Getting started",
     tab: null,
     sidebarOpen: false,
     targetSelector: '[data-tutorial="header-theme-toggle"]',
@@ -110,6 +120,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // actually cleared while the tutorial is open.
   {
     id: "header-clear-cache-test",
+    chapter: "Getting started",
     tab: null,
     sidebarOpen: false,
     targetSelector: '[data-tutorial="header-clear-cache"]',
@@ -122,26 +133,38 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // instant one gesture is detected — a direct fix for "it moves on too
   // quickly after just a single tap." The customer can tap and hold as
   // many times as they want on their own schedule before choosing Move on.
+  //
+  // Both spotlight the − button itself rather than the whole quantity row:
+  // the row is about 470px wide while the two buttons the narration actually
+  // names are barely 30px each, so a customer heard "tap minus or plus" and
+  // was shown a strip covering half the card. The + button and the quantity
+  // chip stay sharp via focusSelectors — the chip especially, since watching
+  // that number change is the whole feedback loop these two steps teach.
   {
     id: "stock-controls-tap",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
-    targetSelector: '[data-tutorial="item-stock-controls"]',
+    targetSelector: '[data-tutorial="item-stock-decrement"]',
+    focusSelectors: ['[data-tutorial="item-quantity-chip"]', '[data-tutorial="item-stock-increment"]'],
     moveOnLabel: "Move on",
     title: "Adjust stock in a tap",
     body: "Go ahead and tap − or + on this item to log a unit at a time. Try it as many times as you like.",
   },
   {
     id: "stock-controls-hold",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
-    targetSelector: '[data-tutorial="item-stock-controls"]',
+    targetSelector: '[data-tutorial="item-stock-decrement"]',
+    focusSelectors: ['[data-tutorial="item-quantity-chip"]', '[data-tutorial="item-stock-increment"]'],
     moveOnLabel: "Move on",
     title: "Hold for bigger changes",
     body: "Now try pressing and holding either button — that adjusts several at once, handy for a big restock or a big pull. Take your time; tap Move on whenever you're ready to keep going.",
   },
   {
     id: "inventory-search-sort",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="inventory-search"]',
@@ -152,6 +175,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "inventory-import-export",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="inventory-import-export"]',
@@ -160,6 +184,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "inventory-share-barcodes",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="inventory-share-barcodes"]',
@@ -172,6 +197,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // icon themselves.
   {
     id: "item-action-icons",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-action-icons"]',
@@ -180,6 +206,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "item-action-breakdown",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-action-breakdown"]',
@@ -188,6 +215,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "item-action-edit",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-action-edit"]',
@@ -196,6 +224,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "item-action-delete",
+    chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-action-delete"]',
@@ -204,6 +233,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "scan",
+    chapter: "Scan",
     tab: "scan",
     sidebarOpen: false,
     // Points at the real blue "Scan Barcode" button rather than the
@@ -217,6 +247,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "scan-modes",
+    chapter: "Scan",
     tab: "scan",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="scan-mode-toggle"]',
@@ -232,6 +263,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // item.
   {
     id: "reorder",
+    chapter: "Reorder",
     tab: "reorder",
     sidebarOpen: false,
     suppressBlurMs: 5000,
@@ -242,6 +274,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "reorder-search-and-find",
+    chapter: "Reorder",
     tab: "reorder",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="reorder-search-by-toggle"]',
@@ -255,6 +288,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // reordering.
   {
     id: "reorder-package-tracking",
+    chapter: "Reorder",
     tab: "reorder",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="reorder-package-tracking"]',
@@ -263,6 +297,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "reorder-share",
+    chapter: "Reorder",
     tab: "reorder",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="reorder-share-button"]',
@@ -277,6 +312,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // the point of this step, not narration to sit through.
   {
     id: "usage",
+    chapter: "Usage",
     tab: "usage",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="usage-overview-list"]',
@@ -285,6 +321,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "usage-detail-timeframes",
+    chapter: "Usage",
     tab: "usage",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="usage-timeframe-buttons"]',
@@ -293,6 +330,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "support",
+    chapter: "Support",
     tab: "support",
     sidebarOpen: false,
     // The real chat widget, not the bottom-nav tab icon - the spotlight's
@@ -305,6 +343,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "account-gear",
+    chapter: "Account",
     tab: null,
     sidebarOpen: false,
     targetSelector: '[data-tutorial="account-gear"]',
@@ -313,6 +352,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "google-signin",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="google-signin"]',
@@ -329,6 +369,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // conditional rendering, unchanged this round.
   {
     id: "account-push-test",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-push-button"]',
@@ -337,6 +378,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "account-name-tag",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-name-tag"]',
@@ -345,6 +387,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "start-fresh",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="start-fresh-local"]',
@@ -353,6 +396,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "account-pull-test",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-pull-button"]',
@@ -361,6 +405,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "account-manage-property",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-manage-property"]',
@@ -369,6 +414,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "account-reminders-install",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-reminders-toggle"]',
@@ -379,6 +425,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "account-replay-tour",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-replay-tour"]',
@@ -387,9 +434,16 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "tour-complete",
+    chapter: "Account",
     tab: null,
     sidebarOpen: true,
-    targetSelector: '[data-tutorial="account-manage-property"]',
+    // Deliberately targetless. This used to spotlight "Manage Property" -
+    // the exact same control step 29 already points at - so the closing
+    // line landed on a button the customer had just been taught, which
+    // read like the tour had lost its place. A goodbye isn't attached to a
+    // control; with a null target the overlay draws a plain full-viewport
+    // dim, which is the right backdrop for "you're done."
+    targetSelector: null,
     title: "That's the tour!",
     body: "You're all set — explore Inventory on your own from here, or tap Manage Property above to keep going with equipment tracking.",
     nextLabel: "Finish tour",
