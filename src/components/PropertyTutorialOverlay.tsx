@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from "lucide-react";
-import { PROPERTY_TUTORIAL_STEPS } from "@/lib/propertyTutorial";
+import { PROPERTY_TUTORIAL_STEPS, type PropertyTutorialStep } from "@/lib/propertyTutorial";
 import { waitForElement } from "@/lib/tutorial";
 import {
   setPropertyTutorialCompleted,
@@ -47,7 +47,58 @@ interface Props {
 // pre-seeded-example walkthrough) is unchanged this round - see
 // propertyTutorial.ts's own comment for what's still queued for a fuller,
 // hands-on rework matching the main tour's Part 1/2 redesign.
-export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose }: Props) {
+//
+// Round "P": this tour now runs the same narration preflight the main tour
+// has had since round "O" (see hasNarration/TutorialOverlay.tsx). It was
+// missing here, and the consequence was worse than it looks: this component
+// renders its title/body ONLY into an sr-only aria-live region, so a step
+// with no recorded clip is not merely quiet, it is completely blank - a
+// dimmed screen and a spotlight with no words anywhere. Seven of these
+// sixteen steps were in that state (property-sync-actions, add-property,
+// example-edit, example-status-dropdown, example-add-part, example-add-task,
+// replay-tour). Nine steps that talk beat sixteen where seven say nothing.
+export default function PropertyTutorialOverlay(props: Props) {
+  const [steps, setSteps] = useState<PropertyTutorialStep[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      PROPERTY_TUTORIAL_STEPS.map(async (s) => {
+        try {
+          const res = await fetch(`/audio/property/${s.id}.mp3`, { method: "HEAD" });
+          return res.ok;
+        } catch {
+          // "I couldn't ask" must never be read as "it isn't there" - one
+          // flaky request would otherwise gut the whole tour.
+          return true;
+        }
+      })
+    ).then((present) => {
+      if (cancelled) return;
+      const narratable = PROPERTY_TUTORIAL_STEPS.filter((_, i) => present[i]);
+      // Nothing present at all means the requests failed, not that the audio
+      // is missing - fall back to the full list so the customer gets the old
+      // behaviour rather than an empty tour.
+      setSteps(narratable.length ? narratable : PROPERTY_TUTORIAL_STEPS);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!steps) return null;
+  return <PropertyTutorialOverlayInner {...props} steps={steps} />;
+}
+
+// Split out so the step list is final before any of the [stepIndex]-keyed
+// effects below ever run - same reasoning as TutorialOverlay.tsx's wrapper:
+// stepIndex sits at 0 while an async list resolves, so effects keyed on it
+// would never re-fire once the list landed and step one would never speak.
+function PropertyTutorialOverlayInner({
+  exampleReceivedCount,
+  onClose,
+  steps,
+}: Props & { steps: PropertyTutorialStep[] }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -83,7 +134,7 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     origTop: number;
     dragging: boolean;
   } | null>(null);
-  const steps = PROPERTY_TUTORIAL_STEPS;
+  // `steps` arrives already narrowed and frozen by the wrapper above.
   const step = steps[stepIndex];
 
   useEffect(() => {
@@ -324,7 +375,11 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
 
   if (typeof document === "undefined") return null;
 
-  const nextLabel = step.nextLabel ?? "Next";
+  // Derived from position rather than read off the step: the step that used
+  // to carry "Finish tour" (wrap-up) can now be dropped by the preflight, so
+  // whichever step ends up last has to say it.
+  const isLastStep = stepIndex === steps.length - 1;
+  const nextLabel = isLastStep ? "Finish tour" : step.nextLabel ?? "Next";
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
   const isFirstStep = stepIndex === 0;
 
