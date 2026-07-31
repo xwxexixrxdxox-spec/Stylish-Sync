@@ -72,6 +72,16 @@ export default function ItemCard({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [breakingCase, setBreakingCase] = useState(false);
   const [movingStock, setMovingStock] = useState(false);
+  // Mirrors a real tap on the breakdown/edit/delete action icons onto a
+  // data-tutorial-clicked attribute (same idea as the stock stepper's
+  // burst-count attributes above it) so TutorialOverlay.tsx's per-icon
+  // tour steps can self-resolve the instant the customer actually taps the
+  // button being spotlighted, rather than requiring a separate "Next" tap
+  // on top of the real gesture the step just asked for. Only meaningful
+  // when tutorialTarget is set (the one card the tour ever points at); a
+  // plain object rather than three separate booleans since all three only
+  // ever get read via the same style of attribute lookup.
+  const [tutorialClicked, setTutorialClicked] = useState<{ breakdown?: boolean; edit?: boolean; delete?: boolean }>({});
   // Other rows already tracking this same barcode at a different location
   // (Phase 4) - drives both the "Also at" line below and the Move dialog's
   // quick-pick chips. Recomputed every render from the live `items` list
@@ -410,7 +420,12 @@ export default function ItemCard({
             <Tooltip label={`Break down into "${eachItem.name}"`}>
               <button
                 aria-label="Break case into individual units"
-                onClick={() => setBreakingCase(true)}
+                onClick={() => {
+                  setBreakingCase(true);
+                  if (tutorialTarget) setTutorialClicked((c) => ({ ...c, breakdown: true }));
+                }}
+                data-tutorial={tutorialTarget ? "item-action-breakdown" : undefined}
+                data-tutorial-clicked={tutorialClicked.breakdown ? "true" : undefined}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-surface-muted"
               >
                 <PackageOpen size={14} />
@@ -422,6 +437,7 @@ export default function ItemCard({
               <button
                 aria-label="Move stock to another location"
                 onClick={() => setMovingStock(true)}
+                data-tutorial={tutorialTarget ? "item-action-move" : undefined}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-surface-muted"
               >
                 <ArrowLeftRight size={14} />
@@ -431,7 +447,12 @@ export default function ItemCard({
           <Tooltip label="Edit item">
             <button
               aria-label="Edit item"
-              onClick={() => onEdit(item)}
+              onClick={() => {
+                onEdit(item);
+                if (tutorialTarget) setTutorialClicked((c) => ({ ...c, edit: true }));
+              }}
+              data-tutorial={tutorialTarget ? "item-action-edit" : undefined}
+              data-tutorial-clicked={tutorialClicked.edit ? "true" : undefined}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-surface-muted"
             >
               <Pencil size={14} />
@@ -440,7 +461,12 @@ export default function ItemCard({
           <Tooltip label="Delete item">
             <button
               aria-label="Delete item"
-              onClick={() => setConfirmingDelete(true)}
+              onClick={() => {
+                setConfirmingDelete(true);
+                if (tutorialTarget) setTutorialClicked((c) => ({ ...c, delete: true }));
+              }}
+              data-tutorial={tutorialTarget ? "item-action-delete" : undefined}
+              data-tutorial-clicked={tutorialClicked.delete ? "true" : undefined}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border text-neutral-500 hover:bg-red-50 hover:text-accent-low"
             >
               <Trash2 size={14} />

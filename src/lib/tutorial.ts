@@ -8,6 +8,18 @@ import type { TabId } from "@/components/BottomNav";
 // TutorialOverlay.tsx for how these get driven and rendered. Kept as a
 // flat, ordered list rather than a tree/graph: every customer sees the same
 // tour in the same order, so there's nothing branchy to model here.
+//
+// Fourth-generation content (round "O"): a full rewrite from the
+// customer's own step-by-step "Tutorial Guide" doc, on top of the
+// third-generation engine changes shipped alongside it (draggable HUD,
+// back arrow, no more auto-advance-on-audio-end - see TutorialOverlay.tsx's
+// top comment). The doc covers what it calls "Part 1" and "Part 2" of the
+// tour - both folded into this one TUTORIAL_STEPS list, since Part 2 (the
+// Account section: menu, Google Sheets push/pull, Start Fresh) is still
+// the same single continuous walkthrough as Part 1, just its back half.
+// "Part 3" (a from-scratch, hands-on rework of the Property tour) is a
+// separate, larger undertaking not included in this round - see
+// propertyTutorial.ts's own comment.
 export interface TutorialStep {
   id: string;
   // Bottom-nav tab this step needs active, or null to leave whatever tab
@@ -24,25 +36,35 @@ export interface TutorialStep {
   // Defaults to "Next" - only the final step overrides this, since tapping
   // it there closes the tour rather than moving to another step.
   nextLabel?: string;
+  // Overrides the HUD's plain chevron with a bigger, explicitly-labeled
+  // pill button showing this text - used for the stock-stepper pair, whose
+  // whole point is "try tapping and holding as many times as you want, on
+  // your own schedule, then tell us when you're ready" rather than moving
+  // on the instant a single gesture is detected (the old behavior, and a
+  // direct customer complaint - see TutorialOverlay.tsx's top comment).
+  moveOnLabel?: string;
+  // Shows the small animated "voice is talking" bar indicator in the
+  // corner HUD for this step - used where there's either nothing on
+  // screen yet to spotlight (welcome) or the glow's target isn't really
+  // what's being explained (google-signin is more about the "why" than
+  // the button itself). See TutorialSoundBar.tsx.
+  showSoundBar?: boolean;
+  // Suppresses the blur/dim mask entirely for this many ms at the start of
+  // the step, then reapplies it - used by "reorder" so the customer sees
+  // the real, un-dimmed reorder list for a beat before the tour's usual
+  // spotlight treatment kicks in.
+  suppressBlurMs?: number;
   // A second spotlight target this one step switches to partway through -
-  // used by "reorder", which starts by pointing at a real low-stock item's
-  // warning text (concrete: "here's an item that needs attention") and
-  // switches to the "Find at" button once the narration has moved on to
-  // talking about sourcing it. TutorialOverlay switches the moment the
-  // step's own audio clip crosses the halfway mark (audio.currentTime >=
-  // duration/2), or after phase2FallbackMs if voice is muted and there's no
-  // clip playing to key off of.
+  // TutorialOverlay switches the moment the step's own audio clip crosses
+  // the halfway mark (audio.currentTime >= duration/2), or after
+  // phase2FallbackMs if voice is muted and there's no clip playing to key
+  // off of.
   targetSelectorPhase2?: string;
   phase2FallbackMs?: number;
   // Other elements that stay in sharp focus (excluded from the blur mask)
   // for this step's entire duration, in addition to whatever the glow
   // itself is currently pointing at (targetSelector, then
-  // targetSelectorPhase2). Use this for controls that are relevant context
-  // for the step but that the narration never actually names - e.g.
-  // "reorder" keeps the whole item card and the search-by toggle visible
-  // and interactive throughout, even though the glow itself only ever
-  // visits the low-stock text and the Share button, the two things the
-  // narration actually mentions by name.
+  // targetSelectorPhase2).
   focusSelectors?: string[];
 }
 
@@ -52,15 +74,18 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: null,
+    showSoundBar: true,
     title: "Welcome to WS Inventory Management 👋",
-    body: "We loaded 3 sample items so there's something to explore right away. This quick tour covers everything the app can do — tap Next to start, or Skip tour if you'd rather dive in on your own.",
+    body: "We loaded 3 sample items so there's something to explore right away. This quick tour covers everything the app can do — tap the arrow to move through it at your own pace, or Skip tour if you'd rather dive in on your own.",
   },
   // Sits right after the welcome step so the consent banner gets resolved
   // before the tour starts pointing at the bottom nav — the banner renders
   // at z-50, above the nav's z-30, so until the customer chooses, it
-  // physically covers the very tabs steps 4-7 spotlight. TutorialOverlay
+  // physically covers the very tabs later steps spotlight. TutorialOverlay
   // filters this step out entirely when consent was already given (e.g. a
-  // replayed tour), and auto-advances it the moment a choice is made.
+  // replayed tour), and auto-advances it the moment a choice is made - the
+  // one narrative-content step still allowed to move on by itself, since
+  // there's nothing to narrate here that a "Next" tap would add to.
   {
     id: "cookie-consent",
     tab: null,
@@ -69,41 +94,51 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "First, a quick choice",
     body: "Pick Accept or Decline below — either is fine, the app only uses essential cookies. Choosing now also clears this banner out of the way for the rest of the tour.",
   },
-  // Header-level tools live above every tab, so this step is tab: null and
-  // shows up right after the cookie banner is resolved, before the tour
-  // ever points at anything tab-specific.
   {
-    id: "header-tools",
+    id: "header-theme-toggle",
     tab: null,
     sidebarOpen: false,
     targetSelector: '[data-tutorial="header-theme-toggle"]',
-    targetSelectorPhase2: '[data-tutorial="header-clear-cache"]',
-    phase2FallbackMs: 4000,
-    title: "A couple of header shortcuts",
-    body: "Up here you can flip between light and dark mode any time. Next to it, the clear-cache icon reloads the app fresh if something ever looks stuck — it doesn't touch your inventory data.",
+    title: "Light or dark, any time",
+    body: "This flips the whole app between light and dark mode whenever you like — it sticks until you tap it again.",
+  },
+  // Split out from the old combined "header-tools" step into its own, so
+  // the customer can actually try the hold gesture rather than just being
+  // told about it - see ClearCacheButton.tsx's tutorialDud prop, which
+  // this step relies on to make that safe: the full hold-and-reveal
+  // animation plays out exactly like the real thing, but nothing is
+  // actually cleared while the tutorial is open.
+  {
+    id: "header-clear-cache-test",
+    tab: null,
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="header-clear-cache"]',
+    title: "Try the refresh button — safely",
+    body: "Next to it, this icon reloads the app fresh if something ever looks stuck. Go ahead and press and hold it right now — it's just a preview while this tour is open, so nothing will actually be cleared. In real use, holding it for real does wipe this device's local cache and reload the page, though it never touches your saved inventory data.",
   },
   // Split from a single "stock-controls" step into two, each waiting for
-  // the real gesture it's describing before moving on, rather than reading
-  // both instructions aloud back-to-back while the customer just watches.
-  // See TutorialOverlay.tsx's stock-controls effect: it self-resolves off
-  // data-tutorial-burst-count/-phase attributes ItemCard already reflects
-  // from its own real press/hold state, for the one item this tour points
-  // at (InventoryTab passes tutorialTarget only to the first item).
+  // the customer to explicitly move on (moveOnLabel below) rather than
+  // reading both instructions aloud back-to-back or jumping ahead the
+  // instant one gesture is detected — a direct fix for "it moves on too
+  // quickly after just a single tap." The customer can tap and hold as
+  // many times as they want on their own schedule before choosing Move on.
   {
     id: "stock-controls-tap",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-stock-controls"]',
+    moveOnLabel: "Move on",
     title: "Adjust stock in a tap",
-    body: "Go ahead and tap − or + on this item to log one unit.",
+    body: "Go ahead and tap − or + on this item to log a unit at a time. Try it as many times as you like.",
   },
   {
     id: "stock-controls-hold",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-stock-controls"]',
+    moveOnLabel: "Move on",
     title: "Hold for bigger changes",
-    body: "Now try pressing and holding either button — that adjusts several at once, handy for a big restock or a big pull.",
+    body: "Now try pressing and holding either button — that adjusts several at once, handy for a big restock or a big pull. Take your time; tap Move on whenever you're ready to keep going.",
   },
   {
     id: "inventory-search-sort",
@@ -128,30 +163,54 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="inventory-share-barcodes"]',
-    title: "Share your barcode database",
-    body: "Send your saved barcode-to-item matches to a teammate, or pull in theirs — handy the first time you're both starting from scratch.",
+    title: "Sharing is caring",
+    body: "Send your saved barcode-to-item matches to a teammate, or pull in theirs — handy the first time you're both starting from scratch, so neither of you has to scan everything twice.",
   },
+  // Trimmed down from the old combined step: the quantity-chip explanation
+  // that used to open this step is gone, and what's left is a brief
+  // overview before three dedicated steps below let the customer try each
+  // icon themselves.
   {
-    id: "inventory-item-actions",
+    id: "item-action-icons",
     tab: "inventory",
     sidebarOpen: false,
-    targetSelector: '[data-tutorial="item-quantity-chip"]',
-    targetSelectorPhase2: '[data-tutorial="item-action-icons"]',
-    phase2FallbackMs: 4200,
-    title: "More ways to work an item",
-    body: "Tap the quantity number itself to set it to an exact amount instead of tapping − or + repeatedly. Over on the right, the icons cover breaking down a case, moving stock to another location, editing details, and deleting.",
+    targetSelector: '[data-tutorial="item-action-icons"]',
+    title: "A closer look at these icons",
+    body: "Over on the right, the icons cover breaking down a case, moving stock to another location, editing details, and deleting. Give each one a try, one at a time.",
+  },
+  {
+    id: "item-action-breakdown",
+    tab: "inventory",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="item-action-breakdown"]',
+    title: "Break down a case",
+    body: "Tap this icon to split a sealed case into individual units — handy the moment a case actually gets opened, so the count stays accurate at both levels.",
+  },
+  {
+    id: "item-action-edit",
+    tab: "inventory",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="item-action-edit"]',
+    title: "Edit the full details",
+    body: "The pencil opens this item's full details — name, barcode, reorder point, usage tracking window, and more.",
+  },
+  {
+    id: "item-action-delete",
+    tab: "inventory",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="item-action-delete"]',
+    title: "Delete for good",
+    body: "And the trash icon removes an item entirely — it'll always ask you to confirm first, so there's no risk of an accidental tap losing anything.",
   },
   {
     id: "scan",
     tab: "scan",
     sidebarOpen: false,
     // Points at the real blue "Scan Barcode" button rather than the
-    // bottom-nav tab icon that got you here — the tab icon is where you
-    // came from, not what this step is actually about. Self-resolves once
-    // a real scan produces a lookup response (see TutorialOverlay.tsx's
-    // scan effect, keyed off data-tutorial-lookup-status on the scan
-    // panel) — Next still works too, for a customer with nothing on hand
-    // to scan right now.
+    // bottom-nav tab icon that got you here. Self-resolves once a real
+    // scan produces a lookup response (see TutorialOverlay.tsx's scan
+    // effect) — the manual Next in the corner HUD still works too, for a
+    // customer with nothing on hand to scan right now.
     targetSelector: '[data-tutorial="scan-action-area"]',
     title: "Scan barcodes or receipts",
     body: "Point your camera at a barcode to add or remove stock instantly. Adding a whole order at once? Switch to Receipt mode to log several items from one photo.",
@@ -162,33 +221,24 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="scan-mode-toggle"]',
     title: "Two ways to log stock",
-    body: "Barcode mode is for one item at a time. Receipt mode reads a whole photographed receipt at once — great right after a big supply run.",
+    body: "Barcode mode is for one item at a time. Receipt mode reads a whole photographed receipt at once — great right after a big supply run, though accuracy can be hit or miss on a crumpled or blurry receipt. Worth a quick double-check of the results before trusting them completely.",
   },
+  // Rebuilt from a single combined step into four narrower ones (this one,
+  // then search-and-find, then package tracking, then a dedicated share
+  // step) so each idea gets its own moment instead of being read back to
+  // back over one narration clip. suppressBlurMs gives the customer a
+  // completely clear, undimmed look at the real reorder list for a few
+  // seconds before the usual spotlight treatment settles onto the example
+  // item.
   {
     id: "reorder",
     tab: "reorder",
     sidebarOpen: false,
-    // Starts on the concrete "why" - a real low-stock item's red warning
-    // text - then switches to the Share button partway through the
-    // narration; see targetSelectorPhase2 above. (This used to switch to
-    // the "Find at" button instead, which doesn't match what the narration
-    // actually says in its second half - a mismatch the customer caught by
-    // screenshotting the live glow next to the step's own body text. Find
-    // at stays visible and interactive via focusSelectors below; it just
-    // isn't what the glow itself visits, since the voice never names it.)
+    suppressBlurMs: 5000,
     targetSelector: '[data-tutorial="reorder-low-stock-text"]',
-    targetSelectorPhase2: '[data-tutorial="reorder-share-button"]',
-    phase2FallbackMs: 4200,
-    // The rest of this step's relevant UI - the search-by toggle and the
-    // whole item card (which already contains the low-stock text, Find at,
-    // and Add tracking number) - stays sharp and clickable the entire step,
-    // even during the phase where the glow itself has moved on to Share.
-    focusSelectors: [
-      '[data-tutorial="reorder-search-by-toggle"]',
-      '[data-tutorial="reorder-item-card"]',
-    ],
+    focusSelectors: ['[data-tutorial="reorder-item-card"]'],
     title: "Never run out unexpectedly",
-    body: "Reorder automatically lists everything at or below the reorder point you set for it. Tap Share to text or email that list straight to a supplier.",
+    body: "This is Reorder — it automatically lists everything at or below the reorder point you've set for it. Take a look at this item; its low-stock warning is right here.",
   },
   {
     id: "reorder-search-and-find",
@@ -197,9 +247,12 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     targetSelector: '[data-tutorial="reorder-search-by-toggle"]',
     targetSelectorPhase2: '[data-tutorial="reorder-find-at-button"]',
     phase2FallbackMs: 4200,
+    focusSelectors: ['[data-tutorial="reorder-item-card"]'],
     title: "Choose how it searches, then where to buy",
-    body: "This toggle controls whether Find at searches by barcode or by name. Speaking of which — tap Find at on any item to jump straight to a search on a few common retailer sites.",
+    body: "This toggle controls whether Find at searches by barcode or by name, and Find at itself jumps straight to a search on a few common retailer sites. Give both a try — no rush, take whatever time you need.",
   },
+  // Moved ahead of the new dedicated share step per the customer's own
+  // reordering.
   {
     id: "reorder-package-tracking",
     tab: "reorder",
@@ -209,14 +262,34 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     body: "Once you've ordered, save the tracking number here for a quick link to the carrier's tracking page. It's simple by design — just a place to keep the number handy, not a live delivery tracker.",
   },
   {
+    id: "reorder-share",
+    tab: "reorder",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="reorder-share-button"]',
+    focusSelectors: ['[data-tutorial="reorder-item-card"]'],
+    title: "Send the whole list to a supplier",
+    body: "Tap Share to text or email this entire reorder list straight to a supplier — everything currently at or below its reorder point, in one go.",
+  },
+  // Rebuilt: narrows the overview list to just this one item (see
+  // UsageOverview.tsx's tutorialFocusItemId) so the customer isn't hunting
+  // through a whole list, then self-resolves the moment they actually tap
+  // into it (see TutorialOverlay.tsx's usage effect) — real exploration is
+  // the point of this step, not narration to sit through.
+  {
     id: "usage",
     tab: "usage",
     sidebarOpen: false,
-    // The real usage list, not the bottom-nav tab icon - there's nothing
-    // to see by pointing at the icon you just tapped to get here.
     targetSelector: '[data-tutorial="usage-overview-list"]',
     title: "See how fast things move",
-    body: "Usage charts how quickly each item gets used and estimates how many days of stock are left at that pace — pick any item and any date range.",
+    body: "Usage charts how quickly each item gets used and estimates how many days of stock are left at that pace. We've narrowed the list to just this one item for now — go ahead and tap into it to see its full detail view.",
+  },
+  {
+    id: "usage-detail-timeframes",
+    tab: "usage",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="usage-timeframe-buttons"]',
+    title: "Zoom in or out on any time frame",
+    body: "These buttons switch the chart between a week, a month, a few months, or all-time — the fastest way to tell a one-off spike apart from a real ongoing trend.",
   },
   {
     id: "support",
@@ -224,11 +297,11 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     // The real chat widget, not the bottom-nav tab icon - the spotlight's
     // cutout leaves the chat's real input/messages fully clickable/typable
-    // during this step, so a customer can actually try it while the card
-    // is still up rather than just being shown where the tab lives.
+    // during this step, so a customer can actually try it while pointed
+    // at it.
     targetSelector: '[data-tutorial="support-chat"]',
-    title: "Stuck? We're here",
-    body: "Support has a chat you can open any time a question comes up — no need to leave the app.",
+    title: "Stuck? Clyde's here",
+    body: "Support has Clyde, a free AI assistant you can open any time a question comes up — no need to leave the app. It remembers what you've told it earlier in the same conversation, so you don't have to repeat yourself as you dig into an issue.",
   },
   {
     id: "account-gear",
@@ -243,16 +316,24 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="google-signin"]',
+    showSoundBar: true,
     title: "Optional: back up to Google Sheets",
-    body: "Sign in with Google to sync your inventory to a spreadsheet you own — readable from anywhere, and safe if this device is ever lost. Totally optional; tap Next to skip it for now.",
+    body: "Sign in with Google to sync your inventory to a spreadsheet you own — readable from anywhere, and safe if this device is ever lost. Totally optional; tap Next to skip it for now, and the next few steps will just gracefully skip past anything that needs a connected sheet.",
   },
+  // The next three steps (push, Start Fresh, pull) are a deliberate
+  // sequence per the customer's own doc: push this device's current
+  // inventory up, clear it locally, then pull it back down — a genuine
+  // round trip that demonstrates why Google Sheets sync exists, not just
+  // what the buttons do. All three gracefully do nothing but sit there if
+  // Google Sheets was skipped above — see AccountTab.tsx's existing
+  // conditional rendering, unchanged this round.
   {
-    id: "account-sheets-actions",
+    id: "account-push-test",
     tab: null,
     sidebarOpen: true,
-    targetSelector: '[data-tutorial="account-sheets-actions"]',
-    title: "Push and pull whenever you like",
-    body: "Once connected, Push sends this device's inventory to the sheet, and Pull brings the sheet's version back. Nothing syncs automatically — you're always in control of when a sync happens.",
+    targetSelector: '[data-tutorial="account-push-button"]',
+    title: "Push sends this device's copy up",
+    body: "If you connected Google Sheets a moment ago, go ahead and tap Push to Sheet now — it sends this device's current inventory up to your spreadsheet. Nothing syncs automatically; it only happens when you tap it.",
   },
   {
     id: "account-name-tag",
@@ -261,6 +342,22 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     targetSelector: '[data-tutorial="account-name-tag"]',
     title: "Put a name on your changes",
     body: "Add your name here so teammates working the same inventory can see who made a change and when — just a label, not a login, and anyone on this device can update it.",
+  },
+  {
+    id: "start-fresh",
+    tab: null,
+    sidebarOpen: true,
+    targetSelector: '[data-tutorial="start-fresh-local"]',
+    title: "Clear this device's copy",
+    body: "Tap Start Fresh below whenever you're ready — it clears these sample items and any changes you've made so far, right here on this device. If you pushed to a connected sheet a moment ago, nothing there is touched; the next step brings it right back.",
+  },
+  {
+    id: "account-pull-test",
+    tab: null,
+    sidebarOpen: true,
+    targetSelector: '[data-tutorial="account-pull-button"]',
+    title: "Pull brings it back down",
+    body: "And if you pushed earlier, tap Pull from Sheet now to bring that same inventory right back — proof that your data really does live safely in the spreadsheet, not just on this one device.",
   },
   {
     id: "account-manage-property",
@@ -286,15 +383,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-replay-tour"]',
     title: "Come back to this tour any time",
-    body: "This link brings this exact walkthrough back whenever you want a refresher — no need to remember anything from today.",
+    body: "This link brings this exact walkthrough back whenever you want a refresher — it's the only way to see it again now, since it no longer opens automatically.",
   },
   {
-    id: "start-fresh",
+    id: "tour-complete",
     tab: null,
     sidebarOpen: true,
-    targetSelector: '[data-tutorial="start-fresh-local"]',
-    title: "Ready for the real thing",
-    body: 'Tap "Start Fresh" below whenever you’re ready — it clears these 3 sample items so you can start scanning in your actual inventory. Tap Finish tour to close this without clearing anything yet.',
+    targetSelector: '[data-tutorial="account-manage-property"]',
+    title: "That's the tour!",
+    body: "You're all set — explore Inventory on your own from here, or tap Manage Property above to keep going with equipment tracking.",
     nextLabel: "Finish tour",
   },
 ];

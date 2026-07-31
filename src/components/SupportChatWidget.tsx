@@ -80,8 +80,10 @@ export default function SupportChatWidget() {
     try {
       // Send the transcript so far (excluding the message just added above)
       // so Clyde has conversational context instead of answering each
-      // message cold. Capped to keep the request payload/token usage bounded.
-      const history = messages.slice(-20).map((m) => ({ role: m.role, text: m.text }));
+      // message cold. Capped to keep the request payload/token usage
+      // bounded - kept in sync with MAX_HISTORY_TURNS in clyde.ts, the
+      // server-side cap on how much of this it actually uses.
+      const history = messages.slice(-30).map((m) => ({ role: m.role, text: m.text }));
       const res = await fetch("/api/support-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

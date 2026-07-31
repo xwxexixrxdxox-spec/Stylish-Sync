@@ -45,6 +45,13 @@ export default function HomePage() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [trackedBookingId, setTrackedBookingId] = useState<string | null>(null);
   const [tutorialActive, setTutorialActive] = useState(false);
+  // The tour's currently-showing step id, mirrored up from TutorialOverlay
+  // (see its onStepChange prop) so a couple of real features can be
+  // tutorial-aware without TutorialOverlay needing to know anything about
+  // them: ClearCacheButton goes dud for the tutorial's whole duration
+  // (below), and UsageTab narrows its overview list to one item only
+  // while the "usage" step specifically is showing.
+  const [tutorialStepId, setTutorialStepId] = useState<string | null>(null);
 
   // If the matched booking gets cleared (e.g. Google sign-out) while the
   // customer is sitting on the Status tab, don't strand them on a tab that
@@ -463,7 +470,7 @@ export default function HomePage() {
                 </button>
               </Tooltip>
               <ThemeToggle dataTutorial="header-theme-toggle" />
-              <ClearCacheButton dataTutorial="header-clear-cache" />
+              <ClearCacheButton dataTutorial="header-clear-cache" tutorialDud={tutorialActive} />
               <Tooltip label="Account & settings" side="bottom">
                 <button
                   onClick={() => setAccountOpen(true)}
@@ -499,7 +506,13 @@ export default function HomePage() {
           />
         )}
         {tab === "reorder" && <ReorderTab items={items} />}
-        {tab === "usage" && <UsageTab items={items} onSave={upsertItem} />}
+        {tab === "usage" && (
+          <UsageTab
+            items={items}
+            onSave={upsertItem}
+            tutorialFocusItemId={tutorialActive && tutorialStepId === "usage" ? items[0]?.id : undefined}
+          />
+        )}
         {tab === "support" && <SupportTab />}
         {tab === "status" && trackedBookingId && <VisitStatusTab bookingId={trackedBookingId} />}
 
@@ -538,7 +551,11 @@ export default function HomePage() {
             accountOpen={accountOpen}
             setAccountOpen={setAccountOpen}
             sheetId={sheetId}
-            onClose={() => setTutorialActive(false)}
+            onClose={() => {
+              setTutorialActive(false);
+              setTutorialStepId(null);
+            }}
+            onStepChange={setTutorialStepId}
           />
         )}
       </main>

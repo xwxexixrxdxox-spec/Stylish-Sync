@@ -9,6 +9,14 @@ interface Props {
   items: InventoryItem[];
   movements: StockMovement[];
   onSelectItem: (id: string) => void;
+  // Set only while the tutorial's "usage" step is active (see
+  // tutorial.ts/TutorialOverlay.tsx and UsageTab.tsx, which threads this
+  // down from page.tsx) - narrows the list to just this one item so a
+  // first-time customer isn't hunting through a whole list to find the
+  // item the tour is narrating. Falls back to showing every row as normal
+  // the instant the id doesn't match anything (item got deleted mid-tour)
+  // rather than rendering an empty list.
+  tutorialFocusItemId?: string;
 }
 
 // Small, fixed-count trend bars per item row — deliberately not the same
@@ -55,7 +63,7 @@ function buildSparkline(movements: StockMovement[], start: Date, end: Date, bins
 // the existing full detail view (stat tiles + the bigger used-vs-restocked
 // chart, still in UsageTab.tsx) for that item, where its window can still
 // be adjusted per-visit.
-export default function UsageOverview({ items, movements, onSelectItem }: Props) {
+export default function UsageOverview({ items, movements, onSelectItem, tutorialFocusItemId }: Props) {
   const [query, setQuery] = useState("");
 
   // Every movement, grouped by item once up front — every per-item
@@ -131,6 +139,16 @@ export default function UsageOverview({ items, movements, onSelectItem }: Props)
       .sort((a, b) => b.totalUsed - a.totalUsed || a.item.name.localeCompare(b.item.name));
   }, [items, query, usageByItemId, allByItemId]);
 
+  // Narrowed to just the tutorial's own target item while its step is
+  // active - falls back to the full list the instant that id doesn't match
+  // any row (item deleted mid-tour, or the tour isn't running) rather than
+  // silently showing an empty screen. Deliberately not folded into the
+  // `rows` useMemo above: it's a cheap filter over an already-small array,
+  // and keeping it separate means a change to tutorialFocusItemId alone
+  // doesn't have to re-run the real per-item usage math above it.
+  const focused = tutorialFocusItemId ? rows.filter((r) => r.item.id === tutorialFocusItemId) : rows;
+  const displayRows = focused.length ? focused : rows;
+
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 rounded-xl2 border border-surface-border bg-white px-3 py-2 shadow-card">
@@ -148,13 +166,13 @@ export default function UsageOverview({ items, movements, onSelectItem }: Props)
         (&quot;Track usage by&quot;) from the pencil icon in Inventory.
       </p>
 
-      {rows.length === 0 ? (
+      {displayRows.length === 0 ? (
         <p className="rounded-xl2 border border-dashed border-surface-border bg-white p-6 text-center text-sm text-neutral-400">
           {query.trim() ? "No items match your search." : "Add some inventory first, then usage trends will show up here."}
         </p>
       ) : (
         <div className="space-y-2" data-tutorial="usage-overview-list">
-          {rows.map(({ item, totalUsed, avgPerDay, lastUsedAt, sparkline, rangeLabel }) => {
+          {displayRows.map(({ item, totalUsed, avgPerDay, lastUsedAt, sparkline, rangeLabel }) => {
             const maxBin = Math.max(1, ...sparkline);
             return (
               <button

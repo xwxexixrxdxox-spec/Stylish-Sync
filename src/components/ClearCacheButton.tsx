@@ -53,9 +53,21 @@ interface Props {
   // tour only ever points at and narrates this button; it never simulates
   // the hold gesture itself, since that would actually wipe local data.
   dataTutorial?: string;
+  // When true, the customer can go all the way through the real
+  // hold-and-confirm gesture and see the exact same "Deleting all data"
+  // reveal a real clear shows - but nothing is actually touched underneath
+  // it. Added for the tutorial's own dedicated "try holding the refresh
+  // button" step (see tutorial.ts's header-clear-cache-test step): letting
+  // a curious first-time customer genuinely press and hold this during the
+  // tour, the same way the tour already invites real +/- taps on the stock
+  // stepper, would otherwise wipe their local inventory the moment the
+  // grace window elapsed. page.tsx passes this as simply `tutorialActive`
+  // rather than gating it to one specific step - a stray hold on any other
+  // step of the tour shouldn't be destructive either.
+  tutorialDud?: boolean;
 }
 
-export default function ClearCacheButton({ dataTutorial }: Props) {
+export default function ClearCacheButton({ dataTutorial, tutorialDud }: Props) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const holdTimerRef = useRef<number | null>(null);
   const graceTimerRef = useRef<number | null>(null);
@@ -85,6 +97,16 @@ export default function ClearCacheButton({ dataTutorial }: Props) {
   // point of no return, so cancelWarning below can no longer stop it.
   const executeClear = async () => {
     setOverlayPhase("clearing");
+    // Dud path: play out the same "clearing" beat the real thing does (so
+    // the test feels honest, not obviously fake), then just dismiss -
+    // never touch the camera stream, never call clearAppCache, never
+    // reload. See the tutorialDud prop comment above for why.
+    if (tutorialDud) {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      setOverlayPhase(null);
+      setOverlayOrigin(null);
+      return;
+    }
     try {
       // This icon sits in the global header, reachable from every tab —
       // including Scan, mid-scan, with the camera actively streaming.
@@ -273,7 +295,9 @@ export default function ClearCacheButton({ dataTutorial }: Props) {
               Deleting all data
             </p>
             <p className="max-w-xs text-sm text-neutral-400 sm:text-base animate-clear-cache-subtext-in">
-              You will be forced logged out. Please log back in to continue.
+              {tutorialDud
+                ? "This is just a preview — nothing is actually being cleared right now."
+                : "You will be forced logged out. Please log back in to continue."}
             </p>
             {/* Only shown during the cancelable window — once executeClear
                 takes over there's nothing left to change your mind about,

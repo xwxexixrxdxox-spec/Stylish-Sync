@@ -11,6 +11,10 @@ import Tooltip from "./Tooltip";
 interface Props {
   items: InventoryItem[];
   onSave: (item: InventoryItem) => void;
+  // Forwarded straight through to UsageOverview - see its own comment for
+  // the full rationale. Only ever set by page.tsx while the tutorial's
+  // "usage" step is active.
+  tutorialFocusItemId?: string;
 }
 
 type Granularity = "day" | "week" | "month";
@@ -110,7 +114,7 @@ function buildBuckets(rangeStart: Date, today: Date, granularity: Granularity): 
 // know any given supplier's actual turnaround.
 const REORDER_BUFFER_DAYS = 7;
 
-export default function UsageTab({ items, onSave }: Props) {
+export default function UsageTab({ items, onSave, tutorialFocusItemId }: Props) {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   // Overview (every item at a glance) is the landing view — "detail" is a
   // drill-in destination reached by tapping a row there (or by using the
@@ -295,6 +299,7 @@ export default function UsageTab({ items, onSave }: Props) {
           <UsageOverview
             items={items}
             movements={movements}
+            tutorialFocusItemId={tutorialFocusItemId}
             onSelectItem={(id) => {
               setSelectedId(id);
               setView("detail");
@@ -322,7 +327,15 @@ export default function UsageTab({ items, onSave }: Props) {
                 </option>
               ))}
             </select>
-            <div className="flex flex-wrap gap-1.5">
+            {/* Doubles as the tutorial's signal that the customer has
+                actually drilled into an item's detail view - see
+                TutorialOverlay.tsx's "usage" step, which watches for this
+                selector to appear rather than for the tap event itself
+                (onSelectItem above lives one component removed from the
+                overlay, so a DOM-appearance check is the simplest way to
+                notice from outside). Also the spotlight target for the
+                follow-up "usage-detail-timeframes" step. */}
+            <div className="flex flex-wrap gap-1.5" data-tutorial="usage-timeframe-buttons">
               {USAGE_RANGE_OPTIONS.map((r) => (
                 <button
                   key={r.label}

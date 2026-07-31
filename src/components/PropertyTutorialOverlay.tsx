@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from "lucide-react";
 import { PROPERTY_TUTORIAL_STEPS } from "@/lib/propertyTutorial";
 import { waitForElement } from "@/lib/tutorial";
 import {
@@ -15,6 +15,8 @@ import { computeMaskBands, inflateRect, type Rect } from "@/lib/tutorialMask";
 // Gap between the spotlighted element and both the glow ring and the
 // masking bands around it, in px. Same value as TutorialOverlay.tsx.
 const PAD = 4;
+// Same drag-vs-tap distinction as TutorialOverlay.tsx's HUD.
+const DRAG_THRESHOLD_PX = 4;
 
 interface Props {
   // Live quantityReceived of the seeded example part, re-passed on every
@@ -28,21 +30,23 @@ interface Props {
 }
 
 // Visually and behaviorally a sibling of TutorialOverlay.tsx (same masking
-// bands + spotlight glow + focus trap + Escape-to-skip), kept as a
-// separate component rather than a shared one: the main tour is driven by
-// tab/sidebar state on the single-page app, this one runs entirely on the
-// standalone /property page, and duplicating the JSX was judged
-// lower-risk than refactoring the already-shipped, working main tutorial
-// to share it. Both were reworked together, twice now - first from a full
-// callout card to a caption bubble + glow, and now (this round) from that
-// caption bubble to voice-only: no dialog box, no card, nothing to read.
-// The glow hugs the real spotlighted element's own shape instead of a
-// generic rounded box around it, and a clip finishing is what advances
-// the tour now, not a "Next" tap inside a card that no longer exists. See
-// TutorialOverlay.tsx's top comment for the fuller rationale - it applies
-// here identically. Opened on demand only (the existing "↻ Take the
-// property tour" link/button in PropertyManager.tsx) - it no longer
+// bands + spotlight glow + focus trap + Escape-to-skip + draggable HUD +
+// back arrow), kept as a separate component rather than a shared one: the
+// main tour is driven by tab/sidebar state on the single-page app, this
+// one runs entirely on the standalone /property page, and duplicating the
+// JSX was judged lower-risk than refactoring the already-shipped, working
+// main tutorial to share it. Opened on demand only (the existing "↻ Take
+// the property tour" link/button in PropertyManager.tsx) - it no longer
 // autoplays on a brand-new empty property list.
+//
+// This round ("O") brought it up to the same engine baseline as the main
+// tour: a HUD back arrow, drag-to-reposition, and no more auto-advance the
+// instant a clip finishes playing - narration alone no longer moves the
+// tour forward, only a real tap (or, for "log-receipt", the literal real
+// action that step is asking for) does. Its own step content (still the
+// pre-seeded-example walkthrough) is unchanged this round - see
+// propertyTutorial.ts's own comment for what's still queued for a fuller,
+// hands-on rework matching the main tour's Part 1/2 redesign.
 export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
@@ -51,16 +55,14 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   // TutorialOverlay.tsx's identical field for the full rationale.
   const [targetRadius, setTargetRadius] = useState<string>("0.75rem");
   const targetElRef = useRef<HTMLElement | null>(null);
-  // Wraps every focusable control the corner HUD renders (mute, manual
+  // Wraps every focusable control the corner HUD renders (mute, back,
   // next, skip) - queried by onOverlayKeyDown below for the Tab focus trap.
   const overlayRef = useRef<HTMLDivElement>(null);
+  const hudRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevReceivedRef = useRef(exampleReceivedCount);
   // Tracks which step index has already had playStepAt() called for it —
-  // see the click-handler-driven calls below. Lets the fallback effect
-  // (further down) tell "already played synchronously by this tap" apart
-  // from "genuinely hasn't been played yet" without playing the same line
-  // twice.
+  // see the click-handler-driven calls below.
   const lastSpokenIndexRef = useRef(-1);
   // Guards against advancing twice for the same step - see
   // TutorialOverlay.tsx's identical ref for the full rationale.
@@ -72,6 +74,15 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   useEffect(() => {
     stepIndexRef.current = stepIndex;
   }, [stepIndex]);
+  const [hudPos, setHudPos] = useState<{ left: number; top: number } | null>(null);
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    origLeft: number;
+    origTop: number;
+    dragging: boolean;
+  } | null>(null);
   const steps = PROPERTY_TUTORIAL_STEPS;
   const step = steps[stepIndex];
 
@@ -97,17 +108,26 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
       }
       const next = i + 1;
       // Play synchronously, right here inside the tap that's advancing the
-      // tour — not deferred into an effect that fires after React commits
-      // the re-render. Mobile browsers (Safari/WebKit in particular, and
-      // increasingly Chrome on Android) only let HTMLMediaElement.play()
-      // actually produce sound when the call happens as part of handling a
-      // real user gesture; once it's pushed into a useEffect reacting to
-      // stepIndex changing, the browser no longer credits it as
-      // gesture-triggered and the play() promise just rejects — which is
-      // exactly why the old speechSynthesis version of this played on
-      // desktop but was silent on mobile.
+      // tour — see TutorialOverlay.tsx's identical comment for the mobile
+      // autoplay-gesture rationale.
       if (voiceEnabled) playStepAt(next);
       return next;
+    });
+  };
+
+  // Steps back one - see TutorialOverlay.tsx's identical goBack for the
+  // full rationale.
+  const goBack = () => {
+    if (hasAdvancedRef.current) return;
+    hasAdvancedRef.current = true;
+    setStepIndex((i) => {
+      if (i <= 0) {
+        hasAdvancedRef.current = false;
+        return i;
+      }
+      const prev = i - 1;
+      if (voiceEnabled) playStepAt(prev);
+      return prev;
     });
   };
 
@@ -129,31 +149,10 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
       if (el) {
         setRect(el.getBoundingClientRect());
         setTargetRadius(window.getComputedStyle(el).borderRadius || "0.75rem");
-        // Guarantees the spotlighted element is actually on screen rather
-        // than assuming it already is — on a short mobile viewport a target
-        // lower on the page can sit below the fold, especially once a step
-        // like "log-receipt" grows its own row taller (see the
-        // ResizeObserver below); without this, the customer would need to
-        // already know to scroll before they could reach a control the
-        // tour is telling them to tap.
         el.scrollIntoView({ block: "center", behavior: "smooth" });
-        // A spotlighted target's own content can change height while the
-        // step is showing — e.g. "log-receipt" targets the whole part row,
-        // which grows taller the instant the customer taps the receipt
-        // icon and the quantity/confirm panel expands inside it. Window
-        // resize/scroll listeners (below) don't catch that, since nothing
-        // about the window changed, so watch the element itself and keep
-        // the hole glued to its real, current size — otherwise controls
-        // that appear past the old hole boundary sit unclickable under the
-        // blurred, pointer-events-auto backdrop.
         resizeObserver = new ResizeObserver(() => {
           if (!targetElRef.current) return;
           setRect(targetElRef.current.getBoundingClientRect());
-          // Re-center after a resize too — the same short-viewport case
-          // above, but triggered by the row growing rather than the step
-          // changing: the newly-revealed quantity input/confirm button can
-          // land past the bottom edge of the screen the instant the panel
-          // opens, on a phone where the row was already lower on the page.
           targetElRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
         });
         resizeObserver.observe(el);
@@ -215,15 +214,9 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   }, [stepIndex]);
 
   // Recorded narration lives in public/audio/property/<step id>.mp3 — one
-  // clip per step, generated the same way as the main tour's (see the
-  // comment above TUTORIAL_STEPS in tutorial.ts). Named by id rather than
-  // stored as a field on each step, so adding a new step just means
-  // dropping in a matching file; nothing here needs updating.
-  // Returns the Audio element it created (or null if it didn't play one) so
-  // callers that need to clean up after *this specific* clip — see the
-  // fallback effect below — can do so without going back through the
-  // shared audioRef, which may have already moved on to a later step's
-  // clip by the time that cleanup runs.
+  // clip per step, generated the same way as the main tour's. Named by id
+  // rather than stored as a field on each step, so adding a new step just
+  // means dropping in a matching file; nothing here needs updating.
   const playStepAt = (index: number): HTMLAudioElement | null => {
     if (typeof window === "undefined" || typeof Audio === "undefined") return null;
     const target = steps[index];
@@ -232,28 +225,16 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     const audio = new Audio(`/audio/property/${target.id}.mp3`);
     audioRef.current = audio;
     // A missing file and a browser declining to autoplay both reject this
-    // promise — neither is treated as fatal, same "never a hard
-    // requirement" spirit the old speechSynthesis path had: the tour just
-    // sits on that step until the customer taps the corner HUD's manual
-    // Next, rather than throwing or getting stuck silently forever.
-    // AbortError is excluded from the warning entirely: it fires whenever
-    // this clip gets superseded by a pause() call before it finished — the
-    // ordinary, expected outcome of the customer advancing before
-    // narration wraps up, not a real failure worth surfacing.
+    // promise — neither is treated as fatal: the tour just sits on that
+    // step until the customer taps the corner HUD's manual Next, rather
+    // than throwing or getting stuck silently forever. AbortError is
+    // excluded from the warning entirely - see TutorialOverlay.tsx's
+    // identical comment.
     audio.play().catch((err) => {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.warn(`Tutorial narration failed for step "${target.id}":`, err);
     });
     lastSpokenIndexRef.current = index;
-
-    // With the caption's own "Next" button gone, the clip finishing is now
-    // the tour's primary way of moving itself along - see
-    // TutorialOverlay.tsx's identical listener for the full rationale.
-    // advance()'s own hasAdvancedRef guard makes this a harmless no-op if
-    // the "log-receipt" step's self-resolve already fired first.
-    audio.addEventListener("ended", () => {
-      if (stepIndexRef.current === index) advance();
-    });
 
     return audio;
   };
@@ -261,18 +242,13 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   // Fallback for the one path that can never be gesture-driven: the very
   // first step, when the tour opens (a tap on "Take the property tour").
   // Every other step transition is already played synchronously inside its
-  // own click handler (advance(), toggleVoice() below) — this effect only
-  // plays when that hasn't already happened for the current step, so
-  // nothing plays twice. Unlike the old speechSynthesis version there's no
-  // async voice list to wait on here, so this just plays immediately.
+  // own click handler (advance(), goBack(), toggleVoice() below) — this
+  // effect only plays when that hasn't already happened for the current
+  // step, so nothing plays twice.
   useEffect(() => {
     if (!voiceEnabled || typeof window === "undefined") return;
     if (lastSpokenIndexRef.current === stepIndex) return;
     const audio = playStepAt(stepIndex);
-    // Pause the exact clip this effect started, not "whatever audioRef
-    // currently points at" — see TutorialOverlay.tsx's identical comment
-    // for the full story: pausing the ref instead was cutting every step's
-    // narration off almost immediately after it started.
     return () => {
       audio?.pause();
     };
@@ -284,9 +260,6 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     setVoiceEnabled(next);
     setPropertyTutorialVoiceEnabled(next);
     if (next) {
-      // Same gesture-synchronicity reasoning as advance() above — play the
-      // step already on screen right inside this tap, instead of waiting
-      // for the effect above to pick it up a render later.
       playStepAt(stepIndex);
     } else {
       audioRef.current?.pause();
@@ -310,10 +283,50 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     }
   };
 
+  // Drag-to-reposition for the corner HUD - see TutorialOverlay.tsx's
+  // identical handlers for the full rationale.
+  const onHudPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    const hud = hudRef.current;
+    if (!hud) return;
+    const rect = hud.getBoundingClientRect();
+    dragStateRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: rect.left,
+      origTop: rect.top,
+      dragging: false,
+    };
+  };
+  const onHudPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+    if (!drag.dragging) {
+      drag.dragging = true;
+      hudRef.current?.setPointerCapture(e.pointerId);
+    }
+    const hud = hudRef.current;
+    const width = hud?.offsetWidth ?? 0;
+    const height = hud?.offsetHeight ?? 0;
+    const nextLeft = Math.min(Math.max(4, drag.origLeft + dx), window.innerWidth - width - 4);
+    const nextTop = Math.min(Math.max(4, drag.origTop + dy), window.innerHeight - height - 4);
+    setHudPos({ left: nextLeft, top: nextTop });
+  };
+  const onHudPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current;
+    if (drag?.dragging) hudRef.current?.releasePointerCapture(e.pointerId);
+    dragStateRef.current = null;
+  };
+
   if (typeof document === "undefined") return null;
 
   const nextLabel = step.nextLabel ?? "Next";
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
+  const isFirstStep = stepIndex === 0;
 
   // Same blur-mask approach as TutorialOverlay.tsx - see that file's
   // comment above its own maskBands for the full rationale. This tour only
@@ -335,8 +348,8 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
       className="pointer-events-none fixed inset-0 z-[200] outline-none"
       onKeyDown={onOverlayKeyDown}
     >
-      {/* No visible dialog box anymore - see TutorialOverlay.tsx's
-          identical live region for the full rationale. */}
+      {/* No visible dialog box - see TutorialOverlay.tsx's identical live
+          region for the full rationale. */}
       <div className="sr-only" aria-live="polite">
         {step.title}. {step.body}
       </div>
@@ -379,9 +392,19 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
         </>
       )}
 
-      {/* Minimal corner HUD - see TutorialOverlay.tsx's identical element
-          for the full rationale. */}
-      <div className="pointer-events-auto fixed right-3 top-3 z-[201] flex animate-label-in items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur">
+      {/* Corner HUD - draggable (see onHudPointerDown/Move/Up above), now
+          with a back arrow alongside mute/next/skip. */}
+      <div
+        ref={hudRef}
+        onPointerDown={onHudPointerDown}
+        onPointerMove={onHudPointerMove}
+        onPointerUp={onHudPointerUp}
+        onPointerCancel={onHudPointerUp}
+        className={`pointer-events-auto fixed z-[201] flex touch-none select-none items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur animate-label-in ${
+          hudPos ? "cursor-grab active:cursor-grabbing" : "right-3 top-3 cursor-grab active:cursor-grabbing"
+        }`}
+        style={hudPos ? { left: hudPos.left, top: hudPos.top } : undefined}
+      >
         {audioSupported && (
           <button
             onClick={toggleVoice}
@@ -394,6 +417,14 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
         <span className="px-1 text-[11px] tabular-nums text-white/70">
           {stepIndex + 1}/{steps.length}
         </span>
+        <button
+          onClick={goBack}
+          disabled={isFirstStep}
+          aria-label="Previous step"
+          className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent"
+        >
+          <ChevronLeft size={14} />
+        </button>
         <button
           onClick={advance}
           aria-label={nextLabel}

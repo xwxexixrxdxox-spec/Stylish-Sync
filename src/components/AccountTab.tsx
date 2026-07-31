@@ -1025,6 +1025,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
               <button
                 disabled={busy === "push"}
                 onClick={pushNow}
+                data-tutorial="account-push-button"
                 className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
               >
                 <UploadCloud size={14} /> {busy === "push" ? "Pushing…" : "Push to Sheet"}
@@ -1032,6 +1033,7 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
               <button
                 disabled={busy === "pull"}
                 onClick={pullNow}
+                data-tutorial="account-pull-button"
                 className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
               >
                 <DownloadCloud size={14} /> {busy === "pull" ? "Pulling…" : "Pull from Sheet"}

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from "lucide-react";
 import { TUTORIAL_STEPS, waitForElement } from "@/lib/tutorial";
 import {
   getCookieConsent,
@@ -11,6 +11,7 @@ import {
   setTutorialVoiceEnabled,
 } from "@/lib/storage";
 import { computeMaskBands, inflateRect, type Rect } from "@/lib/tutorialMask";
+import TutorialSoundBar from "./TutorialSoundBar";
 import type { TabId } from "./BottomNav";
 
 // Gap between the spotlighted element and both the glow ring and the
@@ -19,6 +20,11 @@ import type { TabId } from "./BottomNav";
 // the real element's own edges rather than reading as a padded box drawn
 // around it.
 const PAD = 4;
+// How far a pointer has to move before a press on the HUD counts as a drag
+// rather than a click - lets the mute/next/skip buttons inside the same
+// pill still register ordinary taps instead of every tap being swallowed
+// as a zero-distance "drag."
+const DRAG_THRESHOLD_PX = 4;
 
 interface Props {
   tab: TabId;
@@ -27,6 +33,14 @@ interface Props {
   setAccountOpen: (v: boolean) => void;
   sheetId: string | null;
   onClose: () => void;
+  // Reports the id of whichever step is currently showing (or null once
+  // the tour closes) - page.tsx uses this to make a couple of real
+  // features tutorial-aware without this component needing to know
+  // anything about them itself: the header's clear-cache button goes into
+  // a dud/no-op mode for the tutorial's own duration (see ClearCacheButton
+  // tutorialDud), and the Usage tab narrows its overview list to one item
+  // only while this tour's own "usage" step is showing.
+  onStepChange?: (id: string | null) => void;
 }
 
 // Coach-mark style walkthrough: blurs the screen except for a cutout
@@ -39,18 +53,26 @@ interface Props {
 // itself has to carry more of the "look here" job: it's rendered flush
 // against the real target element's own shape (its actual computed
 // border-radius, see targetRadius below) rather than a generic rounded
-// box floating a few pixels out from it, and a clip auto-advances the
-// tour the instant it finishes playing instead of waiting on a "Next" tap
-// inside a card that no longer exists. A small corner HUD (step counter,
-// mute, manual next, skip) is the only chrome left, and a visually-hidden
-// live region keeps the step's own title/body available to screen
-// readers even though nothing on screen shows that text anymore. Drives
+// box floating a few pixels out from it. A small corner HUD (step
+// counter, mute, back, next/move-on, skip) is the only chrome left, drives
 // the app's own tab/sidebar state directly (rather than rendering fake
 // copies of each screen) so what the customer sees during the tour is
-// exactly the real app, not a mockup of it. The tour itself is opened
-// on demand now (a button near the header's theme toggle - see page.tsx)
-// rather than autoplaying on first visit.
-export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOpen, sheetId, onClose }: Props) {
+// exactly the real app, not a mockup of it.
+//
+// Fourth-generation change (this round, "O"): nothing advances on its own
+// anymore except a small, deliberate allow-list of real actions that ARE
+// literally the thing a step just asked for (opening the account panel,
+// signing into Google, resolving the cookie banner, a real scan result, or
+// drilling into an item on the Usage tab) - a narration clip finishing no
+// longer auto-advances the tour by itself, and the stock-stepper steps no
+// longer jump forward the instant a single tap/hold is detected. Both were
+// the concrete "moves forward too quickly, before I'm done trying it"
+// complaints that drove this round. The stock-stepper pair instead show a
+// bigger, explicitly-labeled "Move on" button (step.moveOnLabel) in place
+// of the small chevron, so a customer can tap ±/hold as many times as they
+// want before choosing to continue. A HUD back arrow and drag-to-reposition
+// (this HUD can now sit somewhere less in-the-way) are both new too.
+export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOpen, sheetId, onClose, onStepChange }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -73,26 +95,27 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   const recomputeFocusRects = () => {
     setFocusRects(focusElsRef.current.map((el) => el.getBoundingClientRect()));
   };
-  // Wraps every focusable control the corner HUD renders (mute, manual
-  // next, skip) - queried by onOverlayKeyDown below for the Tab focus trap.
+  // Wraps every focusable control the corner HUD renders (mute, back,
+  // next/move-on, skip) - queried by onOverlayKeyDown below for the Tab
+  // focus trap.
   const overlayRef = useRef<HTMLDivElement>(null);
+  const hudRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Tracks which step index has already been played via a direct click
-  // handler (advance(), toggleVoice()) so the mount-only fallback effect
-  // further down doesn't also play it and double up — see
+  // handler (advance(), goBack(), toggleVoice()) so the mount-only fallback
+  // effect further down doesn't also play it and double up — see
   // PropertyTutorialOverlay.tsx, where this pattern was proven out first.
   const lastSpokenIndexRef = useRef(-1);
   // Guards against advancing twice for the same step - e.g. a real user
-  // gesture satisfying a self-resolving step (a tap, a real sign-in) and
-  // that step's narration clip finishing right around the same moment
-  // would otherwise both call advance() and skip a step. Reset the
-  // instant stepIndex actually changes.
+  // gesture satisfying a self-resolving step (a tap, a real sign-in) and a
+  // near-simultaneous manual tap both calling advance(). Reset the instant
+  // stepIndex actually changes (by either advance() or goBack()).
   const hasAdvancedRef = useRef(false);
   useEffect(() => {
     hasAdvancedRef.current = false;
   }, [stepIndex]);
-  // Mirrors stepIndex for the async callbacks below (audio timeupdate/ended,
-  // a setTimeout fallback) that fire well after their own effect ran — React
+  // Mirrors stepIndex for the async callbacks below (audio timeupdate, a
+  // setTimeout fallback) that fire well after their own effect ran — React
   // state captured in a closure at that moment would be stale by the time
   // they actually run, so they check this ref instead to confirm the step
   // they were scheduled for is still the one showing before acting on it.
@@ -100,6 +123,30 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   useEffect(() => {
     stepIndexRef.current = stepIndex;
   }, [stepIndex]);
+  // Whether narration is actively playing right now - drives
+  // TutorialSoundBar for the handful of steps that show one (see
+  // step.showSoundBar). Tracked via the real <audio> element's own
+  // play/pause/ended events rather than inferred from stepIndex, so it
+  // stays correct through mute/unmute and a clip actually finishing.
+  const [speaking, setSpeaking] = useState(false);
+  // Whether this step's blur mask is temporarily suppressed - see
+  // step.suppressBlurMs (used by "reorder": "remove the blur for 5
+  // seconds, then reapply it" so the customer can see the real reorder
+  // list without anything dimmed around it for a beat).
+  const [blurSuppressed, setBlurSuppressed] = useState(false);
+  // Manual repositioning for the corner HUD - null means "use the default
+  // top-right corner," set once the customer actually drags it somewhere
+  // else. Kept as component state only (not persisted) - a fresh position
+  // each time the tour opens is the least surprising default.
+  const [hudPos, setHudPos] = useState<{ left: number; top: number } | null>(null);
+  const dragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    origLeft: number;
+    origTop: number;
+    dragging: boolean;
+  } | null>(null);
   // Frozen once at mount (useState initializer, not useMemo) on purpose:
   // the cookie-consent step only belongs in the tour while consent is still
   // undecided, but consent gets decided DURING that very step — recomputing
@@ -112,6 +159,30 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   useEffect(() => {
     setVoiceEnabled(getTutorialVoiceEnabled());
   }, []);
+
+  useEffect(() => {
+    onStepChange?.(step?.id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
+
+  useEffect(() => {
+    return () => onStepChange?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // suppressBlurMs: hide the mask entirely for this many ms at the start of
+  // a step, then let it back in. Reset (re-armed) every time the step
+  // changes, and only ever active for a step that actually asks for it.
+  useEffect(() => {
+    if (!step.suppressBlurMs) {
+      setBlurSuppressed(false);
+      return;
+    }
+    setBlurSuppressed(true);
+    const timer = window.setTimeout(() => setBlurSuppressed(false), step.suppressBlurMs);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
 
   const finish = (reason: "finished" | "skipped") => {
     setTutorialCompleted(reason);
@@ -135,11 +206,28 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
       // browsers (Safari/WebKit especially) only let HTMLMediaElement.play()
       // actually produce audio when called inside a real user gesture's own
       // call stack; deferred into a post-render effect, they silently
-      // reject the play() promise instead. Same constraint this file used
-      // to work around for speechSynthesis.speak() — see
-      // PropertyTutorialOverlay.tsx for the fuller history.
+      // reject the play() promise instead.
       if (voiceEnabled) playStepAt(next);
       return next;
+    });
+  };
+
+  // Steps back one - same gesture-synchronicity treatment as advance()
+  // above, and the same hasAdvancedRef guard (a customer mashing both
+  // arrows shouldn't be able to end up two steps back from one tap). Does
+  // nothing on the first step; there's nothing before "welcome" to return
+  // to, and Skip already covers "I want out entirely."
+  const goBack = () => {
+    if (hasAdvancedRef.current) return;
+    hasAdvancedRef.current = true;
+    setStepIndex((i) => {
+      if (i <= 0) {
+        hasAdvancedRef.current = false;
+        return i;
+      }
+      const prev = i - 1;
+      if (voiceEnabled) playStepAt(prev);
+      return prev;
     });
   };
 
@@ -158,25 +246,14 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // Points the spotlight at a real element: records it, positions the
   // rect, reads its real border-radius, scrolls it into view, and
   // (re)attaches a ResizeObserver so content that grows/shrinks after the
-  // spotlight first lands - the "scan" step's wrapper going from a plain
-  // button to a whole camera view once scanning starts is the concrete
-  // case that needed this, but it's a general fix - keeps the hole glued
-  // to the target's actual current size instead of the size it happened
-  // to be when first found. Shared by the normal per-step target search
-  // below and by switchTarget() (the "reorder" step's mid-narration
-  // retarget).
+  // spotlight first lands keeps the hole glued to the target's actual
+  // current size. Shared by the normal per-step target search below and by
+  // switchTarget() (a step's mid-narration retarget).
   const attachTarget = (el: HTMLElement) => {
     resizeObserverRef.current?.disconnect();
     targetElRef.current = el;
     setRect(el.getBoundingClientRect());
     setTargetRadius(window.getComputedStyle(el).borderRadius || "0.75rem");
-    // The target isn't guaranteed to already be on screen - a step whose
-    // element sits further down the tab/list than whatever was scrolled
-    // into view a moment ago (or on a short mobile viewport) would
-    // otherwise get spotlighted using a stale/off-screen rect, which reads
-    // as the highlight ring appearing somewhere else entirely (e.g. around
-    // the fixed bottom nav) instead of around the real target. See
-    // PropertyTutorialOverlay.tsx, where this exact fix shipped first.
     el.scrollIntoView({ block: "center", behavior: "smooth" });
     const observer = new ResizeObserver(() => {
       if (targetElRef.current) setRect(targetElRef.current.getBoundingClientRect());
@@ -205,9 +282,7 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   // Same idea as the main target above, for this step's focusSelectors (if
   // any) - resolved independently of the glow target so a step can keep
-  // several unrelated elements sharp at once (e.g. "reorder"'s item card
-  // AND its search-by toggle, alongside whichever one the glow itself is
-  // currently visiting).
+  // several unrelated elements sharp at once.
   useEffect(() => {
     let cancelled = false;
     focusResizeObserversRef.current.forEach((o) => o.disconnect());
@@ -262,10 +337,13 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
-  // Opening the account sidebar organically (a real tap on the real gear
-  // icon) moves past the "here's your account" step on its own - no need
-  // to also make the customer tap Next after they've already done the
-  // thing this step was asking for.
+  // A small, deliberate allow-list of steps that still self-resolve off a
+  // real action - each one is the literal thing the step is asking the
+  // customer to do, not a passive timer or "narration finished" trigger
+  // (see the top-level comment for why that distinction matters this
+  // round). Opening the account sidebar organically moves past "here's
+  // your account" on its own - no need to also make the customer tap Next
+  // after they've already done the thing this step was asking for.
   useEffect(() => {
     if (step.id === "account-gear" && accountOpen) advance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -278,46 +356,11 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetId]);
 
-  // stock-controls-tap/-hold resolve themselves off the real press state
-  // ItemCard mirrors onto its data-tutorial-burst-count/-phase attributes
-  // (see ItemCard.tsx) for whichever item this tour is pointing at. A tap
-  // step is satisfied by any real press at all (count reaches 1 the
-  // instant a press starts, tap or hold alike); a hold step needs the
-  // press to have actually reached the repeat-interval "holding" phase (or
-  // a count of 2+, which only real hold-repeat ticks produce) - a plain
-  // tap during the hold step leaves count at 1 and correctly doesn't
-  // resolve it. Watches the target via MutationObserver rather than
-  // polling, since the attributes only change when a real press does.
-  useEffect(() => {
-    if (step.id !== "stock-controls-tap" && step.id !== "stock-controls-hold") return;
-    if (!rect || !targetElRef.current) return;
-    const el = targetElRef.current;
-    const satisfied = () => {
-      const count = Number(el.getAttribute("data-tutorial-burst-count") || "0");
-      const phase = el.getAttribute("data-tutorial-burst-phase") || "";
-      if (step.id === "stock-controls-tap") return count >= 1;
-      return phase === "holding" || count >= 2;
-    };
-    if (satisfied()) {
-      advance();
-      return;
-    }
-    const observer = new MutationObserver(() => {
-      if (satisfied()) advance();
-    });
-    observer.observe(el, { attributes: true, attributeFilter: ["data-tutorial-burst-count", "data-tutorial-burst-phase"] });
-    return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIndex, rect]);
-
   // "scan" resolves itself once a real scan produces a lookup response —
   // ScanTab mirrors its own lookupStatus state onto
   // data-tutorial-lookup-status on the scan panel (see ScanTab.tsx).
-  // "idle"/"checking" are the two in-flight states; anything else (found,
-  // existing, multiple, not-found, ...) means a real answer came back, so
-  // any of those advances. Watches the scan panel itself rather than
-  // targetElRef.current, since the status attribute lives on an ancestor
-  // of the spotlighted button, not the button itself. The manual Next in
+  // "idle"/"checking" are the two in-flight states; anything else means a
+  // real answer came back, so any of those advances. The manual Next in
   // the corner HUD still works too - a customer with nothing on hand to
   // scan right now isn't stuck.
   useEffect(() => {
@@ -339,6 +382,31 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
       });
       observer.observe(el, { attributes: true, attributeFilter: ["data-tutorial-lookup-status"] });
     });
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
+
+  // "usage" resolves itself once the customer actually drills into an
+  // item's detail view - the tour's own explicit exception to "nothing
+  // moves forward by itself" this round, since exploring the one narrowed
+  // item IS the thing this step is asking for (see tutorial.ts's usage
+  // step and UsageTab.tsx, whose time-frame picker only renders once the
+  // detail view is showing - its appearance is what this watches for,
+  // since UsageOverview's onSelectItem callback lives a component away
+  // from this overlay).
+  useEffect(() => {
+    if (step.id !== "usage") return;
+    let cancelled = false;
+    let observer: MutationObserver | null = null;
+    const check = () => {
+      if (document.querySelector('[data-tutorial="usage-timeframe-buttons"]')) advance();
+    };
+    check();
+    observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true });
     return () => {
       cancelled = true;
       observer?.disconnect();
@@ -374,16 +442,12 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   // Covers a gap in playStepAt's own phase2FallbackMs: that timer only ever
   // gets scheduled as a side effect of playStepAt() actually running, but
-  // playStepAt() is never called at all while voiceEnabled is false (see
-  // advance() and the mount-only effect below, both gated on it) - so a
+  // playStepAt() is never called at all while voiceEnabled is false - so a
   // customer who has the tour muted for a step's entire duration would
   // never see the glow move to targetSelectorPhase2, no matter how long
   // they waited. This schedules the exact same switch independently
   // whenever voice is already off the moment this step starts, so a fully
-  // muted customer still gets it. (Toggling voice on mid-step re-runs this
-  // effect, sees voiceEnabled is now true, and cleans up without
-  // scheduling - playStepAt's own audio-driven switch takes over from
-  // there.)
+  // muted customer still gets it.
   useEffect(() => {
     if (voiceEnabled || !step.targetSelectorPhase2) return;
     const timer = window.setTimeout(() => {
@@ -395,16 +459,12 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
 
   // Send focus into the tour's own overlay each time a new step appears, so
   // keyboard/screen-reader users land somewhere inside the tour instead of
-  // wherever focus happened to be on the underlying page. There's no
-  // callout card to focus into anymore - the overlay itself (tabIndex -1
-  // below) is the landing spot, with the corner HUD's buttons reachable
-  // from there via Tab and the step's own title/body announced through the
-  // aria-live region rendered alongside it.
+  // wherever focus happened to be on the underlying page.
   useEffect(() => {
     overlayRef.current?.focus();
   }, [stepIndex]);
 
-  // Moves the spotlight to a new target mid-step, for the "reorder" step's
+  // Moves the spotlight to a new target mid-step, for a step's
   // targetSelectorPhase2 (see tutorial.ts). Only called once per step (the
   // callers that use this each remove their own trigger the moment they
   // fire), so there's no need to guard against re-entrancy here.
@@ -415,15 +475,14 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   };
 
   // Recorded narration lives in public/audio/tutorial/<step id>.mp3 — one
-  // clip per step, generated from a local ComfyUI/Chatterbox TTS pipeline
-  // (see the comment above TUTORIAL_STEPS in tutorial.ts for how). Named by
-  // id rather than stored as a field on each step, so adding a new step
-  // just means dropping in a matching file; nothing here needs updating.
-  // Returns the Audio element it created (or null if it didn't play one) so
-  // callers that need to clean up after *this specific* clip — see the
-  // fallback effect below — can do so without going back through the
-  // shared audioRef, which may have already moved on to a later step's
-  // clip by the time that cleanup runs.
+  // clip per step, generated from a local ComfyUI/Chatterbox TTS pipeline.
+  // Named by id rather than stored as a field on each step, so adding a
+  // new step just means dropping in a matching file; nothing here needs
+  // updating. Returns the Audio element it created (or null if it didn't
+  // play one) so callers that need to clean up after *this specific* clip
+  // can do so without going back through the shared audioRef, which may
+  // have already moved on to a later step's clip by the time that cleanup
+  // runs.
   const playStepAt = (index: number): HTMLAudioElement | null => {
     if (typeof window === "undefined" || typeof Audio === "undefined") return null;
     const target = steps[index];
@@ -431,41 +490,40 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     audioRef.current?.pause();
     const audio = new Audio(`/audio/tutorial/${target.id}.mp3`);
     audioRef.current = audio;
+    setSpeaking(false);
     // A missing file and a browser declining to autoplay both reject this
-    // promise — neither is treated as fatal, same "never a hard
-    // requirement" spirit the old speechSynthesis path had: the tour just
-    // sits on that step, spotlight and all, until the customer taps the
-    // corner HUD's manual Next rather than throwing or getting stuck
-    // silently forever. AbortError is excluded from the warning entirely:
-    // it fires whenever this clip gets superseded by a pause() call before
-    // it finished — the ordinary, expected outcome of the customer
-    // advancing before narration wraps up, not a real failure worth
-    // surfacing.
+    // promise — neither is treated as fatal: the tour just sits on that
+    // step, spotlight and all, until the customer taps the corner HUD's
+    // manual Next/Move on, rather than throwing or getting stuck silently
+    // forever. AbortError is excluded from the warning entirely: it fires
+    // whenever this clip gets superseded by a pause() call before it
+    // finished — the ordinary, expected outcome of the customer advancing
+    // before narration wraps up, not a real failure worth surfacing.
     audio.play().catch((err) => {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.warn(`Tutorial narration failed for step "${target.id}":`, err);
     });
     lastSpokenIndexRef.current = index;
 
-    // With the caption's own "Next" button gone, the clip finishing is now
-    // the tour's primary way of moving itself along - the voice alone
-    // guides the customer through the app, including when to move to the
-    // next thing. A self-resolving step (stock-controls-tap, scan, ...)
-    // may well already have advanced by the time this fires; advance()'s
-    // own hasAdvancedRef guard makes that a harmless no-op rather than a
-    // double-skip.
-    audio.addEventListener("ended", () => {
-      if (stepIndexRef.current === index) advance();
-    });
+    // Drives TutorialSoundBar for the steps that show one - real playback
+    // state, not just "is this the active step," so muting or a clip
+    // ending correctly settles the bars.
+    const onPlay = () => {
+      if (stepIndexRef.current === index) setSpeaking(true);
+    };
+    const onPauseOrEnd = () => {
+      if (stepIndexRef.current === index) setSpeaking(false);
+    };
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPauseOrEnd);
+    audio.addEventListener("ended", onPauseOrEnd);
 
-    // Mid-step target switch (currently only "reorder"): once this clip
-    // crosses its own halfway point, move the spotlight to the step's
+    // Mid-step target switch (e.g. "reorder-search-and-find"): once this
+    // clip crosses its own halfway point, move the spotlight to the step's
     // second target. Keyed off the *playing clip's* progress rather than a
     // flat delay so it stays in sync with whatever the narration is saying
     // at that moment, even if a future re-recording changes the clip's
-    // length. audio.currentTime resets to 0 and starts climbing from the
-    // very first timeupdate tick, so this can't fire before playback
-    // genuinely begins.
+    // length.
     if (target.targetSelectorPhase2) {
       const onTimeUpdate = () => {
         if (!audio.duration || audio.currentTime < audio.duration / 2) return;
@@ -477,8 +535,6 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
       // Fallback for when there's no clip actually playing to key off (the
       // customer has voice muted, or this device declined to play it) —
       // same switch, on a plain timer instead of real playback progress.
-      // Cleared above the moment real playback progress does the job
-      // instead, so a normal play-through never double-switches.
       const fallbackTimer = window.setTimeout(() => {
         audio.removeEventListener("timeupdate", onTimeUpdate);
         if (stepIndexRef.current === index) switchTarget(target.targetSelectorPhase2!);
@@ -491,22 +547,13 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
   // Fallback for the one path that can never be gesture-driven: the very
   // first step, shown as soon as the tour opens rather than from a tap.
   // Every other step transition is already played synchronously inside its
-  // own click handler (advance(), toggleVoice() below) — this effect only
-  // plays when that hasn't already happened for the current step, so
-  // nothing plays twice. Unlike the old speechSynthesis version there's no
-  // async voice list to wait on here, so this just plays immediately.
+  // own click handler (advance(), goBack(), toggleVoice() below) — this
+  // effect only plays when that hasn't already happened for the current
+  // step, so nothing plays twice.
   useEffect(() => {
     if (!voiceEnabled || typeof window === "undefined") return;
     if (lastSpokenIndexRef.current === stepIndex) return;
     const audio = playStepAt(stepIndex);
-    // Pause the exact clip this effect started, not "whatever audioRef
-    // currently points at" — by the time this cleanup fires (React runs it
-    // right before the *next* effect invocation, i.e. right after the next
-    // step's gesture-driven playStepAt() has already reassigned audioRef),
-    // the ref may already belong to a newer clip. Pausing that instead was
-    // cutting every step's narration off almost immediately after it
-    // started (an AbortError from play() racing pause()) — caught via a
-    // live console check on weirdsync.com after this shipped, not in dev.
     return () => {
       audio?.pause();
     };
@@ -518,18 +565,17 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     setVoiceEnabled(next);
     setTutorialVoiceEnabled(next);
     if (next) {
-      // Same gesture-synchronicity reasoning as advance() above — play the
-      // step already on screen right inside this tap.
       playStepAt(stepIndex);
     } else {
       audioRef.current?.pause();
+      setSpeaking(false);
     }
   };
 
   // A minimal focus trap: Tab/Shift+Tab cycles only among the corner HUD's
-  // own buttons (mute, manual next, skip) - instead of escaping into
-  // whatever sits behind the blurred mask, standard expected behavior for
-  // anything marked aria-modal.
+  // own buttons - instead of escaping into whatever sits behind the
+  // blurred mask, standard expected behavior for anything marked
+  // aria-modal.
   const onOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab" || !overlayRef.current) return;
     const focusable = overlayRef.current.querySelectorAll<HTMLElement>("button");
@@ -545,45 +591,80 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
     }
   };
 
+  // Drag-to-reposition for the corner HUD. Starts tracking on pointerdown
+  // anywhere in the pill EXCEPT on one of its own buttons (so mute/back/
+  // next/skip still register as plain taps), and only actually starts
+  // moving the pill once the pointer has traveled past DRAG_THRESHOLD_PX -
+  // a real drag gesture, not every press-and-release.
+  const onHudPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    const hud = hudRef.current;
+    if (!hud) return;
+    const rect = hud.getBoundingClientRect();
+    dragStateRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: rect.left,
+      origTop: rect.top,
+      dragging: false,
+    };
+  };
+  const onHudPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+    if (!drag.dragging) {
+      drag.dragging = true;
+      hudRef.current?.setPointerCapture(e.pointerId);
+    }
+    const hud = hudRef.current;
+    const width = hud?.offsetWidth ?? 0;
+    const height = hud?.offsetHeight ?? 0;
+    const nextLeft = Math.min(Math.max(4, drag.origLeft + dx), window.innerWidth - width - 4);
+    const nextTop = Math.min(Math.max(4, drag.origTop + dy), window.innerHeight - height - 4);
+    setHudPos({ left: nextLeft, top: nextTop });
+  };
+  const onHudPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current;
+    if (drag?.dragging) hudRef.current?.releasePointerCapture(e.pointerId);
+    dragStateRef.current = null;
+  };
+
   if (typeof document === "undefined") return null;
 
-  const nextLabel = step.nextLabel ?? "Next";
+  const nextLabel = step.moveOnLabel ?? step.nextLabel ?? "Next";
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
+  const isFirstStep = stepIndex === 0;
 
   // Every element that should stay sharp and interactive right now: the
-  // glow's own current target, plus this step's focusSelectors (e.g.
-  // "reorder"'s item card and search-by toggle, which stay in focus for the
-  // whole step regardless of which one the glow itself is visiting).
-  // computeMaskBands turns that into however many rectangles still need to
-  // be blurred - one band when there's a single hole (the common case,
-  // visually equivalent to the old four-band cutout), more when a step
-  // keeps several separate elements in focus at once.
+  // glow's own current target, plus this step's focusSelectors. Suppressed
+  // entirely (no bands rendered at all - nothing blurred, nothing dimmed)
+  // while blurSuppressed is true, for a step that explicitly asked for a
+  // few seconds of a completely clear view (see suppressBlurMs above).
   const glowRect = rect ? inflateRect(rect, PAD) : null;
   const focusHoles = focusRects.map((r) => inflateRect(r, PAD));
   const maskHoles = glowRect ? [glowRect, ...focusHoles] : focusHoles;
   const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0;
   const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 0;
-  const maskBands = computeMaskBands(maskHoles, viewportWidth, viewportHeight);
+  const maskBands = blurSuppressed ? [] : computeMaskBands(maskHoles, viewportWidth, viewportHeight);
 
   return createPortal(
     // pointer-events-none here is load-bearing, not decorative: this outer
     // div's own box spans the full viewport at z-[200], so without this it
     // would swallow every click - including ones aimed at any of the "holes"
     // over the focused elements - regardless of the mask bands below only
-    // painting around them. Each interactive piece (the masks, the corner
-    // HUD) opts back into pointer-events-auto individually; the real
-    // elements under the holes are never covered by anything here, so they
-    // fall through to receive clicks normally. tabIndex=-1 + outline-none
-    // makes this div itself the tour's focus landing spot (see the effect
-    // above) without a distracting full-viewport focus ring.
+    // painting around them.
     <div
       ref={overlayRef}
       tabIndex={-1}
       className="pointer-events-none fixed inset-0 z-[200] outline-none"
       onKeyDown={onOverlayKeyDown}
     >
-      {/* No visible dialog box anymore - the step's title/body still exist
-          (see tutorial.ts) for accessibility and for the narration-script
+      {/* No visible dialog box - the step's title/body still exist (see
+          tutorial.ts) for accessibility and for the narration-script
           handoff doc, but on screen the voice alone carries them. This
           live region keeps that text available to screen readers even
           though nothing shows it visually. */}
@@ -591,14 +672,10 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
         {step.title}. {step.body}
       </div>
       {/* Blurred + dimmed bands cover everything that isn't currently in
-          focus, real, clickable holes left over each focused element rather
-          than a single dim overlay - see computeMaskBands. Blurring (rather
-          than a flat dim) is what makes the in-focus elements read as
-          in-focus: everything else visibly falls out of focus around them,
-          the same depth-of-field cue a game uses to say "look here." Kept
-          light (a quarter of the original blur strength) so the rest of
-          the app stays legible in the background instead of turning into a
-          frosted wall. */}
+          focus - real, clickable holes left over each focused element
+          rather than a single dim overlay. Kept light (a quarter of the
+          original blur strength) so the rest of the app stays legible in
+          the background. Suppressed entirely for suppressBlurMs. */}
       {maskBands.map((band, i) => (
         <div
           key={i}
@@ -610,12 +687,12 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
         <>
           {/* The "quest marker" glow: an expanding, fading ping ring behind
               a breathing blurred-glow ring, hugging the real spotlighted
-              element's own shape (targetRadius) rather than a generic
-              rounded box drawn a few pixels out from it - a circular icon
-              button glows circular, a pill toggle glows pill-shaped. Amber
-              rather than the app's existing accent colors (red is reserved
-              for low-stock warnings, green for "all clear") - a color that
-              reads as "here, this one" without also reading as a status. */}
+              element's own shape (targetRadius). Amber rather than the
+              app's existing accent colors (red is reserved for low-stock
+              warnings, green for "all clear"). Stays visible even while
+              blur is suppressed - it's still exactly what's being
+              narrated, the only thing changing is whether the rest of the
+              screen dims around it. */}
           <div
             className="pointer-events-none fixed ring-2 ring-amber-300/70 animate-tutorial-glow-ping"
             style={{
@@ -639,14 +716,23 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
         </>
       )}
 
-      {/* Minimal corner HUD: voice mute toggle, step counter, a manual
-          "next" for anyone who wants to move on before (or without) the
-          narration finishing, and skip/exit - the only chrome the tour has
-          left now that there's no dialog card. Fixed in the corner rather
-          than following the spotlight, so it reads as a persistent status
-          readout - like a game's HUD - instead of competing with the glow
-          for attention. */}
-      <div className="pointer-events-auto fixed right-3 top-3 z-[201] flex animate-label-in items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur">
+      {/* Corner HUD: voice mute toggle, an optional sound bar, step
+          counter, back, next/move-on, and skip/exit. Draggable anywhere on
+          its own background (not on one of its buttons) - see
+          onHudPointerDown/Move/Up above. Positioned via hudPos once the
+          customer has moved it at least once; otherwise the original
+          top-right corner default. */}
+      <div
+        ref={hudRef}
+        onPointerDown={onHudPointerDown}
+        onPointerMove={onHudPointerMove}
+        onPointerUp={onHudPointerUp}
+        onPointerCancel={onHudPointerUp}
+        className={`pointer-events-auto fixed z-[201] flex touch-none select-none items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur animate-label-in ${
+          hudPos ? "cursor-grab active:cursor-grabbing" : "right-3 top-3 cursor-grab active:cursor-grabbing"
+        }`}
+        style={hudPos ? { left: hudPos.left, top: hudPos.top } : undefined}
+      >
         {audioSupported && (
           <button
             onClick={toggleVoice}
@@ -656,16 +742,39 @@ export default function TutorialOverlay({ tab, setTab, accountOpen, setAccountOp
             {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
           </button>
         )}
+        {step.showSoundBar && (
+          <div className="px-0.5">
+            <TutorialSoundBar speaking={speaking && voiceEnabled} />
+          </div>
+        )}
         <span className="px-1 text-[11px] tabular-nums text-white/70">
           {stepIndex + 1}/{steps.length}
         </span>
         <button
-          onClick={advance}
-          aria-label={nextLabel}
-          className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white"
+          onClick={goBack}
+          disabled={isFirstStep}
+          aria-label="Previous step"
+          className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent"
         >
-          <ChevronRight size={14} />
+          <ChevronLeft size={14} />
         </button>
+        {step.moveOnLabel ? (
+          <button
+            onClick={advance}
+            aria-label={nextLabel}
+            className="rounded-full bg-amber-400/90 px-2 py-1 text-[11px] font-semibold text-neutral-900 hover:bg-amber-300"
+          >
+            {nextLabel}
+          </button>
+        ) : (
+          <button
+            onClick={advance}
+            aria-label={nextLabel}
+            className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white"
+          >
+            <ChevronRight size={14} />
+          </button>
+        )}
         <button
           onClick={() => finish("skipped")}
           aria-label="Skip tour"

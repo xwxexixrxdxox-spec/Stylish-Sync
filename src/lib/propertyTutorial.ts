@@ -8,6 +8,19 @@ import { getEditorName } from "@/lib/storage";
 // element, explain it, Next/Skip), but scoped to a single page rather than
 // the tabbed main app, so there's no tab/sidebar state to drive here. See
 // PropertyTutorialOverlay.tsx for how these get rendered.
+//
+// Engine-only update this round ("O"): PropertyTutorialOverlay.tsx picked
+// up the same draggable-HUD/back-arrow/no-auto-advance changes as the main
+// tour (see its own top comment), but this file's actual step CONTENT is
+// still the pre-seeded-example walkthrough from the K/L rounds. The
+// customer's "Part 3" doc calls for a much bigger, hands-on rework here —
+// have the customer type in a real new property from scratch, add a real
+// part, click through to a retailer's cart, a more noticeable status-change
+// UI with an undo affordance, a maintenance task walkthrough — none of
+// which exists as a feature yet (there's no undo-last-status-change control
+// today, just the "Reopen a closed row" affordance - see PropertyManager.tsx).
+// That's queued as its own follow-up rather than folded in here; see the
+// project notes doc for the full breakdown of what's still open.
 export interface PropertyTutorialStep {
   id: string;
   targetSelector: string | null;
