@@ -48,7 +48,7 @@ below.
 
 ## The two findings that matter most
 
-### 1. The property tour has seven steps that are both blank and silent
+### 1. The property tour had seven steps that were both blank and silent — FIXED, shipped in `0bc7475`
 
 `TutorialOverlay.tsx` runs an audio preflight at tour start — a `HEAD` request
 per step, dropping any step whose mp3 is absent. That is why the main tour
@@ -66,14 +66,25 @@ That is very likely a real part of what made the tour feel, in your words,
 like the worst one you've ever tried to complete. The main tour's loop is
 fixed; this is the same class of problem in the room next door.
 
-The fix is small and does not need new footage: port the preflight from
-`TutorialOverlay.tsx` into `PropertyTutorialOverlay.tsx`. Sixteen steps become
-nine that actually speak. It is roughly a twenty-line change and it can ship
-before a single new clip is recorded.
+The seven blank property steps were `property-sync-actions`, `add-property`,
+`example-edit`, `example-status-dropdown`, `example-add-part`,
+`example-add-task` and `replay-tour`.
 
-The seven currently-blank property steps: `property-sync-actions`,
-`add-property`, `example-edit`, `example-status-dropdown`, `example-add-part`,
-`example-add-task`, `replay-tour`.
+**Shipped 2026-07-31 as `0bc7475`.** The preflight and the wrapper-component
+pattern were ported across from `TutorialOverlay.tsx`: the step list resolves
+before the inner overlay mounts (so the `[stepIndex]`-keyed effects start with
+a stable array and step one still speaks), a network failure counts as
+*present* rather than absent so one flaky request can't gut the tour, and an
+all-absent result falls back to the full list. The "Finish tour" label is now
+derived from position rather than read off `wrap-up`, since the step carrying
+that label can now be dropped.
+
+Sixteen steps became nine that actually talk. Verified: typecheck clean (one
+pre-existing `xlsx` error only), production build clean, the emitted
+`app/property/page-*.js` chunk contains the `{method:"HEAD"}` preflight and
+its `catch → true` fallback, and the deployed server returns exactly 9 of the
+16 clips. The live click-through is still outstanding — the Property page is
+behind sign-in, and I'm not creating or signing into an account to reach it.
 
 ### 2. "Suggested reorder point … Apply" has no step in either tour
 
@@ -215,8 +226,8 @@ hands-on Property rebuild can be filmed at all.
 
 ## Suggested order of work
 
-1. **Port the audio preflight into `PropertyTutorialOverlay.tsx`.** Code only,
-   no recordings, removes seven blank screens today.
+1. ~~**Port the audio preflight into `PropertyTutorialOverlay.tsx`.**~~ Done —
+   `0bc7475`, 2026-07-31. Seven blank screens gone without recording anything.
 2. **Record the 20 silent main-tour steps and the 7 silent property steps.**
    Scripts already exist in `narration-scripts-tutorial-guide-rework.md` and
    `narration-scripts-new-tour-steps.md`.
