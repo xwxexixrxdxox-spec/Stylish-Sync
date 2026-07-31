@@ -32,7 +32,6 @@ import {
   setLastPropertySyncedAt,
   getLastPropertySyncToken,
   setLastPropertySyncToken,
-  getPropertyTutorialCompleted,
   resetPropertyTutorialCompleted,
 } from "@/lib/storage";
 import { buildExampleProperty, EXAMPLE_PROPERTY_ID, EXAMPLE_PART_ID, EXAMPLE_TASK_ID } from "@/lib/propertyTutorial";
@@ -113,21 +112,13 @@ export default function PropertyManager() {
   const [newNotes, setNewNotes] = useState("");
 
   useEffect(() => {
-    const stored = loadPropertyItems();
-    // A brand-new property list (nothing saved yet, not "the customer
-    // deleted everything") plus a tour that hasn't run gets exactly one
-    // seeded example property so the guided tour below has something real
-    // to spotlight — the same reason Inventory ships 3 sample items for its
-    // own tour (see loadPropertyItems'/PROPERTY_KEY's comment for why
-    // Property otherwise deliberately ships with none). A customer who's
-    // already added real properties, or who already finished/skipped the
-    // tour once, never gets this — only a genuinely first-ever visit does.
-    if (stored.length === 0 && !getPropertyTutorialCompleted()) {
-      setProperties([buildExampleProperty()]);
-      setTutorialActive(true);
-    } else {
-      setProperties(stored);
-    }
+    // No more auto-seeding-and-launching a tour on a brand-new empty list —
+    // the tour is opened on demand only now (see replayPropertyTutorial
+    // below, wired to the "↻ Take the property tour" link), so a first-ever
+    // visit just loads whatever's actually stored (nothing, for a genuinely
+    // new account) rather than planting a sample property the customer
+    // never asked to see.
+    setProperties(loadPropertyItems());
     const id = getLinkedSheetId();
     setSheetId(id);
     if (id) setLastSyncedAtState(getLastPropertySyncedAt(id));

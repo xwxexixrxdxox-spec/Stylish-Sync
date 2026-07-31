@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Menu } from "lucide-react";
+import { Compass, Menu } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import {
   loadItems,
@@ -9,8 +9,6 @@ import {
   getLinkedSheetId,
   setLinkedSheetId,
   logMovement,
-  isFreshInstall,
-  getTutorialCompleted,
   resetTutorialCompleted,
   getEditorName,
 } from "@/lib/storage";
@@ -60,10 +58,8 @@ export default function HomePage() {
     // the instant it finds ITEMS_KEY missing - that write is exactly the
     // signal this is checking for, so calling loadItems() first would
     // erase it before this ever saw it.
-    const freshInstall = isFreshInstall();
     setItems(loadItems());
     setSheetIdState(getLinkedSheetId());
-    if (freshInstall && !getTutorialCompleted()) setTutorialActive(true);
     const timer = setTimeout(() => setLoadScreenExiting(true), LOAD_SCREEN_MIN_MS);
     return () => clearTimeout(timer);
   }, []);
@@ -457,6 +453,15 @@ export default function HomePage() {
               <span className="text-base font-semibold text-neutral-900">WS Inventory Management</span>
             </button>
             <div className="flex items-center gap-1">
+              <Tooltip label="Take the tour" side="bottom">
+                <button
+                  onClick={replayTutorial}
+                  aria-label="Take the tour"
+                  className="rounded-lg p-1.5 text-neutral-500 hover:bg-surface-muted"
+                >
+                  <Compass size={18} />
+                </button>
+              </Tooltip>
               <ThemeToggle dataTutorial="header-theme-toggle" />
               <ClearCacheButton dataTutorial="header-clear-cache" />
               <Tooltip label="Account & settings" side="bottom">

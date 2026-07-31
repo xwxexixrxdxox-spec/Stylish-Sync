@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Volume2, VolumeX, X } from "lucide-react";
+import { ChevronRight, Volume2, VolumeX, X } from "lucide-react";
 import { PROPERTY_TUTORIAL_STEPS } from "@/lib/propertyTutorial";
 import { waitForElement } from "@/lib/tutorial";
 import {
@@ -12,9 +12,9 @@ import {
 } from "@/lib/storage";
 import { computeMaskBands, inflateRect, type Rect } from "@/lib/tutorialMask";
 
-// Gap between the spotlighted element and both the cutout ring and the
+// Gap between the spotlighted element and both the glow ring and the
 // masking bands around it, in px. Same value as TutorialOverlay.tsx.
-const PAD = 8;
+const PAD = 4;
 
 interface Props {
   // Live quantityReceived of the seeded example part, re-passed on every
@@ -28,30 +28,32 @@ interface Props {
 }
 
 // Visually and behaviorally a sibling of TutorialOverlay.tsx (same masking
-// bands + spotlight glow + caption bubble + focus trap + Escape-to-skip),
-// kept as a separate component rather than a shared one: the main tour is
-// driven by tab/sidebar state on the single-page app, this one runs
-// entirely on the standalone /property page, and duplicating the ~150
-// lines of presentational JSX was judged lower-risk this round than
-// refactoring the already-shipped, working main tutorial to share it. Both
-// were reworked together from an original callout-card design to this
-// game-style glow-and-voice one — see TutorialOverlay.tsx's top comment for
-// the fuller rationale.
+// bands + spotlight glow + focus trap + Escape-to-skip), kept as a
+// separate component rather than a shared one: the main tour is driven by
+// tab/sidebar state on the single-page app, this one runs entirely on the
+// standalone /property page, and duplicating the JSX was judged
+// lower-risk than refactoring the already-shipped, working main tutorial
+// to share it. Both were reworked together, twice now - first from a full
+// callout card to a caption bubble + glow, and now (this round) from that
+// caption bubble to voice-only: no dialog box, no card, nothing to read.
+// The glow hugs the real spotlighted element's own shape instead of a
+// generic rounded box around it, and a clip finishing is what advances
+// the tour now, not a "Next" tap inside a card that no longer exists. See
+// TutorialOverlay.tsx's top comment for the fuller rationale - it applies
+// here identically. Opened on demand only (the existing "↻ Take the
+// property tour" link/button in PropertyManager.tsx) - it no longer
+// autoplays on a brand-new empty property list.
 export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  // Measured height of the caption bubble - see TutorialOverlay.tsx's
-  // identical field for the full rationale (the caption's own height
-  // matters when deciding whether it can sit near the bottom without
-  // covering a tall spotlight target).
-  const [captionHeight, setCaptionHeight] = useState(90);
+  // The spotlighted element's own computed border-radius - see
+  // TutorialOverlay.tsx's identical field for the full rationale.
+  const [targetRadius, setTargetRadius] = useState<string>("0.75rem");
   const targetElRef = useRef<HTMLElement | null>(null);
-  // Wraps every focusable control this step renders (the corner pill's
-  // mute/skip buttons, the caption's own Next button) - queried by
-  // onOverlayKeyDown below for the Tab focus trap.
+  // Wraps every focusable control the corner HUD renders (mute, manual
+  // next, skip) - queried by onOverlayKeyDown below for the Tab focus trap.
   const overlayRef = useRef<HTMLDivElement>(null);
-  const captionRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevReceivedRef = useRef(exampleReceivedCount);
   // Tracks which step index has already had playStepAt() called for it —
@@ -60,6 +62,16 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   // from "genuinely hasn't been played yet" without playing the same line
   // twice.
   const lastSpokenIndexRef = useRef(-1);
+  // Guards against advancing twice for the same step - see
+  // TutorialOverlay.tsx's identical ref for the full rationale.
+  const hasAdvancedRef = useRef(false);
+  useEffect(() => {
+    hasAdvancedRef.current = false;
+  }, [stepIndex]);
+  const stepIndexRef = useRef(0);
+  useEffect(() => {
+    stepIndexRef.current = stepIndex;
+  }, [stepIndex]);
   const steps = PROPERTY_TUTORIAL_STEPS;
   const step = steps[stepIndex];
 
@@ -74,6 +86,8 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   };
 
   const advance = () => {
+    if (hasAdvancedRef.current) return;
+    hasAdvancedRef.current = true;
     setStepIndex((i) => {
       if (i >= steps.length - 1) {
         setPropertyTutorialCompleted("finished");
@@ -102,7 +116,7 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   // the target can still legitimately not exist yet on the very first
   // render (or ever, if the customer deleted the example mid-tour) —
   // waitForElement's timeout-then-null handles that the same way it does
-  // for the main tour: the card just goes centered with a full dim, no hole.
+  // for the main tour: everything just stays fully blurred, no hole.
   useEffect(() => {
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
@@ -114,6 +128,7 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
       targetElRef.current = el;
       if (el) {
         setRect(el.getBoundingClientRect());
+        setTargetRadius(window.getComputedStyle(el).borderRadius || "0.75rem");
         // Guarantees the spotlighted element is actually on screen rather
         // than assuming it already is — on a short mobile viewport a target
         // lower on the page can sit below the fold, especially once a step
@@ -130,7 +145,7 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
         // about the window changed, so watch the element itself and keep
         // the hole glued to its real, current size — otherwise controls
         // that appear past the old hole boundary sit unclickable under the
-        // dimmed, pointer-events-auto backdrop.
+        // blurred, pointer-events-auto backdrop.
         resizeObserver = new ResizeObserver(() => {
           if (!targetElRef.current) return;
           setRect(targetElRef.current.getBoundingClientRect());
@@ -193,29 +208,10 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Send focus into the caption bubble each time a new step appears - see
-  // TutorialOverlay.tsx's identical effect for the full rationale.
+  // Send focus into the tour's own overlay each time a new step appears -
+  // see TutorialOverlay.tsx's identical effect for the full rationale.
   useEffect(() => {
-    captionRef.current?.focus();
-  }, [stepIndex]);
-
-  // Keeps captionHeight in sync with the caption's real rendered height.
-  // Brought over from TutorialOverlay.tsx's fix for the main tour's
-  // "support" step (a tall spotlight target reaching into a bottom-anchored
-  // caption's zone despite starting near the top) - this tour's own
-  // "log-receipt" step has the same shape of risk, since its target row
-  // grows taller the instant the quantity/confirm panel expands (see the
-  // ResizeObserver effect above), so the same more-accurate placement check
-  // applies here too rather than just the simpler rect.top heuristic.
-  useEffect(() => {
-    const el = captionRef.current;
-    if (!el) return;
-    setCaptionHeight(el.getBoundingClientRect().height);
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) setCaptionHeight(entry.contentRect.height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
+    overlayRef.current?.focus();
   }, [stepIndex]);
 
   // Recorded narration lives in public/audio/property/<step id>.mp3 — one
@@ -238,24 +234,34 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     // A missing file and a browser declining to autoplay both reject this
     // promise — neither is treated as fatal, same "never a hard
     // requirement" spirit the old speechSynthesis path had: the tour just
-    // runs silently for that step rather than throwing. AbortError is
-    // excluded from the warning entirely: it fires whenever this clip gets
-    // superseded by a pause() call before it finished — the ordinary,
-    // expected outcome of the customer advancing before narration wraps
-    // up, not a real failure worth surfacing.
+    // sits on that step until the customer taps the corner HUD's manual
+    // Next, rather than throwing or getting stuck silently forever.
+    // AbortError is excluded from the warning entirely: it fires whenever
+    // this clip gets superseded by a pause() call before it finished — the
+    // ordinary, expected outcome of the customer advancing before
+    // narration wraps up, not a real failure worth surfacing.
     audio.play().catch((err) => {
       if (err instanceof DOMException && err.name === "AbortError") return;
       console.warn(`Tutorial narration failed for step "${target.id}":`, err);
     });
     lastSpokenIndexRef.current = index;
+
+    // With the caption's own "Next" button gone, the clip finishing is now
+    // the tour's primary way of moving itself along - see
+    // TutorialOverlay.tsx's identical listener for the full rationale.
+    // advance()'s own hasAdvancedRef guard makes this a harmless no-op if
+    // the "log-receipt" step's self-resolve already fired first.
+    audio.addEventListener("ended", () => {
+      if (stepIndexRef.current === index) advance();
+    });
+
     return audio;
   };
 
   // Fallback for the one path that can never be gesture-driven: the very
-  // first step, when the tour auto-opens on mount for a brand-new empty
-  // property list rather than from a tap on "Take the property tour." Every
-  // other step transition is already played synchronously inside its own
-  // click handler (advance(), toggleVoice() below) — this effect only
+  // first step, when the tour opens (a tap on "Take the property tour").
+  // Every other step transition is already played synchronously inside its
+  // own click handler (advance(), toggleVoice() below) — this effect only
   // plays when that hasn't already happened for the current step, so
   // nothing plays twice. Unlike the old speechSynthesis version there's no
   // async voice list to wait on here, so this just plays immediately.
@@ -287,9 +293,8 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
     }
   };
 
-  // A minimal focus trap across both the corner pill and the caption's own
-  // Next button - see TutorialOverlay.tsx's identical handler for the full
-  // rationale.
+  // A minimal focus trap across the corner HUD's own buttons - see
+  // TutorialOverlay.tsx's identical handler for the full rationale.
   const onOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab" || !overlayRef.current) return;
     const focusable = overlayRef.current.querySelectorAll<HTMLElement>("button");
@@ -308,13 +313,6 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
   if (typeof document === "undefined") return null;
 
   const nextLabel = step.nextLabel ?? "Next";
-  // Same more-accurate placement check as TutorialOverlay.tsx - see the
-  // captionHeight effect above for why this looks past just rect.top.
-  const BOTTOM_CAPTION_CLEARANCE = 96; // px - matches bottom-24 below
-  const captionNearTop = rect
-    ? rect.top > window.innerHeight / 2 ||
-      rect.top + rect.height + PAD > window.innerHeight - BOTTOM_CAPTION_CLEARANCE - captionHeight
-    : false;
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
 
   // Same blur-mask approach as TutorialOverlay.tsx - see that file's
@@ -329,30 +327,54 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
 
   return createPortal(
     // pointer-events-none is load-bearing here too, same reason as
-    // TutorialOverlay.tsx — see that file's comment.
-    <div ref={overlayRef} className="pointer-events-none fixed inset-0 z-[200]" onKeyDown={onOverlayKeyDown}>
+    // TutorialOverlay.tsx — see that file's comment. tabIndex=-1 +
+    // outline-none makes this div the tour's focus landing spot.
+    <div
+      ref={overlayRef}
+      tabIndex={-1}
+      className="pointer-events-none fixed inset-0 z-[200] outline-none"
+      onKeyDown={onOverlayKeyDown}
+    >
+      {/* No visible dialog box anymore - see TutorialOverlay.tsx's
+          identical live region for the full rationale. */}
+      <div className="sr-only" aria-live="polite">
+        {step.title}. {step.body}
+      </div>
       {/* Blurred + dimmed bands cover everything outside the current
           target - see TutorialOverlay.tsx's identical block for the full
-          rationale (blur rather than a flat dim, so the focused element
-          reads as in-focus by contrast). */}
+          rationale. Kept light (a quarter of the original blur strength)
+          so the rest of the page stays legible behind it. */}
       {maskBands.map((band, i) => (
         <div
           key={i}
-          className="pointer-events-auto fixed bg-black/45 backdrop-blur-md transition-all duration-200"
+          className="pointer-events-auto fixed bg-black/45 backdrop-blur-[3px] transition-all duration-200"
           style={{ top: band.top, left: band.left, width: band.width, height: band.height }}
         />
       ))}
       {glowRect && (
         <>
-          {/* The "quest marker" glow - see TutorialOverlay.tsx's identical
-              pair of divs for the full rationale. */}
+          {/* The "quest marker" glow, hugging the real target's own shape
+              (targetRadius) - see TutorialOverlay.tsx's identical pair of
+              divs for the full rationale. */}
           <div
-            className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300/70 animate-tutorial-glow-ping"
-            style={{ top: glowRect.top, left: glowRect.left, width: glowRect.width, height: glowRect.height }}
+            className="pointer-events-none fixed ring-2 ring-amber-300/70 animate-tutorial-glow-ping"
+            style={{
+              top: glowRect.top,
+              left: glowRect.left,
+              width: glowRect.width,
+              height: glowRect.height,
+              borderRadius: targetRadius,
+            }}
           />
           <div
-            className="pointer-events-none fixed rounded-lg ring-2 ring-amber-300 animate-tutorial-glow-pulse transition-all duration-200"
-            style={{ top: glowRect.top, left: glowRect.left, width: glowRect.width, height: glowRect.height }}
+            className="pointer-events-none fixed ring-2 ring-amber-300 animate-tutorial-glow-pulse transition-all duration-200"
+            style={{
+              top: glowRect.top,
+              left: glowRect.left,
+              width: glowRect.width,
+              height: glowRect.height,
+              borderRadius: targetRadius,
+            }}
           />
         </>
       )}
@@ -373,40 +395,19 @@ export default function PropertyTutorialOverlay({ exampleReceivedCount, onClose 
           {stepIndex + 1}/{steps.length}
         </span>
         <button
+          onClick={advance}
+          aria-label={nextLabel}
+          className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white"
+        >
+          <ChevronRight size={14} />
+        </button>
+        <button
           onClick={() => finish("skipped")}
           aria-label="Skip tour"
           className="rounded-full p-1 text-white/80 hover:bg-white/10 hover:text-white"
         >
           <X size={14} />
         </button>
-      </div>
-
-      {/* The caption bubble - see TutorialOverlay.tsx's identical element
-          for the full rationale. */}
-      <div
-        className={`pointer-events-none fixed inset-x-0 flex justify-center px-4 ${
-          !rect ? "inset-y-0 items-center" : captionNearTop ? "top-[76px]" : "bottom-24"
-        }`}
-      >
-        <div
-          ref={captionRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label={step.title}
-          tabIndex={-1}
-          className="pointer-events-auto w-full max-w-xs animate-tutorial-card-in rounded-2xl border border-amber-300/40 bg-neutral-900/90 p-3 text-white shadow-card outline-none backdrop-blur"
-        >
-          <p className="text-sm font-semibold text-white">{step.title}</p>
-          <p className="mt-1 text-xs leading-relaxed text-white/70">{step.body}</p>
-          <div className="mt-2 flex justify-end">
-            <button
-              onClick={advance}
-              className="rounded-full bg-amber-300 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-amber-200"
-            >
-              {nextLabel} ›
-            </button>
-          </div>
-        </div>
       </div>
     </div>,
     document.body,
