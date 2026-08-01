@@ -133,7 +133,13 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
     id: "wrap-up",
     targetSelector: '[data-tutorial="tutorial-example-delete"]',
     title: "That's Property tracking!",
-    body: "Delete the example with this icon whenever you're ready, then add your own. Tap Finish tour to close this.",
+    // Narration no longer says "Tap Finish tour": that control is gone, and
+    // this HUD now closes with the plain X in its corner. Telling a customer
+    // to tap a button that isn't on screen is worse than saying nothing,
+    // because they'll stop and hunt for it. NOTE: wrap-up.mp3 is one of the
+    // existing recordings and still speaks the old line - it needs
+    // re-recording from this text before the fix is actually audible.
+    body: "Delete the example with this icon whenever you're ready, then add your own. When you're done, close this with the X up in the corner.",
     nextLabel: "Finish tour",
   },
 ];

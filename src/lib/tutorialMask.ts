@@ -64,6 +64,83 @@ function holeSubpath(h: MaskHole): string | null {
   ].join(" ");
 }
 
+function rectsOverlap(a: MaskHole, b: MaskHole): boolean {
+  return (
+    a.left < b.left + b.width &&
+    b.left < a.left + a.width &&
+    a.top < b.top + b.height &&
+    b.top < a.top + a.height
+  );
+}
+
+// True when `outerHole` fully encloses `innerHole`.
+function rectContains(outerHole: MaskHole, innerHole: MaskHole): boolean {
+  return (
+    innerHole.left >= outerHole.left &&
+    innerHole.top >= outerHole.top &&
+    innerHole.left + innerHole.width <= outerHole.left + outerHole.width &&
+    innerHole.top + innerHole.height <= outerHole.top + outerHole.height
+  );
+}
+
+// The bounding box of two holes, keeping the rounder of the two corners.
+function unionRect(a: MaskHole, b: MaskHole): MaskHole {
+  const left = Math.min(a.left, b.left);
+  const top = Math.min(a.top, b.top);
+  const right = Math.max(a.left + a.width, b.left + b.width);
+  const bottom = Math.max(a.top + a.height, b.top + b.height);
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+    radius: Math.max(a.radius ?? 12, b.radius ?? 12),
+  };
+}
+
+// Collapses overlapping holes into single non-overlapping ones.
+//
+// This is not a tidy-up, it's a correctness requirement of the even-odd fill
+// rule below: even-odd fills wherever the crossing count is odd, so the outer
+// viewport rect (1) minus one hole (2) reads "even" and clears, but a point
+// sitting inside TWO holes reads (3) - odd again - and gets re-filled. The
+// result on screen is a solid dark rectangle sitting *inside* an otherwise
+// clear spotlight, which is exactly the "black bar" reported on the Reorder
+// step: that step glows `reorder-low-stock-text`, which is nested inside the
+// `reorder-item-card` it also keeps in focus, so the two holes were bound to
+// overlap. Any step that spotlights a control inside a card it also focuses
+// hits this, so it's fixed here in the geometry rather than by hand-picking
+// selectors that happen not to nest.
+//
+// Containment keeps the enclosing hole (the card stays clear, and the glow
+// ring is drawn as its own element so the inner target is still highlighted);
+// a partial overlap falls back to the bounding box, which exposes slightly
+// more than asked for but never draws a bar. Merging restarts from the top
+// because a freshly merged rect can reach holes that neither original did.
+export function mergeOverlappingHoles(holes: MaskHole[]): MaskHole[] {
+  const merged: MaskHole[] = [];
+  for (const hole of holes) {
+    let current = hole;
+    let i = 0;
+    while (i < merged.length) {
+      const other = merged[i];
+      if (rectsOverlap(current, other)) {
+        current = rectContains(other, current)
+          ? other
+          : rectContains(current, other)
+            ? current
+            : unionRect(current, other);
+        merged.splice(i, 1);
+        i = 0;
+      } else {
+        i++;
+      }
+    }
+    merged.push(current);
+  }
+  return merged;
+}
+
 // Builds a single `clip-path` value: the whole viewport, with each hole
 // punched out of it by the even-odd fill rule.
 //
@@ -85,7 +162,7 @@ export function buildMaskClipPath(
 ): string | null {
   if (viewportWidth <= 0 || viewportHeight <= 0) return null;
   const outer = `M0 0 H${round(viewportWidth)} V${round(viewportHeight)} H0 Z`;
-  const inner = holes
+  const inner = mergeOverlappingHoles(holes)
     .map((h) =>
       holeSubpath({
         ...h,
