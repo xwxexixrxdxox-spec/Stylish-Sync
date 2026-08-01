@@ -506,10 +506,26 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
     return msg;
   };
 
-  const connectGoogle = async () => {
+  // The shared body behind both Google buttons in this card. `forceConsent`
+  // is the only difference between them, and it matters far more than it
+  // looks: it becomes `prompt: "consent"` inside requestAccessToken, which
+  // makes Google re-render its full consent screen even when this tab is
+  // already holding a valid, non-expired token.
+  //
+  // That was the double-sign-in bug the customer recorded. Signing in from
+  // the account panel above already runs a full Google consent flow and
+  // caches the resulting token, but this card kept showing "Sign in with
+  // Google" and pressing it replayed the entire consent screen a second
+  // time, back to back, for no additional grant. Nothing was broken
+  // underneath — it just asked twice, which reads as "the first one didn't
+  // take" and is exactly the kind of thing that makes someone abandon a
+  // setup step. Now only the deliberate "Re-authenticate" button forces a
+  // fresh prompt; the primary button reuses whatever is already cached and
+  // goes straight to picking a spreadsheet.
+  const doConnectGoogle = async (forceConsent: boolean) => {
     setBusy("connect");
     try {
-      const token = await requestAccessToken(true);
+      const token = await requestAccessToken(forceConsent);
       checkForMatchingBooking(token);
 
       // First-time connect (no sheet linked yet): offer to pick one of the
@@ -547,6 +563,14 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
       setBusy(null);
     }
   };
+
+  // Wrapped rather than passed to onClick directly, because an onClick
+  // handler receives the click event as its first argument — handing
+  // doConnectGoogle straight to a button would quietly make every click
+  // pass a truthy MouseEvent as `forceConsent` and reintroduce the exact
+  // bug this split exists to fix.
+  const connectGoogle = () => doConnectGoogle(false);
+  const reauthenticateGoogle = () => doConnectGoogle(true);
 
   const findBooking = async () => {
     if (!trackEmail.trim()) return;
@@ -973,17 +997,34 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
                 unavailable until you sign in with Google below. Everything else here works fine without it.
               </p>
             )}
+            {/* Second half of the double-sign-in fix (see doConnectGoogle):
+                the label follows what's actually left to do. Someone who
+                signed up with Google has already granted everything this
+                needs, so telling them to "sign in with Google" again is a
+                lie about the state of their own account - the only step
+                left for them is choosing a spreadsheet. Someone who signed
+                up with an email and password genuinely does still have a
+                Google sign-in ahead of them, so they keep the original
+                wording. Both press the same button; only the promise on it
+                differs. */}
             <button
               disabled={busy === "connect"}
               onClick={connectGoogle}
               data-tutorial="google-signin"
               className="w-full rounded-lg border border-surface-border py-2 text-sm font-medium text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
             >
-              {busy === "connect" ? "Connecting…" : "Sign in with Google"}
+              {busy === "connect"
+                ? "Connecting…"
+                : account?.googleLinked
+                  ? "Choose a Google Sheet"
+                  : "Sign in with Google"}
             </button>
             <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
-              This connects your own spreadsheet to this device. For your whole team to see and update the same
-              live inventory, sign in here, then share that spreadsheet with them in Google Sheets — tap{" "}
+              {account?.googleLinked
+                ? "You're already signed in with Google — this just picks which spreadsheet to keep in sync, or makes you a new one."
+                : "This connects your own spreadsheet to this device."}{" "}
+              For your whole team to see and update the same live inventory, sign in here, then share that
+              spreadsheet with them in Google Sheets — tap{" "}
               <Users size={11} className="inline-block align-text-bottom" /> above for a quick guide.
             </p>
           </>
@@ -1042,11 +1083,16 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
             {lastSyncedAt && (
               <p className="px-1 text-[11px] text-neutral-400">Last synced on this device: {formatRelativeTime(lastSyncedAt)}</p>
             )}
+            {/* The one place a forced consent screen is the correct
+                behavior: this button exists precisely for "my access went
+                stale, make Google ask me again," so reusing a cached token
+                here would make it do nothing visible. */}
             <button
-              onClick={connectGoogle}
-              className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted"
+              disabled={busy === "connect"}
+              onClick={reauthenticateGoogle}
+              className="flex w-full items-center gap-2 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-700 hover:bg-surface-muted disabled:opacity-50"
             >
-              <RefreshCw size={14} /> Re-authenticate Google
+              <RefreshCw size={14} /> {busy === "connect" ? "Re-authenticating…" : "Re-authenticate Google"}
             </button>
             <button
               onClick={signOut}
