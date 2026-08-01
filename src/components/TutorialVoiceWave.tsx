@@ -40,7 +40,14 @@ import { useEffect, useRef } from "react";
 // Enough points that the trace looks jagged rather than like a smooth rope,
 // but few enough that rebuilding the whole `points` string every frame is
 // cheap. This only ever animates on two steps of a ~48-step tour.
-const POINT_COUNT = 96;
+//
+// This and the wave frequencies below are a matched pair: the fastest
+// component packs ~24 peaks across the panel, and Nyquist means you need
+// well over 2 samples per peak or the trace visibly crawls and shimmers
+// from aliasing rather than oscillating. 176 points gives ~7 samples per
+// peak, which is enough to draw each one cleanly. Raise the frequencies
+// without raising this and it gets worse, not spikier.
+const POINT_COUNT = 176;
 const VIEW_W = 320;
 const VIEW_H = 56;
 const MID = VIEW_H / 2;
@@ -115,13 +122,17 @@ export default function TutorialVoiceWave({ speaking }: Props) {
         // Roughly syllable-rate swell - this is what makes it read as
         // speech rather than a tone generator.
         const env = 0.4 + 0.6 * Math.abs(Math.sin(t * 2.2 + u * 1.7));
-        // Three incommensurate frequencies: the fast one gives the jagged
+        // Three incommensurate frequencies: the fast two give the jagged
         // texture, the slow one keeps the whole trace drifting so it never
-        // settles into a visibly repeating pattern.
+        // settles into a visibly repeating pattern. These started an octave
+        // and a half lower and the result read as a rolling rope rather
+        // than a voice trace - a real scope packs a lot of peaks into a
+        // little width, and that density is most of what makes it legible
+        // as sound. See POINT_COUNT above before changing them again.
         const wave =
-          Math.sin(u * 17 + t * 8.5) * 0.5 +
-          Math.sin(u * 39 - t * 13) * 0.28 +
-          Math.sin(u * 6.5 + t * 4.7) * 0.34;
+          Math.sin(u * 78 + t * 9) * 0.46 +
+          Math.sin(u * 151 - t * 14) * 0.3 +
+          Math.sin(u * 23 + t * 4.7) * 0.36;
         const amp = wave * env * taper * level * MAX_AMP;
         main += `${x.toFixed(1)},${(MID - amp).toFixed(1)} `;
         ghost += `${x.toFixed(1)},${(MID - amp * 0.55).toFixed(1)} `;
