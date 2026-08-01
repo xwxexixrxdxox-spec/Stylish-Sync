@@ -11,7 +11,7 @@ import {
   setTutorialVoiceEnabled,
 } from "@/lib/storage";
 import { inflateRect, type Rect } from "@/lib/tutorialMask";
-import TutorialSoundBar from "./TutorialSoundBar";
+import TutorialVoiceWave from "./TutorialVoiceWave";
 import type { TabId } from "./BottomNav";
 
 // Gap between the spotlighted element and the glow ring around it, in px.
@@ -215,7 +215,7 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     stepIndexRef.current = stepIndex;
   }, [stepIndex]);
   // Whether narration is actively playing right now - drives
-  // TutorialSoundBar for the handful of steps that show one (see
+  // TutorialVoiceWave on the one step that shows one (see
   // step.showSoundBar). Tracked via the real <audio> element's own
   // play/pause/ended events rather than inferred from stepIndex, so it
   // stays correct through mute/unmute and a clip actually finishing.
@@ -610,9 +610,9 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     });
     lastSpokenIndexRef.current = index;
 
-    // Drives TutorialSoundBar for the steps that show one - real playback
+    // Drives TutorialVoiceWave on the step that shows one - real playback
     // state, not just "is this the active step," so muting or a clip
-    // ending correctly settles the bars.
+    // ending correctly settles the trace.
     const onPlay = () => {
       if (stepIndexRef.current === index) setSpeaking(true);
     };
@@ -791,8 +791,17 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
         </>
       )}
 
-      {/* Corner HUD: voice mute toggle, an optional sound bar, step
-          counter, back, next/move-on, and skip/exit. Draggable anywhere on
+      {/* The voice waveform panel - the welcome step only, and the only
+          step in this tour with showSoundBar set. It deliberately lives out
+          here rather than inside the HUD pill: the HUD is a compact row of
+          controls that the customer can drag out of the way, and burying
+          the "I'm talking to you" signal inside it made it a 16px
+          afterthought. See TutorialVoiceWave.tsx for why it's scoped this
+          narrowly. */}
+      {step.showSoundBar && <TutorialVoiceWave speaking={speaking && voiceEnabled} />}
+
+      {/* Corner HUD: voice mute toggle, step counter, back, next/move-on,
+          and skip/exit. Draggable anywhere on
           its own background (not on one of its buttons) - see
           onHudPointerDown/Move/Up above. Positioned via hudPos once the
           customer has moved it at least once; otherwise the original
@@ -816,11 +825,6 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
           >
             {voiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
           </button>
-        )}
-        {step.showSoundBar && (
-          <div className="px-0.5">
-            <TutorialSoundBar speaking={speaking && voiceEnabled} />
-          </div>
         )}
         <span className="px-1 text-[11px] text-white/70">
           {chapter && chapterPosition > 0 ? (

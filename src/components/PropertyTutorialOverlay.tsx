@@ -11,6 +11,7 @@ import {
   setPropertyTutorialVoiceEnabled,
 } from "@/lib/storage";
 import { inflateRect, type Rect } from "@/lib/tutorialMask";
+import TutorialVoiceWave from "./TutorialVoiceWave";
 
 // Gap between the spotlighted element and the glow ring around it, in px.
 // Same value as TutorialOverlay.tsx.
@@ -102,6 +103,14 @@ function PropertyTutorialOverlayInner({
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  // Whether narration is actually playing right now - drives
+  // TutorialVoiceWave on the welcome step. Ported over from
+  // TutorialOverlay.tsx, which has had this since the sound bar landed;
+  // this tour never needed it until the waveform arrived. Keyed off the
+  // real <audio> element's play/pause/ended events rather than "is this the
+  // active step," so mute/unmute and a clip simply finishing both settle
+  // the trace honestly.
+  const [speaking, setSpeaking] = useState(false);
   // The spotlighted element's own computed border-radius - see
   // TutorialOverlay.tsx's identical field for the full rationale.
   const [targetRadius, setTargetRadius] = useState<string>("0.75rem");
@@ -267,6 +276,7 @@ function PropertyTutorialOverlayInner({
     audioRef.current?.pause();
     const audio = new Audio(`/audio/property/${target.id}.mp3`);
     audioRef.current = audio;
+    setSpeaking(false);
     // A missing file and a browser declining to autoplay both reject this
     // promise — neither is treated as fatal: the tour just sits on that
     // step until the customer taps the corner HUD's manual Next, rather
@@ -278,6 +288,21 @@ function PropertyTutorialOverlayInner({
       console.warn(`Tutorial narration failed for step "${target.id}":`, err);
     });
     lastSpokenIndexRef.current = index;
+
+    // Drives TutorialVoiceWave on the welcome step - see the `speaking`
+    // state above. The stepIndexRef guard matters because these listeners
+    // outlive the step that registered them: a clip that gets pause()d
+    // because the customer already moved on must not clear the flag for
+    // whatever step is showing now.
+    const onPlay = () => {
+      if (stepIndexRef.current === index) setSpeaking(true);
+    };
+    const onPauseOrEnd = () => {
+      if (stepIndexRef.current === index) setSpeaking(false);
+    };
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPauseOrEnd);
+    audio.addEventListener("ended", onPauseOrEnd);
 
     return audio;
   };
@@ -399,6 +424,12 @@ function PropertyTutorialOverlayInner({
           />
         </>
       )}
+
+      {/* The voice waveform panel - the welcome step only, and the only step
+          in this tour with showSoundBar set. Same placement, same rationale,
+          and the same "outside the HUD pill on purpose" reasoning as
+          TutorialOverlay.tsx's identical block; see TutorialVoiceWave.tsx. */}
+      {step.showSoundBar && <TutorialVoiceWave speaking={speaking && voiceEnabled} />}
 
       {/* Corner HUD - draggable (see onHudPointerDown/Move/Up above), now
           with a back arrow alongside mute/next/skip. */}

@@ -29,12 +29,18 @@ export interface PropertyTutorialStep {
   // Defaults to "Next" — only the final step overrides this, since tapping
   // it there closes the tour rather than moving to another step.
   nextLabel?: string;
+  // Shows the floating blue voice waveform panel while narration plays on
+  // this step. Same field, same meaning, and the same "welcome step only"
+  // scope as the main tour's — see tutorial.ts's copy of this comment and
+  // TutorialVoiceWave.tsx.
+  showSoundBar?: boolean;
 }
 
 export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
   {
     id: "welcome-property",
     targetSelector: null,
+    showSoundBar: true,
     title: "Let's look at Property tracking 🔧",
     body: "We've added one example below — a rooftop HVAC unit — so you can see exactly how everything works before you add your own. Tap Next to start, or Skip tour to explore on your own.",
   },

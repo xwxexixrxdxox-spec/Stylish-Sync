@@ -165,18 +165,12 @@ const config: Config = {
           "0%": { transform: "scale(1)", opacity: "0.7" },
           "75%, 100%": { transform: "scale(1.35)", opacity: "0" },
         },
-        // TutorialSoundBar.tsx's "voice is talking right now" indicator -
-        // each bar runs this same keyframe with its own animation-delay
-        // (set inline per bar, not here) so they bounce out of sync with
-        // each other instead of all breathing in lockstep, which reads as
-        // a much more convincing "audio levels" effect than four bars
-        // moving identically ever would. Pure CSS rather than a real
-        // Web Audio AnalyserNode reading actual playback amplitude - see
-        // the component's own comment for why that trade was made.
-        "soundbar-bounce": {
-          "0%, 100%": { transform: "scaleY(0.35)" },
-          "50%": { transform: "scaleY(1)" },
-        },
+        // The old "soundbar-bounce" keyframe lived here for
+        // TutorialSoundBar.tsx's four-bar chip. Both are gone: the voice
+        // indicator is now TutorialVoiceWave.tsx, which animates an SVG
+        // polyline's points from a requestAnimationFrame loop rather than
+        // from CSS, because a synthesized oscilloscope trace can't be
+        // expressed as a fixed keyframe pair. Nothing else referenced it.
       },
       animation: {
         "mark-in": "mark-in 0.5s cubic-bezier(0.22,1,0.36,1) both",
@@ -197,7 +191,6 @@ const config: Config = {
         "tutorial-ring-pulse": "tutorial-ring-pulse 1.6s ease-in-out infinite",
         "tutorial-glow-pulse": "tutorial-glow-pulse 1.8s ease-in-out infinite",
         "tutorial-glow-ping": "tutorial-glow-ping 1.8s cubic-bezier(0,0,0.2,1) infinite",
-        "soundbar-bounce": "soundbar-bounce 0.9s ease-in-out infinite",
       },
     },
   },

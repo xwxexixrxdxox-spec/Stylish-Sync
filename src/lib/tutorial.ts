@@ -50,11 +50,14 @@ export interface TutorialStep {
   // on the instant a single gesture is detected (the old behavior, and a
   // direct customer complaint - see TutorialOverlay.tsx's top comment).
   moveOnLabel?: string;
-  // Shows the small animated "voice is talking" bar indicator in the
-  // corner HUD for this step - used where there's either nothing on
-  // screen yet to spotlight (welcome) or the glow's target isn't really
-  // what's being explained (google-signin is more about the "why" than
-  // the button itself). See TutorialSoundBar.tsx.
+  // Shows the floating blue voice waveform panel while narration is
+  // playing on this step. Exactly one step in this tour sets it - the
+  // welcome, which is the only step with no spotlight target at all, so
+  // it's the only place where the customer would otherwise be hearing a
+  // voice come out of a page that looks completely idle. The field name
+  // predates the panel (it drove a small in-HUD bar chip before); kept as
+  // is so the property tour's matching field reads the same. See
+  // TutorialVoiceWave.tsx.
   showSoundBar?: boolean;
   // A second spotlight target this one step switches to partway through -
   // TutorialOverlay switches the moment the step's own audio clip crosses
@@ -340,7 +343,12 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="google-signin"]',
-    showSoundBar: true,
+    // This step used to set showSoundBar too. It doesn't any more: the
+    // customer scoped the waveform to "only the welcome step of the
+    // inventory page and the welcome step of the property page." Here the
+    // amber glow is already on a real button, so a second animated element
+    // was competing with the thing the narration is telling them to look
+    // at.
     title: "Optional: back up to Google Sheets",
     body: "Sign in with Google to sync your inventory to a spreadsheet you own — readable from anywhere, and safe if this device is ever lost. Totally optional; tap Next to skip it for now, and the next few steps will just gracefully skip past anything that needs a connected sheet.",
   },
