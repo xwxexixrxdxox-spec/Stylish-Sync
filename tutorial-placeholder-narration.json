@@ -1,13 +1,17 @@
 {
-  "note": "Scripts fed to the Chatterbox/CosyVoice ComfyUI workflow to synthesise the placeholder narration now sitting in public/audio/. One sentence per line, each line prefixed [Alice] - that is what the workflow expects to get natural phrasing, and it leans on the punctuation, so keep these grammatical if you re-record. Ids match the step ids in src/lib/tutorial.ts and src/lib/propertyTutorial.ts, and the mp3 for a step is public/audio/<tour>/<id>.mp3. These are PLACEHOLDERS: same voice as the eleven original clips, good enough to hear the whole tour end to end and judge pacing, not final takes.",
+  "note": "Scripts fed to the Chatterbox/CosyVoice ComfyUI workflow to synthesise the narration now sitting in public/audio/. One sentence per line, each line prefixed [Alice] - that is what the workflow expects to get natural phrasing, and it leans on the punctuation, so keep these grammatical if you re-record. Ids match the step ids in src/lib/tutorial.ts and src/lib/propertyTutorial.ts, and the mp3 for a step is public/audio/<tour>/<id>.mp3 - matching filenames is the entire wiring. Most of these are still PLACEHOLDERS: same voice as the eleven original clips, good enough to hear the whole tour end to end and judge pacing, not final takes. Two are not placeholders any more and were written to be kept: 'welcome' and 'header-clear-cache-test', both re-recorded after the customer flagged them. Whenever a script here changes, the matching step's `body` in tutorial.ts has to change with it word for word - the body is what a screen reader announces, so the two drifting apart means a blind customer and a hearing one are told different things.",
   "tutorial": [
+    {
+      "id": "welcome",
+      "text": "[Alice] Welcome to WS Inventory Management.\n[Alice] I'm your guide, and I'll walk you through the whole app from right here.\n[Alice] Nothing is locked, so the page stays live and you can tap anything you like.\n[Alice] When I mention a control, it lights up with a soft amber glow.\n[Alice] Everything else is in that little bar in the corner: arrows to move, a speaker to mute me, and an X to leave.\n[Alice] Tap the forward arrow when you're ready."
+    },
     {
       "id": "header-theme-toggle",
       "text": "[Alice] Light or dark, any time.\n[Alice] This flips the whole app between light and dark mode whenever you like.\n[Alice] It sticks until you tap it again."
     },
     {
       "id": "header-clear-cache-test",
-      "text": "[Alice] Try the refresh button, safely.\n[Alice] Next to it, this icon reloads the app fresh if something ever looks stuck.\n[Alice] Go ahead and press and hold it right now.\n[Alice] It's just a preview while this tour is open, so nothing will actually be cleared.\n[Alice] In real use, holding it for real does wipe this device's local cache and reload the page, though it never touches your saved inventory data."
+      "text": "[Alice] This one is the refresh button, and it's safe to try right now.\n[Alice] If the app ever looks stuck or out of date, holding this icon gives it a completely fresh start.\n[Alice] Go ahead and press and hold it for a moment.\n[Alice] While the tour is open it only runs a preview, so nothing on your device will actually be cleared.\n[Alice] Outside the tour, holding it clears this device's saved settings and reloads the page.\n[Alice] Your inventory itself is never touched."
     },
     {
       "id": "inventory-search-sort",

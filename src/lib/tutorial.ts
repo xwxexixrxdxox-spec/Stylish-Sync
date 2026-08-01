@@ -76,8 +76,30 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: null,
     showSoundBar: true,
+    // Rewritten this round because the customer flagged that the welcome
+    // narration still described UI that no longer exists: there is no "Skip
+    // tour" button any more (the HUD closes with a plain X), no dialog card,
+    // and nothing is dimmed. What it teaches now is the interaction model
+    // the tour actually has - the page is live, amber means look here, and
+    // every control lives in the corner HUD. welcome.mp3 was re-recorded
+    // word for word from this text, so the two can't drift apart again.
+    //
+    // It also went through three recorded drafts before this one, and the
+    // thing that got cut each time was length, not information. A first
+    // draft covering all of the above ran 47.7s against the old clip's
+    // 18.8s; a trim landed at 41.3s; this one is 28.9s. Nothing here is
+    // decoration - every sentence teaches one rule the rest of the tour
+    // then relies on - so the savings came from dropping what the tour
+    // teaches better elsewhere. The old "we've loaded three sample items"
+    // line is gone because the very next inventory step is standing in
+    // front of those items and can say it while they're on screen, and the
+    // "you can drag that bar" hint is gone because a bar that's in the way
+    // is the moment someone discovers dragging, not a fact they need
+    // 28 seconds before it could matter. If this ever needs another
+    // sentence, take one out - a welcome no one sits through teaches
+    // nothing at all.
     title: "Welcome to WS Inventory Management 👋",
-    body: "We loaded 3 sample items so there's something to explore right away. This quick tour covers everything the app can do — tap the arrow to move through it at your own pace, or Skip tour if you'd rather dive in on your own.",
+    body: "I'm your guide, and I'll walk you through the whole app from right here. Nothing is locked, so the page stays live and you can tap anything you like. When I mention a control, it lights up with a soft amber glow. Everything else is in that little bar in the corner: arrows to move, a speaker to mute me, and an X to leave. Tap the forward arrow when you're ready.",
   },
   // Sits right after the welcome step so the consent banner gets resolved
   // before the tour starts pointing at the bottom nav — the banner renders
@@ -117,8 +139,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: null,
     sidebarOpen: false,
     targetSelector: '[data-tutorial="header-clear-cache"]',
+    // Rewritten this round - the customer's "step 3 could use some TLC."
+    // The old copy opened on "Next to it," which pointed at nothing once the
+    // theme toggle became its own separate step, and leaned on "actually" /
+    // "for real" three times in four sentences. Its title also produced the
+    // single worst line in the tour back when a script transform turned em
+    // dashes into periods: "Try the refresh button. safely."
     title: "Try the refresh button — safely",
-    body: "Next to it, this icon reloads the app fresh if something ever looks stuck. Go ahead and press and hold it right now — it's just a preview while this tour is open, so nothing will actually be cleared. In real use, holding it for real does wipe this device's local cache and reload the page, though it never touches your saved inventory data.",
+    body: "This one is the refresh button, and it's safe to try right now. If the app ever looks stuck or out of date, holding this icon gives it a completely fresh start. Go ahead and press and hold it for a moment. While the tour is open it only runs a preview, so nothing on your device will actually be cleared. Outside the tour, holding it clears this device's saved settings and reloads the page — your inventory itself is never touched.",
   },
   // Split from a single "stock-controls" step into two, each waiting for
   // the customer to explicitly move on (moveOnLabel below) rather than
