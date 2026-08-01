@@ -136,9 +136,8 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
     // Narration no longer says "Tap Finish tour": that control is gone, and
     // this HUD now closes with the plain X in its corner. Telling a customer
     // to tap a button that isn't on screen is worse than saying nothing,
-    // because they'll stop and hunt for it. NOTE: wrap-up.mp3 is one of the
-    // existing recordings and still speaks the old line - it needs
-    // re-recording from this text before the fix is actually audible.
+    // because they'll stop and hunt for it. wrap-up.mp3 was re-recorded from
+    // this text in 229e38d, so the fix is audible and not just on screen.
     body: "Delete the example with this icon whenever you're ready, then add your own. When you're done, close this with the X up in the corner.",
     nextLabel: "Finish tour",
   },
