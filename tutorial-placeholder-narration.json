@@ -1,0 +1,123 @@
+{
+  "note": "Scripts fed to the Chatterbox/CosyVoice ComfyUI workflow to synthesise the placeholder narration now sitting in public/audio/. One sentence per line, each line prefixed [Alice] - that is what the workflow expects to get natural phrasing, and it leans on the punctuation, so keep these grammatical if you re-record. Ids match the step ids in src/lib/tutorial.ts and src/lib/propertyTutorial.ts, and the mp3 for a step is public/audio/<tour>/<id>.mp3. These are PLACEHOLDERS: same voice as the eleven original clips, good enough to hear the whole tour end to end and judge pacing, not final takes.",
+  "tutorial": [
+    {
+      "id": "header-theme-toggle",
+      "text": "[Alice] Light or dark, any time.\n[Alice] This flips the whole app between light and dark mode whenever you like.\n[Alice] It sticks until you tap it again."
+    },
+    {
+      "id": "header-clear-cache-test",
+      "text": "[Alice] Try the refresh button, safely.\n[Alice] Next to it, this icon reloads the app fresh if something ever looks stuck.\n[Alice] Go ahead and press and hold it right now.\n[Alice] It's just a preview while this tour is open, so nothing will actually be cleared.\n[Alice] In real use, holding it for real does wipe this device's local cache and reload the page, though it never touches your saved inventory data."
+    },
+    {
+      "id": "inventory-search-sort",
+      "text": "[Alice] Find anything fast.\n[Alice] Search by name, barcode, or location.\n[Alice] Next to it, the sort menu can bump low-stock items straight to the top of the list."
+    },
+    {
+      "id": "inventory-import-export",
+      "text": "[Alice] Bring in, or back up, a whole spreadsheet.\n[Alice] Already track inventory in a spreadsheet?\n[Alice] Import it here in one go.\n[Alice] Export works the same way in reverse, any time you want a copy on hand."
+    },
+    {
+      "id": "inventory-share-barcodes",
+      "text": "[Alice] Sharing is caring.\n[Alice] Send your saved barcode-to-item matches to a teammate, or pull in theirs.\n[Alice] It's handy the first time you're both starting from scratch, so neither of you has to scan everything twice."
+    },
+    {
+      "id": "item-action-icons",
+      "text": "[Alice] A closer look at these icons.\n[Alice] Over on the right, the icons cover breaking down a case, moving stock to another location, editing details, and deleting.\n[Alice] Give each one a try, one at a time."
+    },
+    {
+      "id": "item-action-breakdown",
+      "text": "[Alice] Break down a case.\n[Alice] Tap this icon to split a sealed case into individual units.\n[Alice] It's handy the moment a case actually gets opened, so the count stays accurate at both levels."
+    },
+    {
+      "id": "item-action-edit",
+      "text": "[Alice] Edit the full details.\n[Alice] The pencil opens this item's full details, including name, barcode, reorder point, usage tracking window, and more."
+    },
+    {
+      "id": "item-action-delete",
+      "text": "[Alice] Delete for good.\n[Alice] And the trash icon removes an item entirely.\n[Alice] It'll always ask you to confirm first, so there's no risk of an accidental tap losing anything."
+    },
+    {
+      "id": "scan-modes",
+      "text": "[Alice] Two ways to log stock.\n[Alice] Barcode mode is for one item at a time.\n[Alice] Receipt mode reads a whole photographed receipt at once, which is great right after a big supply run.\n[Alice] Accuracy can be hit or miss on a crumpled or blurry receipt, so it's worth a quick double-check of the results before trusting them completely."
+    },
+    {
+      "id": "reorder-search-and-find",
+      "text": "[Alice] Choose how it searches, then where to buy.\n[Alice] This toggle controls whether Find at searches by barcode or by name.\n[Alice] Find at itself jumps straight to a search on a few common retailer sites.\n[Alice] Give both a try.\n[Alice] There's no rush, take whatever time you need."
+    },
+    {
+      "id": "reorder-package-tracking",
+      "text": "[Alice] Jot down a tracking number.\n[Alice] Once you've ordered, save the tracking number here for a quick link to the carrier's tracking page.\n[Alice] It's simple by design, just a place to keep the number handy, not a live delivery tracker."
+    },
+    {
+      "id": "reorder-share",
+      "text": "[Alice] Send the whole list to a supplier.\n[Alice] Tap Share to text or email this entire reorder list straight to a supplier.\n[Alice] That's everything currently at or below its reorder point, in one go."
+    },
+    {
+      "id": "usage-detail-timeframes",
+      "text": "[Alice] Zoom in or out on any time frame.\n[Alice] These buttons switch the chart between a week, a month, a few months, or all-time.\n[Alice] It's the fastest way to tell a one-off spike apart from a real ongoing trend."
+    },
+    {
+      "id": "account-push-test",
+      "text": "[Alice] Push sends this device's copy up.\n[Alice] If you connected Google Sheets a moment ago, go ahead and tap Push to Sheet now.\n[Alice] It sends this device's current inventory up to your spreadsheet.\n[Alice] Nothing syncs automatically.\n[Alice] It only happens when you tap it."
+    },
+    {
+      "id": "account-name-tag",
+      "text": "[Alice] Put a name on your changes.\n[Alice] Add your name here so teammates working the same inventory can see who made a change and when.\n[Alice] It's just a label, not a login, and anyone on this device can update it."
+    },
+    {
+      "id": "account-pull-test",
+      "text": "[Alice] Pull brings it back down.\n[Alice] And if you pushed earlier, tap Pull from Sheet now to bring that same inventory right back.\n[Alice] That's proof your data really does live safely in the spreadsheet, not just on this one device."
+    },
+    {
+      "id": "account-manage-property",
+      "text": "[Alice] Track equipment, not just stock.\n[Alice] Property is a separate space for tracking equipment and fixtures, including ordered parts and maintenance status.\n[Alice] It syncs to its own tab on the same spreadsheet."
+    },
+    {
+      "id": "account-reminders-install",
+      "text": "[Alice] Reminders, and a home-screen shortcut.\n[Alice] Turn on daily reminders and you'll only hear from us when something's actually worth checking.\n[Alice] And if you'd like this app to feel less like a browser tab, you can install it right to your home screen from here."
+    },
+    {
+      "id": "account-replay-tour",
+      "text": "[Alice] Come back to this tour any time.\n[Alice] This link brings this exact walkthrough back whenever you want a refresher.\n[Alice] It's the only way to see it again now, since it no longer opens automatically."
+    },
+    {
+      "id": "tour-complete",
+      "text": "[Alice] That's the tour!\n[Alice] You're all set.\n[Alice] Explore Inventory on your own from here, or tap Manage Property above to keep going with equipment tracking."
+    }
+  ],
+  "property": [
+    {
+      "id": "property-sync-actions",
+      "text": "[Alice] Syncs to its own tab, same sheet.\n[Alice] Once Google Sheets is connected from the Account panel, Property gets its own Property tab on that same spreadsheet.\n[Alice] Push sends this device's list there, and Pull brings it back."
+    },
+    {
+      "id": "add-property",
+      "text": "[Alice] Add your own whenever you're ready.\n[Alice] This button opens a short form, with name, location, serial number, and notes, for anything you want to track going forward."
+    },
+    {
+      "id": "example-edit",
+      "text": "[Alice] Edit the details any time.\n[Alice] Tap Edit to update a property's name, location, serial number, or notes.\n[Alice] Nothing here is locked in once it's added."
+    },
+    {
+      "id": "example-status-dropdown",
+      "text": "[Alice] Or just set the status directly.\n[Alice] Logging a receipt isn't the only way to move a part along.\n[Alice] This dropdown lets you jump straight to Ordered, Shipped, Received, Installed, or Cancelled whenever that's a better fit."
+    },
+    {
+      "id": "example-add-part",
+      "text": "[Alice] Add a part right from here.\n[Alice] Type or scan a part number to look it up, or just fill in the description yourself.\n[Alice] Quantity, price, and an expected delivery date are all optional."
+    },
+    {
+      "id": "example-add-task",
+      "text": "[Alice] Track maintenance the same way.\n[Alice] Type a repair or maintenance job here and hit enter to add it to the list.\n[Alice] Its own status and history work exactly like an ordered part's."
+    },
+    {
+      "id": "replay-tour",
+      "text": "[Alice] Come back to this tour any time.\n[Alice] This link brings this exact walkthrough back whenever you want a refresher."
+    },
+    {
+      "id": "wrap-up",
+      "text": "[Alice] That's Property tracking!\n[Alice] Delete the example with this icon whenever you're ready, then add your own.\n[Alice] When you're done, close this with the X up in the corner."
+    }
+  ]
+}
