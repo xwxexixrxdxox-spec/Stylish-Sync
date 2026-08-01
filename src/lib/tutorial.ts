@@ -56,11 +56,6 @@ export interface TutorialStep {
   // what's being explained (google-signin is more about the "why" than
   // the button itself). See TutorialSoundBar.tsx.
   showSoundBar?: boolean;
-  // Suppresses the blur/dim mask entirely for this many ms at the start of
-  // the step, then reapplies it - used by "reorder" so the customer sees
-  // the real, un-dimmed reorder list for a beat before the tour's usual
-  // spotlight treatment kicks in.
-  suppressBlurMs?: number;
   // A second spotlight target this one step switches to partway through -
   // TutorialOverlay switches the moment the step's own audio clip crosses
   // the halfway mark (audio.currentTime >= duration/2), or after
@@ -68,11 +63,6 @@ export interface TutorialStep {
   // off of.
   targetSelectorPhase2?: string;
   phase2FallbackMs?: number;
-  // Other elements that stay in sharp focus (excluded from the blur mask)
-  // for this step's entire duration, in addition to whatever the glow
-  // itself is currently pointing at (targetSelector, then
-  // targetSelectorPhase2).
-  focusSelectors?: string[];
 }
 
 export const TUTORIAL_STEPS: TutorialStep[] = [
@@ -138,15 +128,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // the row is about 470px wide while the two buttons the narration actually
   // names are barely 30px each, so a customer heard "tap minus or plus" and
   // was shown a strip covering half the card. The + button and the quantity
-  // chip stay sharp via focusSelectors — the chip especially, since watching
-  // that number change is the whole feedback loop these two steps teach.
+  // chip especially matters here, since watching that number change is the
+  // whole feedback loop these two steps teach - and now that nothing on the
+  // page is dimmed, it is plainly visible right next to the glowing button.
   {
     id: "stock-controls-tap",
     chapter: "Inventory",
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-stock-decrement"]',
-    focusSelectors: ['[data-tutorial="item-quantity-chip"]', '[data-tutorial="item-stock-increment"]'],
     moveOnLabel: "Move on",
     title: "Adjust stock in a tap",
     body: "Go ahead and tap − or + on this item to log a unit at a time. Try it as many times as you like.",
@@ -157,7 +147,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: "inventory",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-stock-decrement"]',
-    focusSelectors: ['[data-tutorial="item-quantity-chip"]', '[data-tutorial="item-stock-increment"]'],
     moveOnLabel: "Move on",
     title: "Hold for bigger changes",
     body: "Now try pressing and holding either button — that adjusts several at once, handy for a big restock or a big pull. Take your time; tap Move on whenever you're ready to keep going.",
@@ -257,18 +246,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // Rebuilt from a single combined step into four narrower ones (this one,
   // then search-and-find, then package tracking, then a dedicated share
   // step) so each idea gets its own moment instead of being read back to
-  // back over one narration clip. suppressBlurMs gives the customer a
-  // completely clear, undimmed look at the real reorder list for a few
-  // seconds before the usual spotlight treatment settles onto the example
-  // item.
+  // back over one narration clip. This step used to ask for a few seconds
+  // with the dim suppressed so the customer could see the real reorder list
+  // plainly; that is now how every step behaves, so the field is gone.
   {
     id: "reorder",
     chapter: "Reorder",
     tab: "reorder",
     sidebarOpen: false,
-    suppressBlurMs: 5000,
     targetSelector: '[data-tutorial="reorder-low-stock-text"]',
-    focusSelectors: ['[data-tutorial="reorder-item-card"]'],
     title: "Never run out unexpectedly",
     body: "This is Reorder — it automatically lists everything at or below the reorder point you've set for it. Take a look at this item; its low-stock warning is right here.",
   },
@@ -280,7 +266,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     targetSelector: '[data-tutorial="reorder-search-by-toggle"]',
     targetSelectorPhase2: '[data-tutorial="reorder-find-at-button"]',
     phase2FallbackMs: 4200,
-    focusSelectors: ['[data-tutorial="reorder-item-card"]'],
     title: "Choose how it searches, then where to buy",
     body: "This toggle controls whether Find at searches by barcode or by name, and Find at itself jumps straight to a search on a few common retailer sites. Give both a try — no rush, take whatever time you need.",
   },
@@ -301,7 +286,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: "reorder",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="reorder-share-button"]',
-    focusSelectors: ['[data-tutorial="reorder-item-card"]'],
     title: "Send the whole list to a supplier",
     body: "Tap Share to text or email this entire reorder list straight to a supplier — everything currently at or below its reorder point, in one go.",
   },
@@ -441,8 +425,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     // the exact same control step 29 already points at - so the closing
     // line landed on a button the customer had just been taught, which
     // read like the tour had lost its place. A goodbye isn't attached to a
-    // control; with a null target the overlay draws a plain full-viewport
-    // dim, which is the right backdrop for "you're done."
+    // control, so with a null target no glow is drawn at all - just the
+    // HUD over the live app, which is the right note to end on.
     targetSelector: null,
     title: "That's the tour!",
     body: "You're all set — explore Inventory on your own from here, or tap Manage Property above to keep going with equipment tracking.",

@@ -10,10 +10,10 @@ import {
   getPropertyTutorialVoiceEnabled,
   setPropertyTutorialVoiceEnabled,
 } from "@/lib/storage";
-import { computeMaskBands, inflateRect, type Rect } from "@/lib/tutorialMask";
+import { inflateRect, type Rect } from "@/lib/tutorialMask";
 
-// Gap between the spotlighted element and both the glow ring and the
-// masking bands around it, in px. Same value as TutorialOverlay.tsx.
+// Gap between the spotlighted element and the glow ring around it, in px.
+// Same value as TutorialOverlay.tsx.
 const PAD = 4;
 // Same drag-vs-tap distinction as TutorialOverlay.tsx's HUD.
 const DRAG_THRESHOLD_PX = 4;
@@ -29,8 +29,8 @@ interface Props {
   onClose: () => void;
 }
 
-// Visually and behaviorally a sibling of TutorialOverlay.tsx (same masking
-// bands + spotlight glow + focus trap + Escape-to-skip + draggable HUD +
+// Visually and behaviorally a sibling of TutorialOverlay.tsx (same
+// spotlight glow over a fully live page + Escape-to-skip + draggable HUD +
 // back arrow), kept as a separate component rather than a shared one: the
 // main tour is driven by tab/sidebar state on the single-page app, this
 // one runs entirely on the standalone /property page, and duplicating the
@@ -53,7 +53,7 @@ interface Props {
 // missing here, and the consequence was worse than it looks: this component
 // renders its title/body ONLY into an sr-only aria-live region, so a step
 // with no recorded clip is not merely quiet, it is completely blank - a
-// dimmed screen and a spotlight with no words anywhere. Seven of these
+// glowing control and no words anywhere. Seven of these
 // sixteen steps were in that state (property-sync-actions, add-property,
 // example-edit, example-status-dropdown, example-add-part, example-add-task,
 // replay-tour). Nine steps that talk beat sixteen where seven say nothing.
@@ -106,9 +106,6 @@ function PropertyTutorialOverlayInner({
   // TutorialOverlay.tsx's identical field for the full rationale.
   const [targetRadius, setTargetRadius] = useState<string>("0.75rem");
   const targetElRef = useRef<HTMLElement | null>(null);
-  // Wraps every focusable control the corner HUD renders (mute, back,
-  // next, skip) - queried by onOverlayKeyDown below for the Tab focus trap.
-  const overlayRef = useRef<HTMLDivElement>(null);
   const hudRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevReceivedRef = useRef(exampleReceivedCount);
@@ -187,7 +184,8 @@ function PropertyTutorialOverlayInner({
   // the target can still legitimately not exist yet on the very first
   // render (or ever, if the customer deleted the example mid-tour) —
   // waitForElement's timeout-then-null handles that the same way it does
-  // for the main tour: everything just stays fully blurred, no hole.
+  // for the main tour: no glow is drawn, and the narration plays over the
+  // ordinary page rather than pointing at something that isn't there.
   useEffect(() => {
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
@@ -258,12 +256,6 @@ function PropertyTutorialOverlayInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Send focus into the tour's own overlay each time a new step appears -
-  // see TutorialOverlay.tsx's identical effect for the full rationale.
-  useEffect(() => {
-    overlayRef.current?.focus();
-  }, [stepIndex]);
-
   // Recorded narration lives in public/audio/property/<step id>.mp3 — one
   // clip per step, generated the same way as the main tour's. Named by id
   // rather than stored as a field on each step, so adding a new step just
@@ -317,23 +309,6 @@ function PropertyTutorialOverlayInner({
     }
   };
 
-  // A minimal focus trap across the corner HUD's own buttons - see
-  // TutorialOverlay.tsx's identical handler for the full rationale.
-  const onOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Tab" || !overlayRef.current) return;
-    const focusable = overlayRef.current.querySelectorAll<HTMLElement>("button");
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-
   // Drag-to-reposition for the corner HUD - see TutorialOverlay.tsx's
   // identical handlers for the full rationale.
   const onHudPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -383,42 +358,20 @@ function PropertyTutorialOverlayInner({
   const audioSupported = typeof window !== "undefined" && typeof Audio !== "undefined";
   const isFirstStep = stepIndex === 0;
 
-  // Same blur-mask approach as TutorialOverlay.tsx - see that file's
-  // comment above its own maskBands for the full rationale. This tour only
-  // ever has one thing in focus at a time (no focusSelectors equivalent
-  // here yet), so maskHoles is just the current glow target, but
-  // computeMaskBands handles that as the single-hole case automatically.
+  // Where the glow rings go - see TutorialOverlay.tsx's identical block.
+  // The dimmed/blurred bands that used to surround this are gone; the page
+  // stays fully live and fully legible underneath the tour.
   const glowRect = rect ? inflateRect(rect, PAD) : null;
-  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0;
-  const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 0;
-  const maskBands = computeMaskBands(glowRect ? [glowRect] : [], viewportWidth, viewportHeight);
 
   return createPortal(
     // pointer-events-none is load-bearing here too, same reason as
-    // TutorialOverlay.tsx — see that file's comment. tabIndex=-1 +
-    // outline-none makes this div the tour's focus landing spot.
-    <div
-      ref={overlayRef}
-      tabIndex={-1}
-      className="pointer-events-none fixed inset-0 z-[200] outline-none"
-      onKeyDown={onOverlayKeyDown}
-    >
+    // TutorialOverlay.tsx — see that file's comment.
+    <div className="pointer-events-none fixed inset-0 z-[200] outline-none">
       {/* No visible dialog box - see TutorialOverlay.tsx's identical live
           region for the full rationale. */}
       <div className="sr-only" aria-live="polite">
         {step.title}. {step.body}
       </div>
-      {/* Blurred + dimmed bands cover everything outside the current
-          target - see TutorialOverlay.tsx's identical block for the full
-          rationale. Kept light (a quarter of the original blur strength)
-          so the rest of the page stays legible behind it. */}
-      {maskBands.map((band, i) => (
-        <div
-          key={i}
-          className="pointer-events-auto fixed bg-black/45 backdrop-blur-[3px] transition-all duration-200"
-          style={{ top: band.top, left: band.left, width: band.width, height: band.height }}
-        />
-      ))}
       {glowRect && (
         <>
           {/* The "quest marker" glow, hugging the real target's own shape

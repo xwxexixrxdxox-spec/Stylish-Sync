@@ -4,8 +4,8 @@ import { PropertyItem } from "@/lib/types";
 import { getEditorName } from "@/lib/storage";
 
 // The Property page's own guided tour — same coach-mark idea as
-// tutorial.ts/TutorialOverlay.tsx (dim the screen, spotlight one real
-// element, explain it, Next/Skip), but scoped to a single page rather than
+// tutorial.ts/TutorialOverlay.tsx (glow around one real element, explain
+// it, Next/Skip, page stays fully live), but scoped to a single page rather than
 // the tabbed main app, so there's no tab/sidebar state to drive here. See
 // PropertyTutorialOverlay.tsx for how these get rendered.
 //
@@ -77,11 +77,10 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
   {
     // Targets the whole row (same selector as "ordered-part" above), not
     // just the receipt icon — the quantity field and "Log receipt" button
-    // that appear once you tap the icon render inside this row, and the
-    // overlay only lets clicks through inside its spotlighted element. If
-    // this only spotlighted the icon, the row would grow past the hole the
-    // instant the panel opened and those controls would sit unclickable
-    // under the dimmed backdrop.
+    // that appear once you tap the icon render inside this row, so keeping
+    // the glow on the row means it still frames those controls once the
+    // panel opens. (Clickability is no longer the reason: nothing is masked
+    // any more, so the whole page is live. Framing still is.)
     id: "log-receipt",
     targetSelector: '[data-tutorial="tutorial-example-part"]',
     title: "Try logging a receipt",

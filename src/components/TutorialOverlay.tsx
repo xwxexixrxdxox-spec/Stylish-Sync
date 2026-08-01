@@ -10,15 +10,14 @@ import {
   getTutorialVoiceEnabled,
   setTutorialVoiceEnabled,
 } from "@/lib/storage";
-import { buildMaskClipPath, inflateRect, type MaskHole, type Rect } from "@/lib/tutorialMask";
+import { inflateRect, type Rect } from "@/lib/tutorialMask";
 import TutorialSoundBar from "./TutorialSoundBar";
 import type { TabId } from "./BottomNav";
 
-// Gap between the spotlighted element and both the glow ring and the
-// masking bands around it, in px. Kept small on purpose (third generation
-// of this component - see the top-level comment below) so the glow hugs
-// the real element's own edges rather than reading as a padded box drawn
-// around it.
+// Gap between the spotlighted element and the glow ring around it, in px.
+// Kept small on purpose (third generation of this component - see the
+// top-level comment below) so the glow hugs the real element's own edges
+// rather than reading as a padded box drawn around it.
 const PAD = 4;
 // How far a pointer has to move before a press on the HUD counts as a drag
 // rather than a click - lets the mute/next/skip buttons inside the same
@@ -45,8 +44,9 @@ interface Props {
   onStepChange?: (id: string | null) => void;
 }
 
-// Coach-mark style walkthrough: blurs the screen except for a cutout
-// around whatever this step is pointing at. Third generation of this
+// Coach-mark style walkthrough: a pulsating glow on whatever control this
+// step is currently narrating, drawn over the real, fully live app. Third
+// generation of this
 // component - the original explained each step through a full callout
 // card; the second (K/L) replaced that with a small caption bubble plus a
 // pulsating glow; this one drops visible text entirely. The voice
@@ -75,16 +75,6 @@ interface Props {
 // want before choosing to continue. A HUD back arrow and drag-to-reposition
 // (this HUD can now sit somewhere less in-the-way) are both new too.
 
-// An element's top-left corner radius in plain pixels. Browsers resolve
-// even a "9999px" pill radius down to a real used value here, so a fully
-// round button reports half its own height and the mask's arcs come out
-// matching the real control rather than a rounded-ish approximation of it.
-function readRadiusPx(el: HTMLElement): number {
-  const raw = window.getComputedStyle(el).borderTopLeftRadius;
-  const n = parseFloat(raw);
-  return Number.isFinite(n) ? n : 12;
-}
-
 // Titles are written as headlines and often end in their own punctuation
 // ("That's the tour!"), so joining title and body with a full stop produced
 // "That's the tour!. You're all set" - which any screen reader or TTS pass
@@ -96,8 +86,8 @@ function stripTrailingPunctuation(s: string): string {
 // Does this step actually have a recorded voice clip on the server?
 //
 // Since the visible dialog cards were removed, the recording is a step's
-// ONLY explanation - so a step whose clip 404s shows a dimmed screen, one
-// amber glow, and total silence. Twenty-one of the thirty-two steps were in
+// ONLY explanation - so a step whose clip 404s shows one amber glow and
+// total silence, and nothing else. Twenty-one of the thirty-two steps were in
 // that state, which is what made the tour miserable rather than merely
 // rough. Rather than show them, the tour asks the server up front which
 // clips exist and quietly drops the rest: a short tour that talks beats a
@@ -144,8 +134,8 @@ export default function TutorialOverlay(props: Props) {
       // clip to do its job. Without this exemption the last surviving step
       // would be whichever teaching step happens to be last on disk, and
       // today that's "Start Fresh" - so a brand new customer's tour would end
-      // with the wipe-everything button spotlit and then nothing. A silent
-      // dimmed beat that says "you're done" is a much better last impression.
+      // with the wipe-everything button spotlit and then nothing. A quiet
+      // beat that says "you're done" is a much better last impression.
       const narratable = candidates.filter((_, i) => present[i]);
       // If literally nothing came back present, something is wrong with the
       // request rather than with the audio - fall back to the full list so
@@ -179,41 +169,12 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
   // glow, matching whatever the real element actually looks like rather
   // than an approximation of it.
   const [targetRadius, setTargetRadius] = useState<string>("0.75rem");
-  // The same radius as a plain number of pixels, for the clip-path mask -
-  // it draws its corner arcs itself and can't work with a CSS string.
-  const [targetRadiusPx, setTargetRadiusPx] = useState(12);
   const targetElRef = useRef<HTMLElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   // False once this component unmounts - checked by the rAF loop in
   // settleRect(), which would otherwise keep calling setState on a tour that
   // has already closed.
   const aliveRef = useRef(true);
-  // The step's own focusSelectors (see tutorial.ts) - elements that stay
-  // sharp/unblurred for the whole step alongside whatever the glow is
-  // currently pointing at. Tracked the same way as the main target: a ref
-  // to the real elements (for measuring + observing resize) and a bit of
-  // state holding their current rects (for rendering).
-  const focusElsRef = useRef<HTMLElement[]>([]);
-  const focusResizeObserversRef = useRef<ResizeObserver[]>([]);
-  const [focusRects, setFocusRects] = useState<MaskHole[]>([]);
-  const recomputeFocusRects = () => {
-    setFocusRects(
-      focusElsRef.current.map((el) => {
-        const r = el.getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          width: r.width,
-          height: r.height,
-          radius: readRadiusPx(el),
-        };
-      })
-    );
-  };
-  // Wraps every focusable control the corner HUD renders (mute, back,
-  // next/move-on, skip) - queried by onOverlayKeyDown below for the Tab
-  // focus trap.
-  const overlayRef = useRef<HTMLDivElement>(null);
   const hudRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Tracks which step index has already been played via a direct click
@@ -259,11 +220,6 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
   // play/pause/ended events rather than inferred from stepIndex, so it
   // stays correct through mute/unmute and a clip actually finishing.
   const [speaking, setSpeaking] = useState(false);
-  // Whether this step's blur mask is temporarily suppressed - see
-  // step.suppressBlurMs (used by "reorder": "remove the blur for 5
-  // seconds, then reapply it" so the customer can see the real reorder
-  // list without anything dimmed around it for a beat).
-  const [blurSuppressed, setBlurSuppressed] = useState(false);
   // Manual repositioning for the corner HUD - null means "use the default
   // top-right corner," set once the customer actually drags it somewhere
   // else. Kept as component state only (not persisted) - a fresh position
@@ -295,20 +251,6 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     return () => onStepChange?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // suppressBlurMs: hide the mask entirely for this many ms at the start of
-  // a step, then let it back in. Reset (re-armed) every time the step
-  // changes, and only ever active for a step that actually asks for it.
-  useEffect(() => {
-    if (!step.suppressBlurMs) {
-      setBlurSuppressed(false);
-      return;
-    }
-    setBlurSuppressed(true);
-    const timer = window.setTimeout(() => setBlurSuppressed(false), step.suppressBlurMs);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIndex]);
 
   // Ending the tour used to just make the overlay vanish, leaving the
   // customer sitting inside the Account settings sidebar - the last place
@@ -394,9 +336,9 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     setRect(el.getBoundingClientRect());
     const style = window.getComputedStyle(el);
     setTargetRadius(style.borderRadius || "0.75rem");
-    // Numeric companion to the CSS-string radius above, for the clip-path
-    // mask (which needs real numbers to draw arcs with, not "9999px").
-    setTargetRadiusPx(readRadiusPx(el));
+    // Nothing dims the rest of the page any more, so a target that's
+    // scrolled out of view would leave the customer looking at a screen
+    // with no glow on it at all. Centering it is the whole "look here."
     el.scrollIntoView({ block: "center", behavior: "smooth" });
     const observer = new ResizeObserver(() => {
       if (targetElRef.current) setRect(targetElRef.current.getBoundingClientRect());
@@ -469,34 +411,6 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex, tab, accountOpen]);
 
-  // Same idea as the main target above, for this step's focusSelectors (if
-  // any) - resolved independently of the glow target so a step can keep
-  // several unrelated elements sharp at once.
-  useEffect(() => {
-    let cancelled = false;
-    focusResizeObserversRef.current.forEach((o) => o.disconnect());
-    focusResizeObserversRef.current = [];
-    focusElsRef.current = [];
-    setFocusRects([]);
-    const selectors = step.focusSelectors ?? [];
-    if (!selectors.length) return;
-    Promise.all(selectors.map((sel) => waitForElement(sel))).then((els) => {
-      if (cancelled) return;
-      const found = els.filter((e): e is HTMLElement => !!e);
-      focusElsRef.current = found;
-      recomputeFocusRects();
-      focusResizeObserversRef.current = found.map((el) => {
-        const observer = new ResizeObserver(recomputeFocusRects);
-        observer.observe(el);
-        return observer;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIndex, tab, accountOpen]);
-
   // Belt-and-suspenders cleanup on unmount - attachTarget always disconnects
   // the previous observer before creating a new one, but nothing does that
   // for the very last one when the tour itself closes.
@@ -504,7 +418,6 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     return () => {
       aliveRef.current = false;
       resizeObserverRef.current?.disconnect();
-      focusResizeObserversRef.current.forEach((o) => o.disconnect());
     };
   }, []);
 
@@ -514,7 +427,6 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
   useEffect(() => {
     const recompute = () => {
       if (targetElRef.current) setRect(targetElRef.current.getBoundingClientRect());
-      if (focusElsRef.current.length) recomputeFocusRects();
     };
     window.addEventListener("resize", recompute);
     window.addEventListener("scroll", recompute, true);
@@ -657,13 +569,6 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex, voiceEnabled]);
 
-  // Send focus into the tour's own overlay each time a new step appears, so
-  // keyboard/screen-reader users land somewhere inside the tour instead of
-  // wherever focus happened to be on the underlying page.
-  useEffect(() => {
-    overlayRef.current?.focus();
-  }, [stepIndex]);
-
   // Moves the spotlight to a new target mid-step, for a step's
   // targetSelectorPhase2 (see tutorial.ts). Only called once per step (the
   // callers that use this each remove their own trigger the moment they
@@ -772,25 +677,6 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     }
   };
 
-  // A minimal focus trap: Tab/Shift+Tab cycles only among the corner HUD's
-  // own buttons - instead of escaping into whatever sits behind the
-  // blurred mask, standard expected behavior for anything marked
-  // aria-modal.
-  const onOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Tab" || !overlayRef.current) return;
-    const focusable = overlayRef.current.querySelectorAll<HTMLElement>("button");
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-
   // Drag-to-reposition for the corner HUD. Starts tracking on pointerdown
   // anywhere in the pill EXCEPT on one of its own buttons (so mute/back/
   // next/skip still register as plain taps), and only actually starts
@@ -851,35 +737,19 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
   const chapterSteps = chapter ? steps.filter((s) => s.chapter === chapter) : [];
   const chapterPosition = chapter ? chapterSteps.indexOf(step) + 1 : 0;
 
-  // Every element that should stay sharp and interactive right now: the
-  // glow's own current target, plus this step's focusSelectors. Suppressed
-  // entirely (no bands rendered at all - nothing blurred, nothing dimmed)
-  // while blurSuppressed is true, for a step that explicitly asked for a
-  // few seconds of a completely clear view (see suppressBlurMs above).
+  // Where the glow rings go: the current target's own rect, padded out a
+  // few px so the ring hugs the control's edges rather than sitting on top
+  // of them. There is no mask any more (see the top-of-file comment), so
+  // this is the only geometry the overlay computes.
   const glowRect = rect ? inflateRect(rect, PAD) : null;
-  const focusHoles: MaskHole[] = focusRects.map((r) => ({
-    ...inflateRect(r, PAD),
-    radius: (r.radius ?? 12) + PAD,
-  }));
-  const maskHoles: MaskHole[] = glowRect
-    ? [{ ...glowRect, radius: targetRadiusPx + PAD }, ...focusHoles]
-    : focusHoles;
-  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0;
-  const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 0;
-  const maskClipPath = buildMaskClipPath(maskHoles, viewportWidth, viewportHeight);
 
   return createPortal(
     // pointer-events-none here is load-bearing, not decorative: this outer
-    // div's own box spans the full viewport at z-[200], so without this it
-    // would swallow every click - including ones aimed at any of the "holes"
-    // over the focused elements - regardless of the mask bands below only
-    // painting around them.
-    <div
-      ref={overlayRef}
-      tabIndex={-1}
-      className="pointer-events-none fixed inset-0 z-[200] outline-none"
-      onKeyDown={onOverlayKeyDown}
-    >
+    // div's own box spans the full viewport at z-[200], so without it the
+    // tour would swallow every click on the app underneath. With the dimmed
+    // mask gone this is now the ONLY thing standing between the customer
+    // and a fully live page - the HUD re-enables pointer events on itself.
+    <div className="pointer-events-none fixed inset-0 z-[200] outline-none">
       {/* No visible dialog box - the step's title/body still exist (see
           tutorial.ts) for accessibility and for the narration-script
           handoff doc, but on screen the voice alone carries them. This
@@ -888,30 +758,16 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
       <div className="sr-only" aria-live="polite">
         {`${stripTrailingPunctuation(step.title)}. ${step.body}`}
       </div>
-      {/* One blurred + dimmed surface covering the whole viewport, with a
-          real hole cut through it over each focused element. clip-path also
-          governs hit testing, so clicks genuinely pass through those holes
-          to the app underneath. Kept light (a quarter of the original blur
-          strength) so the rest of the app stays legible in the background.
-          Suppressed entirely for suppressBlurMs. No CSS transition here on
-          purpose: two paths with different numbers of subpaths can't be
-          interpolated, so animating it would flicker rather than glide. */}
-      {!blurSuppressed && maskClipPath && (
-        <div
-          className="pointer-events-auto fixed inset-0 bg-black/45 backdrop-blur-[3px]"
-          style={{ clipPath: maskClipPath, WebkitClipPath: maskClipPath }}
-        />
-      )}
       {glowRect && (
         <>
           {/* The "quest marker" glow: an expanding, fading ping ring behind
               a breathing blurred-glow ring, hugging the real spotlighted
               element's own shape (targetRadius). Amber rather than the
               app's existing accent colors (red is reserved for low-stock
-              warnings, green for "all clear"). Stays visible even while
-              blur is suppressed - it's still exactly what's being
-              narrated, the only thing changing is whether the rest of the
-              screen dims around it. */}
+              warnings, green for "all clear"). With the dim gone this is
+              now the tour's ONLY visual affordance, which is exactly the
+              point - the page reads as the live app, and the glow is the
+              single thing saying "this one." */}
           <div
             className="pointer-events-none fixed ring-2 ring-amber-300/70 animate-tutorial-glow-ping"
             style={{
