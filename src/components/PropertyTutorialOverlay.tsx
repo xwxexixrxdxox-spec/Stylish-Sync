@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from "lucide-react";
-import { PROPERTY_TUTORIAL_STEPS, type PropertyTutorialStep } from "@/lib/propertyTutorial";
+import {
+  PROPERTY_TUTORIAL_STEPS,
+  type PropertyTutorialStep,
+  type PropertyTourSignals,
+} from "@/lib/propertyTutorial";
 import { waitForElement } from "@/lib/tutorial";
 import {
   setPropertyTutorialCompleted,
@@ -20,13 +24,19 @@ const PAD = 4;
 const DRAG_THRESHOLD_PX = 4;
 
 interface Props {
-  // Live quantityReceived of the seeded example part, re-passed on every
-  // PropertyManager render — watched below purely to auto-advance the
-  // "log-receipt" step the instant the customer actually logs one, the
-  // same self-resolving idea as the main tutorial's account-gear/
-  // google-signin steps (see TutorialOverlay.tsx), just driven by a prop
-  // instead of local state since PropertyManager owns the data.
-  exampleReceivedCount: number;
+  // One counter per real action the tour can wait on (a property created, a
+  // part added, a status changed, a push completed…), re-passed on every
+  // PropertyManager render. A step naming one of these in `advanceOn` moves
+  // on the moment its counter goes up — the same self-resolving idea as the
+  // main tutorial's account-gear/google-signin steps (see
+  // TutorialOverlay.tsx), generalised, because round R's rebuilt tour is a
+  // build-along and almost every step is now waiting on the customer to
+  // really do the thing rather than on them to tap Next.
+  //
+  // This replaced a single `exampleReceivedCount` number, which only ever
+  // existed to watch the seeded example part — and the seeded example is
+  // gone (see propertyTutorial.ts's header).
+  signals: PropertyTourSignals;
   onClose: () => void;
 }
 
@@ -40,14 +50,17 @@ interface Props {
 // the property tour" link/button in PropertyManager.tsx) - it no longer
 // autoplays on a brand-new empty property list.
 //
-// This round ("O") brought it up to the same engine baseline as the main
-// tour: a HUD back arrow, drag-to-reposition, and no more auto-advance the
-// instant a clip finishes playing - narration alone no longer moves the
-// tour forward, only a real tap (or, for "log-receipt", the literal real
-// action that step is asking for) does. Its own step content (still the
-// pre-seeded-example walkthrough) is unchanged this round - see
-// propertyTutorial.ts's own comment for what's still queued for a fuller,
-// hands-on rework matching the main tour's Part 1/2 redesign.
+// Round "O" brought it up to the same engine baseline as the main tour: a
+// HUD back arrow, drag-to-reposition, and no more auto-advance the instant a
+// clip finishes playing - narration alone no longer moves the tour forward.
+//
+// Round "R" is the hands-on rebuild propertyTutorial.ts describes. Two
+// engine changes came with it, both because the tour stopped narrating a
+// seeded example and started walking the customer through building their
+// own: `advanceOn` + the signal counters (a step waits for the real action
+// instead of a tap), and `targetSelectorPhase2` + watchForElement below (the
+// glow follows a control that replaces itself, which is what the "glow jumps
+// across the screen" report on Add property turned out to be).
 //
 // Round "P": this tour now runs the same narration preflight the main tour
 // has had since round "O" (see hasNarration/TutorialOverlay.tsx). It was
@@ -96,7 +109,7 @@ export default function PropertyTutorialOverlay(props: Props) {
 // stepIndex sits at 0 while an async list resolves, so effects keyed on it
 // would never re-fire once the list landed and step one would never speak.
 function PropertyTutorialOverlayInner({
-  exampleReceivedCount,
+  signals,
   onClose,
   steps,
 }: Props & { steps: PropertyTutorialStep[] }) {
@@ -117,7 +130,20 @@ function PropertyTutorialOverlayInner({
   const targetElRef = useRef<HTMLElement | null>(null);
   const hudRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const prevReceivedRef = useRef(exampleReceivedCount);
+  // The value of the counter this step is waiting on, as it stood the moment
+  // the step opened. Anything above it means the customer did the thing while
+  // this step was on screen — which is the only reading that's safe, because
+  // the counters keep climbing all tour long and an absolute value tells you
+  // nothing about when it moved.
+  const advanceBaselineRef = useRef<number | null>(null);
+  // The ResizeObserver watching whichever element currently owns the glow.
+  // Held in a ref rather than a local so that both the step's first target
+  // and its phase-2 target can hand it off cleanly — see attachTarget.
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  // Set once a step's phase-2 element has taken over the glow, so a slow
+  // waitForElement resolving late for the *first* target can't yank the
+  // spotlight back to a button that has already been replaced.
+  const phase2AttachedRef = useRef(false);
   // Tracks which step index has already had playStepAt() called for it —
   // see the click-handler-driven calls below.
   const lastSpokenIndexRef = useRef(-1);
@@ -188,38 +214,83 @@ function PropertyTutorialOverlayInner({
     });
   };
 
+  // Move the glow onto a real element: measure it, borrow its corner radius,
+  // scroll it into view, and keep re-measuring while it lives. Shared by both
+  // the step's opening target and its phase-2 target, because "the glow now
+  // belongs to this element" has to mean exactly the same thing either way —
+  // when it didn't, the ring kept measuring a button that had already
+  // unmounted, which is what the customer saw as the glow jumping across the
+  // screen.
+  const attachTarget = (el: HTMLElement) => {
+    resizeObserverRef.current?.disconnect();
+    targetElRef.current = el;
+    setRect(el.getBoundingClientRect());
+    setTargetRadius(window.getComputedStyle(el).borderRadius || "0.75rem");
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const observer = new ResizeObserver(() => {
+      if (!targetElRef.current) return;
+      setRect(targetElRef.current.getBoundingClientRect());
+      targetElRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    observer.observe(el);
+    resizeObserverRef.current = observer;
+  };
+
   // Find (and re-find) this step's spotlight target whenever the step
   // changes. No tab/sidebar to wait on first (unlike TutorialOverlay), but
   // the target can still legitimately not exist yet on the very first
-  // render (or ever, if the customer deleted the example mid-tour) —
-  // waitForElement's timeout-then-null handles that the same way it does
-  // for the main tour: no glow is drawn, and the narration plays over the
-  // ordinary page rather than pointing at something that isn't there.
+  // render — waitForElement's timeout-then-null handles that the same way it
+  // does for the main tour: no glow is drawn, and the narration plays over
+  // the ordinary page rather than pointing at something that isn't there.
   useEffect(() => {
     let cancelled = false;
-    let resizeObserver: ResizeObserver | null = null;
     setRect(null);
     targetElRef.current = null;
+    phase2AttachedRef.current = false;
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
     if (!step.targetSelector) return;
     waitForElement(step.targetSelector).then((el) => {
-      if (cancelled) return;
-      targetElRef.current = el;
-      if (el) {
-        setRect(el.getBoundingClientRect());
-        setTargetRadius(window.getComputedStyle(el).borderRadius || "0.75rem");
-        el.scrollIntoView({ block: "center", behavior: "smooth" });
-        resizeObserver = new ResizeObserver(() => {
-          if (!targetElRef.current) return;
-          setRect(targetElRef.current.getBoundingClientRect());
-          targetElRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
-        });
-        resizeObserver.observe(el);
-      }
+      // phase2AttachedRef: on a fast tap the form can beat this promise, and
+      // the newer target always wins.
+      if (cancelled || !el || phase2AttachedRef.current) return;
+      attachTarget(el);
     });
     return () => {
       cancelled = true;
-      resizeObserver?.disconnect();
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
+
+  // Hand the glow over to the step's phase-2 target the moment that element
+  // actually turns up. Deliberately not waitForElement: its 1500 ms timeout
+  // is right for "this should already be on the page," and wrong for "this
+  // appears when the customer taps the button" — a customer reading the
+  // narration for ten seconds first is behaving perfectly normally. So this
+  // watches document.body for as long as the step is on screen, with no
+  // deadline, and disconnects itself the instant it finds what it's after.
+  useEffect(() => {
+    const selector = step.targetSelectorPhase2;
+    if (!selector) return;
+    let found = false;
+    const observer = new MutationObserver(() => {
+      if (!found) tryAttach();
+    });
+    const tryAttach = () => {
+      const el = document.querySelector<HTMLElement>(selector);
+      if (!el) return false;
+      found = true;
+      phase2AttachedRef.current = true;
+      observer.disconnect();
+      attachTarget(el);
+      return true;
+    };
+    if (!tryAttach()) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+    return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
@@ -240,18 +311,28 @@ function PropertyTutorialOverlayInner({
     };
   }, [stepIndex]);
 
-  // The one self-resolving step: logging a real receipt on the example part
-  // (a genuine action the customer takes on the real "Log a receipt"
-  // control this step is spotlighting) moves the tour on by itself, same
-  // spirit as the main tour advancing itself when the customer actually
-  // signs into Google rather than making them also tap Next afterward.
+  // Take a reading of the counter this step is waiting on, the moment the
+  // step opens. Declared above the watcher below so it always wins the race
+  // on a step change — React runs effects in declaration order, so the
+  // baseline is set before anything gets compared against it.
   useEffect(() => {
-    if (step.id === "log-receipt" && exampleReceivedCount > prevReceivedRef.current) {
-      advance();
-    }
-    prevReceivedRef.current = exampleReceivedCount;
+    advanceBaselineRef.current = step.advanceOn ? signals[step.advanceOn] : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exampleReceivedCount]);
+  }, [stepIndex]);
+
+  // Self-resolving steps: when the customer really does the thing the step
+  // is asking for — creates the property, adds the part, changes a status,
+  // pushes to the sheet — the tour moves on by itself rather than making
+  // them also reach for Next afterward. Same spirit as the main tour
+  // advancing when they actually sign into Google. It's an offer, not a
+  // lock: the HUD's arrow still works the whole time, so a customer who
+  // would rather just watch is never stuck.
+  useEffect(() => {
+    const baseline = advanceBaselineRef.current;
+    if (!step.advanceOn || baseline === null) return;
+    if (signals[step.advanceOn] > baseline) advance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signals, stepIndex]);
 
   // Escape backs all the way out, same as "Skip tour" — matches
   // TutorialOverlay.tsx / ClearCacheButton's existing Escape-to-cancel

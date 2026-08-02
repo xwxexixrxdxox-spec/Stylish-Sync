@@ -9,6 +9,8 @@ import {
   getLinkedSheetId,
   setLinkedSheetId,
   logMovement,
+  loadMovements,
+  replaceMovements,
   resetTutorialCompleted,
   getEditorName,
   isFreshInstall,
@@ -39,6 +41,16 @@ import SpotifyWidget from "@/components/SpotifyWidget";
 // when the actual data load (localStorage + access check) is instant.
 const LOAD_SCREEN_MIN_MS = 1500;
 const LOAD_SCREEN_FADE_MS = 300;
+
+// How long the Undo chip stays offered after a stepper adjustment, and how
+// long a follow-up tap on the same item still counts as part of the same
+// correction rather than a new one. Both jobs deliberately share one number:
+// the thing a customer can still see is exactly the thing they can still
+// take back, so the chip never quietly stops meaning what it says. Ten
+// seconds is long enough to notice "that's one too many" and act, short
+// enough that the chip isn't still sitting there hours later offering to
+// rewrite a count someone has since worked from.
+const ADJUST_UNDO_WINDOW_MS = 10_000;
 
 export default function HomePage() {
   const [tab, setTab] = useState<TabId>("inventory");
@@ -180,6 +192,60 @@ export default function HomePage() {
     }
   };
 
+  // The most recent stepper adjustment, while it's still take-back-able.
+  // `net` is the burst summed so far and `movementIds` every log entry that
+  // burst produced, because undoing has to remove those entries rather than
+  // log a compensating one - a customer who tapped + one too many times
+  // never used that unit, and a +1/-1 pair left in the log would show on the
+  // Usage tab as real activity that never happened.
+  const [lastAdjust, setLastAdjust] = useState<{
+    itemId: string;
+    net: number;
+    movementIds: string[];
+    at: number;
+  } | null>(null);
+
+  const undoLastAdjust = () => {
+    const undo = lastAdjust;
+    if (!undo) return;
+    if (undo.net !== 0) {
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === undo.itemId
+            ? { ...it, quantity: Math.max(0, it.quantity - undo.net), updatedAt: new Date().toISOString() }
+            : it
+        )
+      );
+    }
+    if (undo.movementIds.length) {
+      const ids = new Set(undo.movementIds);
+      replaceMovements(loadMovements().filter((m) => !ids.has(m.id)));
+    }
+    setLastAdjust(null);
+  };
+
+  // Retire the offer once the window has passed, so the chip doesn't sit
+  // there indefinitely offering to rewrite a count someone has since worked
+  // from. Held open for the whole guided tour, though: the tour narrates
+  // this control, and a chip that vanished mid-sentence would leave the
+  // narration pointing at nothing.
+  useEffect(() => {
+    if (!lastAdjust || tutorialActive) return;
+    const timer = window.setTimeout(() => setLastAdjust(null), ADJUST_UNDO_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [lastAdjust, tutorialActive]);
+
+  // Start Fresh's tutorial-safe path (see AccountTab's startFreshLocalInventory).
+  // Storage has already been emptied by the time this runs; all that's left is
+  // to bring this component's copy in line without a reload, which would take
+  // the tour overlay with it. Safe against the persist effect below, which
+  // deliberately skips empty arrays — storage is already [] and stays that way,
+  // so the two agree.
+  const clearInventoryInPlace = () => {
+    setItems([]);
+    setLastAdjust(null);
+  };
+
   const adjust = (id: string, delta: number) => {
     // The logged delta is computed from `prev` inside the updater itself,
     // not from the `items` closed over when adjust() was called - a rapid
@@ -199,7 +265,24 @@ export default function HomePage() {
       })
     );
     if (applied !== 0) {
-      logMovement({ itemId: id, delta: applied, reason: "manual-adjust", at: new Date().toISOString(), by: editorName });
+      const movementId = logMovement({
+        itemId: id,
+        delta: applied,
+        reason: "manual-adjust",
+        at: new Date().toISOString(),
+        by: editorName,
+      });
+      const now = Date.now();
+      setLastAdjust((prev) => {
+        // A hold-to-repeat burst is one correction in the customer's head,
+        // so keep folding taps on the same item into a single offer while
+        // the window is open rather than replacing it each time - otherwise
+        // undoing a run of seven would take seven taps.
+        const continuing = prev && prev.itemId === id && now - prev.at < ADJUST_UNDO_WINDOW_MS;
+        const movementIds = continuing ? [...prev.movementIds] : [];
+        if (movementId) movementIds.push(movementId);
+        return { itemId: id, net: (continuing ? prev.net : 0) + applied, movementIds, at: now };
+      });
     }
   };
 
@@ -572,6 +655,7 @@ export default function HomePage() {
             onImport={bulkImport}
             onBreakCase={breakCase}
             onMoveStock={moveStock}
+            undoAdjust={lastAdjust ? { itemId: lastAdjust.itemId, net: lastAdjust.net, onUndo: undoLastAdjust } : null}
           />
         )}
         {tab === "scan" && (
@@ -603,6 +687,10 @@ export default function HomePage() {
           setSheetId={setSheetId}
           onBookingMatch={setTrackedBookingId}
           onReplayTutorial={replayTutorial}
+          // Only wired up while the tour is on screen, so Start Fresh clears
+          // in place instead of reloading the page out from under it. Outside
+          // the tour the long-standing reload behaviour is untouched.
+          onLocalFresh={tutorialActive ? clearInventoryInPlace : undefined}
         />
 
         {/* Suppressed while the tutorial is active - the overlay already

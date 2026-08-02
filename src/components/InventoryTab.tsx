@@ -25,9 +25,15 @@ interface Props {
   onImport: (items: InventoryItem[]) => void;
   onBreakCase: (caseItemId: string, casesToBreak: number) => void;
   onMoveStock: (itemId: string, destinationLocation: string, quantity: number) => void;
+  // The one stepper adjustment that's still take-back-able, if there is one
+  // (see lastAdjust in page.tsx). Passed straight through to whichever card
+  // owns that item so the Undo chip lands next to the +/- buttons that
+  // caused it — a customer who taps one too many times looks there, not at
+  // a toast somewhere else on screen.
+  undoAdjust?: { itemId: string; net: number; onUndo: () => void } | null;
 }
 
-export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImport, onBreakCase, onMoveStock }: Props) {
+export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImport, onBreakCase, onMoveStock, undoAdjust }: Props) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   // Starts at the same "recent" default the persisted-preference reader
@@ -245,6 +251,11 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
                 onMoveStock={onMoveStock}
                 tutorialTarget={false}
                 onActivity={handleActivity}
+                undo={
+                  undoAdjust && undoAdjust.itemId === entry.item.id
+                    ? { net: undoAdjust.net, onUndo: undoAdjust.onUndo }
+                    : null
+                }
               />
             </div>
           ) : (
@@ -259,6 +270,11 @@ export default function InventoryTab({ items, onAdjust, onSave, onDelete, onImpo
               onMoveStock={onMoveStock}
               tutorialTarget={index === 0}
               onActivity={handleActivity}
+              undo={
+                undoAdjust && undoAdjust.itemId === entry.item.id
+                  ? { net: undoAdjust.net, onUndo: undoAdjust.onUndo }
+                  : null
+              }
               collapsed={entry.hasVisibleChild ? collapsedGroups.has(entry.item.barcode) : undefined}
               onToggleCollapsed={
                 entry.hasVisibleChild ? () => toggleGroupCollapsed(entry.item.barcode) : undefined

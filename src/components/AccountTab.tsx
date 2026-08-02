@@ -90,9 +90,14 @@ interface Props {
   // a fresh install has come and gone. Optional since this panel is also
   // reused in contexts that don't wire up the tour.
   onReplayTutorial?: () => void;
+  // Supplied only while the guided tour is on screen. Its presence tells
+  // Start Fresh to hand the now-empty inventory up to the app shell instead
+  // of reloading the page — see startFreshLocalInventory below for why that
+  // distinction matters to the tour.
+  onLocalFresh?: () => void;
 }
 
-export default function AccountTab({ items, onImport, sheetId, setSheetId, onBookingMatch, onReplayTutorial }: Props) {
+export default function AccountTab({ items, onImport, sheetId, setSheetId, onBookingMatch, onReplayTutorial, onLocalFresh }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
@@ -714,9 +719,26 @@ export default function AccountTab({ items, onImport, sheetId, setSheetId, onBoo
   // empty array through page.tsx's items state (that state only persists
   // back to storage when non-empty, to avoid wiping real data during the
   // brief window before the initial loadItems() call resolves).
+  //
+  // The reload is skipped when onLocalFresh is supplied, which page.tsx does
+  // only while the guided tour is running. The tour lives in a React overlay
+  // with its own step state, so a full page reload wipes it out mid-chapter —
+  // Start Fresh was effectively ending the tutorial and making a customer
+  // replay the whole thing to reach the very next step, which is the one
+  // that shows Pull bringing the data back down. Handing the empty state up
+  // to page.tsx instead keeps the tour on screen, so clearing and pulling
+  // read as the two halves of one demonstration, which is the entire point
+  // of putting them next to each other.
   const startFreshLocalInventory = () => {
     setLocalFreshBusy(true);
     startFreshInventory();
+    if (onLocalFresh) {
+      onLocalFresh();
+      setLocalFreshBusy(false);
+      setConfirmingLocalFresh(false);
+      flash("Cleared this device's inventory.");
+      return;
+    }
     window.location.reload();
   };
 

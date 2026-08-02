@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Minus, Plus, Pencil, Trash2, PackageOpen, ChevronRight, ArrowLeftRight } from "lucide-react";
+import { Minus, Plus, Pencil, Trash2, PackageOpen, ChevronRight, ArrowLeftRight, RotateCcw } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import { playChime } from "@/lib/chime";
 import { isLowStock } from "@/lib/reorderStatus";
@@ -46,6 +46,14 @@ interface Props {
   // own (no nested-nested groups in this data model).
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  // Present only on the card whose quantity was last changed with the +/-
+  // stepper, and only while that change is still take-back-able (page.tsx
+  // owns the window). `net` is the whole burst summed, so a hold-to-repeat
+  // that ran to +7 offers one "Undo +7" rather than seven separate undos.
+  // Taking it back removes the movement entries as well as restoring the
+  // count, because a miscount is stock that was never actually used — see
+  // undoLastAdjust in page.tsx.
+  undo?: { net: number; onUndo: () => void } | null;
 }
 
 export default function ItemCard({
@@ -60,6 +68,7 @@ export default function ItemCard({
   onActivity,
   collapsed,
   onToggleCollapsed,
+  undo,
 }: Props) {
   // Low-stock accounts for a linked break-down child's remaining stock (see
   // reorderStatus.ts) — rawLow is the old plain "just this item's own
@@ -419,6 +428,17 @@ export default function ItemCard({
             )}
           </div>
         </div>
+        {undo && (
+          <button
+            onClick={undo.onUndo}
+            data-tutorial={tutorialTarget ? "item-stock-undo" : undefined}
+            aria-label={`Undo the last quantity change to ${item.name}`}
+            className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+          >
+            <RotateCcw size={11} />
+            Undo{undo.net !== 0 ? ` ${undo.net > 0 ? "+" : ""}${undo.net}` : ""}
+          </button>
+        )}
       </div>
       <div className="ml-3 flex shrink-0 flex-col items-end gap-2">
         <div className="flex gap-1.5" data-tutorial={tutorialTarget ? "item-action-icons" : undefined}>

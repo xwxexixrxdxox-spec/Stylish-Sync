@@ -14,6 +14,7 @@ import {
   ShoppingCart,
   ChevronDown,
   Clock,
+  X,
 } from "lucide-react";
 import {
   PropertyItem,
@@ -34,7 +35,11 @@ import {
   setLastPropertySyncToken,
   resetPropertyTutorialCompleted,
 } from "@/lib/storage";
-import { buildExampleProperty, EXAMPLE_PROPERTY_ID, EXAMPLE_PART_ID, EXAMPLE_TASK_ID } from "@/lib/propertyTutorial";
+import {
+  EMPTY_PROPERTY_TOUR_SIGNALS,
+  type PropertyTourSignal,
+  type PropertyTourSignals,
+} from "@/lib/propertyTutorial";
 import PropertyTutorialOverlay from "@/components/PropertyTutorialOverlay";
 import {
   pushPropertyToSheet,
@@ -104,6 +109,47 @@ export default function PropertyManager() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [tutorialActive, setTutorialActive] = useState(false);
 
+  // --- Tour plumbing -------------------------------------------------------
+  //
+  // The tour used to point at a seeded example property that shipped with the
+  // app. It doesn't any more (see propertyTutorial.ts) — the customer builds
+  // their own as they go, so the tour has to be told, at runtime, which
+  // records are the ones it just watched them make. Hence these three ids:
+  // whatever they create while the tour is running is what the tour's
+  // `tour-*` spotlights attach to.
+  //
+  // Note this can't be "the first property in the list" — addProperty and
+  // friends all append, so index 0 is the customer's *oldest* record, which
+  // on a real account is exactly the wrong one to start glowing at.
+  const [tourPropertyId, setTourPropertyId] = useState<string | null>(null);
+  const [tourPartId, setTourPartId] = useState<string | null>(null);
+  const [tourTaskId, setTourTaskId] = useState<string | null>(null);
+  // One counter per real action the tour can wait on. Counters rather than
+  // booleans so a *second* status change still registers as "that just
+  // happened" — see PropertyTutorialOverlay's advanceBaselineRef.
+  const [tourSignals, setTourSignals] = useState<PropertyTourSignals>(EMPTY_PROPERTY_TOUR_SIGNALS);
+  const bumpSignal = (name: PropertyTourSignal) =>
+    setTourSignals((prev) => ({ ...prev, [name]: prev[name] + 1 }));
+
+  // The single most recent status change, kept so it can be taken back.
+  // Everything needed to restore the previous state exactly: the old status,
+  // the old updatedAt (so an undone change doesn't leave the record looking
+  // freshly touched), and how long the history was beforehand, since undo has
+  // to remove the entry it wrote as well as the status itself — a mis-tap
+  // that leaves a permanent line in a log somebody else reads is barely
+  // better than no undo at all. quantityReceived rides along because logging
+  // a receipt is a status change too, just one that also moves a number.
+  const [statusUndo, setStatusUndo] = useState<{
+    kind: "part" | "task";
+    propertyId: string;
+    id: string;
+    label: string;
+    prevStatus: string;
+    prevUpdatedAt: string;
+    prevHistoryLength: number;
+    prevQuantityReceived?: number;
+  } | null>(null);
+
   // Add-property inline form state.
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -126,14 +172,16 @@ export default function PropertyManager() {
   }, []);
 
   // Lets a customer pull the Property tour back up on demand (see the
-  // "Take the tour" link below), long after its one automatic launch —
-  // same idea as page.tsx's replayTutorial for the main app's tour. Only
-  // re-seeds the example if it isn't already sitting in the list (e.g. the
-  // customer deleted it after an earlier run) — replaying shouldn't create
-  // a second copy alongside real properties they've since added.
+  // "Take the tour" link below) — same idea as page.tsx's replayTutorial for
+  // the main app's tour. It plants nothing: the tour is a build-along now, so
+  // starting it just clears whatever the last run tracked and hands it a
+  // fresh set of counters to watch.
   const replayPropertyTutorial = () => {
     resetPropertyTutorialCompleted();
-    setProperties((prev) => (prev.some((p) => p.id === EXAMPLE_PROPERTY_ID) ? prev : [buildExampleProperty(), ...prev]));
+    setTourPropertyId(null);
+    setTourPartId(null);
+    setTourTaskId(null);
+    setTourSignals(EMPTY_PROPERTY_TOUR_SIGNALS);
     setTutorialActive(true);
   };
 
@@ -166,6 +214,10 @@ export default function PropertyManager() {
       lastEditedBy,
     };
     setProperties((prev) => [...prev, item]);
+    if (tutorialActive) {
+      setTourPropertyId(item.id);
+      bumpSignal("propertyAdded");
+    }
     setNewName("");
     setNewLocation("");
     setNewSerial("");
@@ -205,6 +257,88 @@ export default function PropertyManager() {
     setProperties((prev) =>
       prev.map((p) => (p.id === propertyId ? { ...p, orderedParts: [...p.orderedParts, part], updatedAt, lastEditedBy } : p))
     );
+    if (tutorialActive) {
+      setTourPartId(part.id);
+      bumpSignal("partAdded");
+    }
+  };
+
+  // Snapshot a part/task's state *before* a status change lands, so the undo
+  // bar has something exact to restore. Reads the current `properties` from
+  // the render closure rather than from inside the functional update, because
+  // a setState updater must stay pure — no other setState calls in it.
+  const rememberPartUndo = (propertyId: string, partId: string) => {
+    const part = properties.find((p) => p.id === propertyId)?.orderedParts.find((pt) => pt.id === partId);
+    if (!part) return;
+    setStatusUndo({
+      kind: "part",
+      propertyId,
+      id: partId,
+      label: part.description,
+      prevStatus: part.status,
+      prevUpdatedAt: part.updatedAt,
+      prevHistoryLength: part.statusHistory.length,
+      prevQuantityReceived: part.quantityReceived ?? 0,
+    });
+  };
+
+  const rememberTaskUndo = (propertyId: string, taskId: string) => {
+    const task = properties.find((p) => p.id === propertyId)?.maintenanceTasks.find((t) => t.id === taskId);
+    if (!task) return;
+    setStatusUndo({
+      kind: "task",
+      propertyId,
+      id: taskId,
+      label: task.description,
+      prevStatus: task.status,
+      prevUpdatedAt: task.updatedAt,
+      prevHistoryLength: task.statusHistory.length,
+    });
+  };
+
+  // Put it back exactly as it was — status, timestamp, received count, and
+  // the history entry the change wrote. slice() rather than pop() because the
+  // recorded length is the honest measure of "how much of this history the
+  // customer actually meant," and it stays correct even if something else
+  // appended in between.
+  const undoStatusChange = () => {
+    const undo = statusUndo;
+    if (!undo) return;
+    setProperties((prev) =>
+      prev.map((p) => {
+        if (p.id !== undo.propertyId) return p;
+        if (undo.kind === "part") {
+          return {
+            ...p,
+            orderedParts: p.orderedParts.map((part) =>
+              part.id === undo.id
+                ? {
+                    ...part,
+                    status: undo.prevStatus as OrderedPart["status"],
+                    updatedAt: undo.prevUpdatedAt,
+                    quantityReceived: undo.prevQuantityReceived ?? part.quantityReceived,
+                    statusHistory: part.statusHistory.slice(0, undo.prevHistoryLength),
+                  }
+                : part
+            ),
+          };
+        }
+        return {
+          ...p,
+          maintenanceTasks: p.maintenanceTasks.map((task) =>
+            task.id === undo.id
+              ? {
+                  ...task,
+                  status: undo.prevStatus as MaintenanceTask["status"],
+                  updatedAt: undo.prevUpdatedAt,
+                  statusHistory: task.statusHistory.slice(0, undo.prevHistoryLength),
+                }
+              : task
+          ),
+        };
+      })
+    );
+    setStatusUndo(null);
   };
 
   // `note` covers things like a cancellation reason (see the PropertyCard
@@ -214,6 +348,8 @@ export default function PropertyManager() {
   // "current state" fields everything else in the app already reads.
   const updatePartStatus = (propertyId: string, partId: string, status: OrderedPart["status"], note?: string) => {
     const { updatedAt, lastEditedBy } = touch();
+    rememberPartUndo(propertyId, partId);
+    if (tutorialActive) bumpSignal("partStatusChanged");
     setProperties((prev) =>
       prev.map((p) =>
         p.id === propertyId
@@ -251,6 +387,7 @@ export default function PropertyManager() {
   const logPartReceipt = (propertyId: string, partId: string, amount: number) => {
     if (!(amount > 0)) return;
     const { updatedAt, lastEditedBy } = touch();
+    rememberPartUndo(propertyId, partId);
     setProperties((prev) =>
       prev.map((p) =>
         p.id === propertyId
@@ -308,10 +445,16 @@ export default function PropertyManager() {
         p.id === propertyId ? { ...p, maintenanceTasks: [...p.maintenanceTasks, task], updatedAt, lastEditedBy } : p
       )
     );
+    if (tutorialActive) {
+      setTourTaskId(task.id);
+      bumpSignal("taskAdded");
+    }
   };
 
   const updateTaskStatus = (propertyId: string, taskId: string, status: MaintenanceTask["status"], note?: string) => {
     const { updatedAt, lastEditedBy } = touch();
+    rememberTaskUndo(propertyId, taskId);
+    if (tutorialActive) bumpSignal("taskStatusChanged");
     setProperties((prev) =>
       prev.map((p) =>
         p.id === propertyId
@@ -374,6 +517,7 @@ export default function PropertyManager() {
       await setRemotePropertySyncToken(sheetId, token);
       setLastPropertySyncToken(sheetId, token);
       stampSynced(sheetId);
+      if (tutorialActive) bumpSignal("pushed");
       flash("Pushed your property list to the sheet's Property tab.");
     } catch (e: any) {
       flash(e?.message ?? "Push failed.");
@@ -420,6 +564,7 @@ export default function PropertyManager() {
               href={sheetUrl(sheetId)}
               target="_blank"
               rel="noreferrer"
+              data-tutorial="property-open-sheet"
               className="block rounded-lg border border-surface-border px-3 py-2 text-sm text-green-700 hover:bg-surface-muted"
             >
               📗 Open My Google Sheet
@@ -464,7 +609,11 @@ export default function PropertyManager() {
             </button>
           </>
         ) : (
-          <div className="space-y-2">
+          // The tour's "Add property" step hands its glow over to this form
+          // the moment it mounts — the button it was hugging has just
+          // unmounted, and a ring measuring a dead node is what read as the
+          // glow flying across the screen. See targetSelectorPhase2.
+          <div className="space-y-2" data-tutorial="add-property-form">
             <p className="text-sm font-medium text-neutral-900">New property</p>
             <input
               autoFocus
@@ -521,6 +670,13 @@ export default function PropertyManager() {
             <PropertyCard
               key={p.id}
               property={p}
+              tourPropertyId={tourPropertyId}
+              tourPartId={tourPartId}
+              tourTaskId={tourTaskId}
+              statusUndo={
+                statusUndo && statusUndo.propertyId === p.id ? { label: statusUndo.label, onUndo: undoStatusChange } : null
+              }
+              onDismissUndo={() => setStatusUndo(null)}
               onUpdate={(patch) => updateProperty(p.id, patch)}
               onDelete={() => setConfirmDeleteId(p.id)}
               onAddPart={(input) => addPart(p.id, input)}
@@ -549,13 +705,7 @@ export default function PropertyManager() {
       )}
 
       {tutorialActive && (
-        <PropertyTutorialOverlay
-          exampleReceivedCount={
-            properties.find((p) => p.id === EXAMPLE_PROPERTY_ID)?.orderedParts.find((pt) => pt.id === EXAMPLE_PART_ID)
-              ?.quantityReceived ?? 0
-          }
-          onClose={() => setTutorialActive(false)}
-        />
+        <PropertyTutorialOverlay signals={tourSignals} onClose={() => setTutorialActive(false)} />
       )}
 
       {conflict && (
@@ -601,6 +751,18 @@ export default function PropertyManager() {
 
 interface CardProps {
   property: PropertyItem;
+  // The records the running tour is walking the customer through building.
+  // Null when no tour is running, which is the ordinary case — none of the
+  // `tour-*` hooks below render at all then.
+  tourPropertyId: string | null;
+  tourPartId: string | null;
+  tourTaskId: string | null;
+  // The most recent status change on *this* property, offered back. Lives on
+  // the card rather than inside the row that changed, because Completed and
+  // Cancelled fold their row away into the closed list — an undo button that
+  // vanishes along with the thing you want to undo is no use to anybody.
+  statusUndo: { label: string; onUndo: () => void } | null;
+  onDismissUndo: () => void;
   onUpdate: (patch: Partial<PropertyItem>) => void;
   onDelete: () => void;
   onAddPart: (input: NewPartInput) => void;
@@ -614,6 +776,11 @@ interface CardProps {
 
 function PropertyCard({
   property,
+  tourPropertyId,
+  tourPartId,
+  tourTaskId,
+  statusUndo,
+  onDismissUndo,
   onUpdate,
   onDelete,
   onAddPart,
@@ -824,11 +991,11 @@ function PropertyCard({
   // independent of which section it's rendered in.
   const renderPartRow = (part: OrderedPart, editable: boolean) => {
     const closingEntry = part.statusHistory[part.statusHistory.length - 1];
-    const isTutorialExamplePart = part.id === EXAMPLE_PART_ID;
+    const isTourPart = part.id === tourPartId;
     return (
       <div
         key={part.id}
-        data-tutorial={isTutorialExamplePart ? "tutorial-example-part" : undefined}
+        data-tutorial={isTourPart ? "tour-part" : undefined}
         className={`rounded-lg px-2 py-1.5 ${editable ? "bg-surface-muted" : "border border-green-200 bg-green-50"}`}
       >
         <div className="flex items-center gap-1.5">
@@ -856,7 +1023,7 @@ function PropertyCard({
                 {(part.quantityOrdered ?? 1) > 1 && part.estimatedDeliveryDate && " · "}
                 {part.estimatedDeliveryDate && (
                   <span
-                    data-tutorial={isTutorialExamplePart ? "tutorial-example-eta" : undefined}
+                    data-tutorial={isTourPart ? "tour-part-eta" : undefined}
                     className={isPartOverdue(part) ? "font-medium text-accent-low" : ""}
                   >
                     {isPartOverdue(part) && "⚠ overdue — "}
@@ -867,7 +1034,7 @@ function PropertyCard({
             )}
             {part.maintenanceTaskId && (
               <span
-                data-tutorial={isTutorialExamplePart ? "tutorial-example-task-link" : undefined}
+                data-tutorial={isTourPart ? "tour-part-task-link" : undefined}
                 className="block text-[10px] text-neutral-400"
               >
                 For: {property.maintenanceTasks.find((t) => t.id === part.maintenanceTaskId)?.description ?? "(task removed)"}
@@ -886,7 +1053,7 @@ function PropertyCard({
             <select
               value={part.status}
               onChange={(e) => handlePartStatusChange(part, e.target.value as OrderedPart["status"])}
-              data-tutorial={isTutorialExamplePart ? "tutorial-example-status-dropdown" : undefined}
+              data-tutorial={isTourPart ? "tour-part-status" : undefined}
               className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
             >
               {ORDERED_PART_STATUS_OPTIONS.map((opt) => (
@@ -904,7 +1071,7 @@ function PropertyCard({
             </button>
           )}
           <button
-            data-tutorial={isTutorialExamplePart ? "tutorial-example-history-button" : undefined}
+            data-tutorial={isTourPart ? "tour-part-history" : undefined}
             onClick={() => setHistoryOpenFor(historyOpenFor === part.id ? null : part.id)}
             aria-label="View status history"
             className={`flex items-center rounded-md border px-1.5 py-1 ${
@@ -915,7 +1082,7 @@ function PropertyCard({
           >
             <Clock size={12} />
           </button>
-          <div className="relative shrink-0">
+          <div className="relative shrink-0" data-tutorial={isTourPart ? "tour-part-find" : undefined}>
             <button
               onClick={() => setFindMenuForPartId(findMenuForPartId === part.id ? null : part.id)}
               aria-label="Find this part at a store"
@@ -946,7 +1113,7 @@ function PropertyCard({
           </div>
           {editable && (part.status === "ordered" || part.status === "shipped") && (
             <button
-              data-tutorial={isTutorialExamplePart ? "tutorial-example-log-receipt" : undefined}
+              data-tutorial={isTourPart ? "tour-part-receipt" : undefined}
               onClick={() => {
                 setReceiptPromptFor(receiptPromptFor === part.id ? null : part.id);
                 const remaining = (part.quantityOrdered ?? 1) - (part.quantityReceived ?? 0);
@@ -1088,6 +1255,7 @@ function PropertyCard({
           </div>
           {editable ? (
             <select
+              data-tutorial={task.id === tourTaskId ? "tour-task-status" : undefined}
               value={task.status}
               onChange={(e) => handleTaskStatusChange(task, e.target.value as MaintenanceTask["status"])}
               className="rounded-md border border-surface-border bg-white px-1.5 py-1 text-[11px] outline-none"
@@ -1185,13 +1353,41 @@ function PropertyCard({
     setEditing(false);
   };
 
-  const isTutorialExample = property.id === EXAMPLE_PROPERTY_ID;
+  const isTourProperty = property.id === tourPropertyId;
 
   return (
     <div
-      data-tutorial={isTutorialExample ? "tutorial-example-property" : undefined}
+      data-tutorial={isTourProperty ? "tour-property" : undefined}
       className="rounded-xl2 border border-surface-border bg-white p-4 shadow-card"
     >
+      {/* Take-back for the last status change on this property. Sits at the
+          top of the card on purpose: marking something Completed or
+          Cancelled folds its row into the closed list, so an undo living
+          inside the row would disappear at exactly the moment it's wanted.
+          It stays until the next status change, an undo, or the ×. */}
+      {statusUndo && (
+        <div
+          data-tutorial={isTourProperty ? "tour-status-undo" : undefined}
+          className="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5"
+        >
+          <span className="min-w-0 flex-1 truncate text-[11px] text-amber-800">
+            Status changed — {statusUndo.label}
+          </span>
+          <button
+            onClick={statusUndo.onUndo}
+            className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+          >
+            Undo
+          </button>
+          <button
+            onClick={onDismissUndo}
+            aria-label="Dismiss"
+            className="shrink-0 rounded-md p-1 text-amber-500 hover:bg-amber-100 hover:text-amber-700"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
       {!editing ? (
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
@@ -1213,7 +1409,7 @@ function PropertyCard({
               if (!openParts && !openTasks) {
                 return (
                   <p
-                    data-tutorial={isTutorialExample ? "tutorial-example-health" : undefined}
+                    data-tutorial={isTourProperty ? "tour-health" : undefined}
                     className="mt-1 text-[11px] font-medium text-green-700"
                   >
                     ✓ All clear — nothing open
@@ -1222,7 +1418,7 @@ function PropertyCard({
               }
               return (
                 <p
-                  data-tutorial={isTutorialExample ? "tutorial-example-health" : undefined}
+                  data-tutorial={isTourProperty ? "tour-health" : undefined}
                   className="mt-1 flex flex-wrap gap-x-1.5 text-[11px] text-neutral-500"
                 >
                   {openParts > 0 && (
@@ -1253,13 +1449,13 @@ function PropertyCard({
           <div className="flex shrink-0 gap-1">
             <button
               onClick={() => setEditing(true)}
-              data-tutorial={isTutorialExample ? "tutorial-example-edit" : undefined}
+              data-tutorial={isTourProperty ? "tour-edit" : undefined}
               className="rounded-lg px-2 py-1 text-xs font-medium text-neutral-500 hover:bg-surface-muted"
             >
               Edit
             </button>
             <button
-              data-tutorial={isTutorialExample ? "tutorial-example-delete" : undefined}
+              data-tutorial={isTourProperty ? "tour-delete" : undefined}
               onClick={onDelete}
               aria-label="Delete property"
               className="rounded-lg p-1.5 text-neutral-400 hover:bg-red-50 hover:text-accent-low"
@@ -1269,7 +1465,7 @@ function PropertyCard({
           </div>
         </div>
       ) : (
-        <div className="mb-3 space-y-2">
+        <div className="mb-3 space-y-2" data-tutorial={isTourProperty ? "tour-edit-form" : undefined}>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -1325,14 +1521,17 @@ function PropertyCard({
         {!addPartOpen ? (
           <button
             onClick={() => setAddPartOpen(true)}
-            data-tutorial={isTutorialExample ? "tutorial-example-add-part" : undefined}
+            data-tutorial={isTourProperty ? "tour-add-part" : undefined}
             className="mt-1.5 flex items-center gap-1 text-xs font-medium text-neutral-500 hover:text-neutral-700"
           >
             <Plus size={13} /> Add a part
           </button>
         ) : (
-          <div className="mt-1.5 space-y-1.5 rounded-lg border border-surface-border p-2">
-            <div className="flex gap-1.5">
+          <div
+            className="mt-1.5 space-y-1.5 rounded-lg border border-surface-border p-2"
+            data-tutorial={isTourProperty ? "tour-add-part-form" : undefined}
+          >
+            <div className="flex gap-1.5" data-tutorial={isTourProperty ? "tour-part-lookup" : undefined}>
               <input
                 value={partNumber}
                 onChange={(e) => setPartNumber(e.target.value)}
@@ -1510,7 +1709,7 @@ function PropertyCard({
             .filter((task) => !isTaskClosed(task.status))
             .map((task) => renderTaskRow(task, true))}
         </div>
-        <div className="mt-1.5 flex gap-1.5" data-tutorial={isTutorialExample ? "tutorial-example-add-task" : undefined}>
+        <div className="mt-1.5 flex gap-1.5" data-tutorial={isTourProperty ? "tour-add-task" : undefined}>
           <input
             value={newTask}
             onChange={(e) => setNewTask(e.target.value)}

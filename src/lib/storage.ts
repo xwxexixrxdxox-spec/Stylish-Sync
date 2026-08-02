@@ -481,13 +481,23 @@ export function loadMovements(): StockMovement[] {
   }
 }
 
-export function logMovement(entry: Omit<StockMovement, "id">): void {
-  if (typeof window === "undefined") return;
-  if (!entry.delta) return; // no actual quantity change - nothing to log
+// Returns the id of the entry it just wrote, or null when nothing was
+// written (SSR, or a zero delta). Callers that need to be able to take the
+// entry back out again later — the undo affordance on the +/- stepper — hold
+// onto that id and hand it to replaceMovements() with the entry filtered
+// out. Undoing a miscount has to remove the movement, not log a compensating
+// one: a customer who tapped + one too many times never used that unit, and
+// leaving a +1/-1 pair behind would show up on the Usage tab as real
+// activity that never happened.
+export function logMovement(entry: Omit<StockMovement, "id">): string | null {
+  if (typeof window === "undefined") return null;
+  if (!entry.delta) return null; // no actual quantity change - nothing to log
   const movements = loadMovements();
-  movements.push({ id: `mv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...entry });
+  const id = `mv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  movements.push({ id, ...entry });
   const trimmed = movements.length > MAX_MOVEMENTS ? movements.slice(movements.length - MAX_MOVEMENTS) : movements;
   window.localStorage.setItem(MOVEMENTS_KEY, JSON.stringify(trimmed));
+  return id;
 }
 
 // Bulk version of logMovement, for usage-history imports that can add

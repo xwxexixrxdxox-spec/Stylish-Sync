@@ -13,6 +13,9 @@ interface Props {
   setSheetId: (id: string | null) => void;
   onBookingMatch?: (bookingId: string | null) => void;
   onReplayTutorial?: () => void;
+  // Pass-through for AccountTab's tutorial-aware Start Fresh — see its
+  // Props comment. Only wired up while the tour is running.
+  onLocalFresh?: () => void;
 }
 
 // Account settings live in a collapsible sidebar rather than a slot in the
@@ -29,6 +32,7 @@ export default function AccountSidebar({
   setSheetId,
   onBookingMatch,
   onReplayTutorial,
+  onLocalFresh,
 }: Props) {
   return (
     <>
@@ -65,6 +69,7 @@ export default function AccountSidebar({
             setSheetId={setSheetId}
             onBookingMatch={onBookingMatch}
             onReplayTutorial={onReplayTutorial}
+            onLocalFresh={onLocalFresh}
           />
         </div>
       </div>
