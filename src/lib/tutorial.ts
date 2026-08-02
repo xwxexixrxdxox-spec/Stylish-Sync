@@ -182,6 +182,23 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "Hold for bigger changes",
     body: "Now try pressing and holding either button — that adjusts several at once, handy for a big restock or a big pull. Take your time; tap Move on whenever you're ready to keep going.",
   },
+  // Deliberately placed straight after the two stepper steps, because the
+  // chip this points at only exists once the customer has actually adjusted
+  // something — and by here they just have. It survives the whole tour
+  // rather than timing out after ten seconds (see page.tsx's expiry effect,
+  // which stands down while the tour is running), so the glow always has
+  // something real to wrap. A customer who tapped Move on without touching
+  // either button has no chip, and the overlay quietly skips the step rather
+  // than glowing around nothing.
+  {
+    id: "stock-undo",
+    chapter: "Inventory",
+    tab: "inventory",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="item-stock-undo"]',
+    title: "Tapped one too many? Undo it",
+    body: "Tap one too many and this Undo chip appears, right under the buttons. It puts the count back where it was, and it takes the entry out of your usage history with it. That second part is the one that matters. A unit you never actually took off the shelf should not turn up in next month's numbers as if you did.",
+  },
   {
     id: "inventory-search-sort",
     chapter: "Inventory",

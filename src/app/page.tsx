@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Compass, Menu, X, Check } from "lucide-react";
 import { InventoryItem } from "@/lib/types";
 import {
@@ -54,7 +54,44 @@ const ADJUST_UNDO_WINDOW_MS = 10_000;
 
 export default function HomePage() {
   const [tab, setTab] = useState<TabId>("inventory");
-  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [items, setItemsState] = useState<InventoryItem[]>([]);
+  // A synchronous mirror of `items`, and the thing every write goes through
+  // (setItems below). This exists because of a real, reproducible bug:
+  // handing a function to a React state setter does NOT mean that function
+  // runs there and then. React only evaluates an updater eagerly while the
+  // component has no other work already scheduled; the moment anything else
+  // on this component has queued an update in the same tick, the updater is
+  // deferred to the next render instead. Every +/- tap schedules several
+  // updates at once (the stepper's own badge, the activity ping, the
+  // quantity itself), so on a fast double tap - and on every tick of
+  // hold-to-repeat - a pattern like
+  //
+  //     let applied = 0;
+  //     setItems((prev) => { applied = ...; return next; });
+  //     if (applied !== 0) logMovement(...);        // <- never ran
+  //
+  // silently skipped both the StockMovement and the Undo offer while the
+  // quantity itself still changed. Verified live: two taps in one tick moved
+  // an item from 6 to 8, wrote zero movement entries, and showed no Undo
+  // chip - stock leaving the shelf with nothing on the Usage tab to show for
+  // it, and no way to take it back. Reading and writing through a ref makes
+  // the newest list available in the same tick it was produced, which is
+  // what the logging actually needs.
+  const itemsRef = useRef<InventoryItem[]>([]);
+  itemsRef.current = items;
+
+  // Applies a change to the live list and hands back both the list it
+  // replaced and the list it produced, so a delta can be logged immediately
+  // rather than hoped for. Everything writes through here rather than
+  // setItemsState - a functional updater that slipped past the ref would put
+  // the mirror behind again for whatever ran next in the same tick.
+  const setItems = (next: InventoryItem[] | ((prev: InventoryItem[]) => InventoryItem[])) => {
+    const prev = itemsRef.current;
+    const value = typeof next === "function" ? (next as (p: InventoryItem[]) => InventoryItem[])(prev) : next;
+    itemsRef.current = value;
+    setItemsState(value);
+    return { prev, next: value };
+  };
   const [sheetId, setSheetIdState] = useState<string | null>(null);
   const [showLoadScreen, setShowLoadScreen] = useState(true);
   const [loadScreenExiting, setLoadScreenExiting] = useState(false);
@@ -169,24 +206,23 @@ export default function HomePage() {
   };
 
   const upsertItem = (item: InventoryItem) => {
-    // Same stale-closure-safe pattern as adjust() below: the quantity delta
-    // is diffed against `prev` from inside the updater, not against the
-    // `items` this closure captured when upsertItem() was called. Needed so
-    // a customer correcting a count through the full Edit item modal (the
-    // Quantity field) logs a movement too, the same way the +/- stepper and
-    // tap-to-edit chip already do via adjust() - previously this path
-    // updated `quantity` with no StockMovement at all, so the Usage tab
-    // could show zero usage for an item a customer had visibly used and
-    // corrected by hand.
-    let delta = 0;
-    setItems((prev) => {
-      const idx = prev.findIndex((it) => it.id === item.id);
-      if (idx === -1) return [...prev, item];
-      delta = item.quantity - prev[idx].quantity;
-      const next = [...prev];
+    // The quantity delta is diffed against the list as it stands right now
+    // (setItems's `prev`), not against the `items` this closure captured
+    // when upsertItem() was called. Needed so a customer correcting a count
+    // through the full Edit item modal (the Quantity field) logs a movement
+    // too, the same way the +/- stepper and tap-to-edit chip already do via
+    // adjust() - previously this path updated `quantity` with no
+    // StockMovement at all, so the Usage tab could show zero usage for an
+    // item a customer had visibly used and corrected by hand.
+    const { prev } = setItems((current) => {
+      const idx = current.findIndex((it) => it.id === item.id);
+      if (idx === -1) return [...current, item];
+      const next = [...current];
       next[idx] = item;
       return next;
     });
+    const before = prev.find((it) => it.id === item.id);
+    const delta = before ? item.quantity - before.quantity : 0;
     if (delta !== 0) {
       logMovement({ itemId: item.id, delta, reason: "manual-adjust", at: new Date().toISOString(), by: item.lastEditedBy });
     }
@@ -247,24 +283,29 @@ export default function HomePage() {
   };
 
   const adjust = (id: string, delta: number) => {
-    // The logged delta is computed from `prev` inside the updater itself,
-    // not from the `items` closed over when adjust() was called - a rapid
-    // burst of taps (hold-to-repeat on +/-) fires several adjust() calls
-    // before React re-renders, so every call after the first would
-    // otherwise see the same stale pre-burst quantity and log the wrong
-    // (or a duplicate) delta instead of the one actually applied on top of
-    // whatever the previous call in the burst just did.
-    let applied = 0;
+    // The logged delta is diffed against the list as it stands right now,
+    // not against the `items` closed over when adjust() was called - a rapid
+    // burst of taps (a fast double tap, or hold-to-repeat on +/-) fires
+    // several adjust() calls before React re-renders, so every call after
+    // the first would otherwise see the same stale pre-burst quantity and
+    // log the wrong (or a duplicate) delta instead of the one actually
+    // applied on top of whatever the previous call in the burst just did.
+    // `applied` rather than `delta` because the quantity is clamped at zero:
+    // tapping minus on an item already at 0 changes nothing, and logging a
+    // -1 there would invent usage that never happened.
     const editorName = getEditorName() ?? undefined;
-    setItems((prev) =>
-      prev.map((it) => {
-        if (it.id !== id) return it;
-        const nextQuantity = Math.max(0, it.quantity + delta);
-        applied = nextQuantity - it.quantity;
-        return { ...it, quantity: nextQuantity, updatedAt: new Date().toISOString(), lastEditedBy: editorName };
-      })
-    );
+    const target = itemsRef.current.find((it) => it.id === id);
+    if (!target) return;
+    const nextQuantity = Math.max(0, target.quantity + delta);
+    const applied = nextQuantity - target.quantity;
     if (applied !== 0) {
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === id
+            ? { ...it, quantity: nextQuantity, updatedAt: new Date().toISOString(), lastEditedBy: editorName }
+            : it
+        )
+      );
       const movementId = logMovement({
         itemId: id,
         delta: applied,
