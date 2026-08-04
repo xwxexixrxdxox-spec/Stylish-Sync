@@ -534,6 +534,31 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "All time is the honest average",
     body: "Last one. All uses every movement ever recorded for this item, back to the first one. It is the fairest number you have for setting a reorder point, because it is not flattered by a good month or dragged down by a slow one. Whichever range you leave selected only changes what you are looking at, never the underlying history.",
   },
+  // The customer asked for this one by name: the Suggested reorder point card
+  // and its Apply button had no step at all, so the single feature that turns
+  // all that usage history into an actual decision was the one thing the tour
+  // never mentioned. It lands right after usage-timeframe-all deliberately -
+  // that step closes on "the fairest number you have for setting a reorder
+  // point," and this is where that number finally gets used.
+  //
+  // Two targets. Phase 1 is the card, which renders in all three of its
+  // branches. Phase 2 is the Apply button, which only exists when there IS a
+  // suggestion and it differs from what the item is already set to - on a
+  // fresh account walking the tour there is usually little or no movement
+  // history, so the card reads "not enough usage history yet" and no button
+  // renders at all. switchTarget() no-ops on a selector that never matches, so
+  // the glow simply stays on the card, and the narration is written to be true
+  // either way rather than promising a button that might not be there.
+  {
+    id: "usage-reorder-suggestion",
+    chapter: "Usage",
+    tab: "usage",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="usage-suggested-reorder"]',
+    targetSelectorPhase2: '[data-tutorial="usage-apply-reorder"]',
+    title: "Let the app pick the number for you",
+    body: "This card takes the average you were just looking at, adds about a week of cover, and suggests a reorder point from it. A week is an assumption, not a fact, because the app has no idea how long your supplier actually takes, so treat it as a sensible starting point rather than gospel. When there is a number here and an Apply button beside it, one tap sets it on the item. If it says there is not enough history yet, that is fine and expected on a fresh account: it fills itself in on its own once a few days of real use have been logged.",
+  },
   {
     id: "support",
     chapter: "Support",

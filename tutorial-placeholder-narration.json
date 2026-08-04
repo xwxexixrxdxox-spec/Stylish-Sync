@@ -94,6 +94,10 @@
       "text": "[Alice] All time is the honest average.\n[Alice] Last one.\n[Alice] All uses every movement ever recorded for this item, back to the first one.\n[Alice] It is the fairest number you have for setting a reorder point, because it is not flattered by a good month or dragged down by a slow one.\n[Alice] Whichever range you leave selected only changes what you are looking at, never the underlying history."
     },
     {
+      "id": "usage-reorder-suggestion",
+      "text": "[Alice] Let the app pick the number for you.\n[Alice] This card takes the average you were just looking at, adds about a week of cover, and suggests a reorder point from it.\n[Alice] A week is an assumption, not a fact, because the app has no idea how long your supplier actually takes, so treat it as a sensible starting point rather than gospel.\n[Alice] When there is a number here and an Apply button beside it, one tap sets it on the item.\n[Alice] If it says there is not enough history yet, that is fine and expected on a fresh account: it fills itself in on its own once a few days of real use have been logged."
+    },
+    {
       "id": "google-signin",
       "text": "[Alice] Here is the fork in the road.\n[Alice] Everything from here on is about the spreadsheet, so this is worth stopping on.\n[Alice] Signing in with Google puts your inventory in a spreadsheet you own, readable from any computer, and still there if this phone goes in a puddle.\n[Alice] If you want that, sign in now and I will walk you through sending it up and pulling it back.\n[Alice] If you would rather not have a Google account tied to this, that is a completely fair answer, and you can close the tour with the X in the corner.\n[Alice] Nothing you have learned so far depends on it."
     },

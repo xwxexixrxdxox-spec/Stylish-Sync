@@ -409,7 +409,18 @@ export default function UsageTab({ items, onSave, tutorialFocusItemId }: Props) 
                 </div>
               </div>
 
-              <div className="mb-4 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+              {/* The tour's phase-1 target. This wrapper renders in all three
+                  branches below, including the "not enough history yet" one,
+                  which is the branch a brand-new customer walking the tour on a
+                  fresh account will usually land in. The Apply button below is
+                  the phase-2 target and only exists in one branch; a phase-2
+                  selector that never matches degrades to "the glow stays put"
+                  (see switchTarget in TutorialOverlay.tsx), so the step is safe
+                  either way and the narration covers both outcomes. */}
+              <div
+                data-tutorial="usage-suggested-reorder"
+                className="mb-4 rounded-xl2 border border-surface-border bg-white p-4 shadow-card"
+              >
                 <p className="text-xs font-medium text-neutral-500">Suggested reorder point</p>
                 {suggestedReorderPoint === null ? (
                   <p className="mt-1 text-xs text-neutral-400">
@@ -434,6 +445,7 @@ export default function UsageTab({ items, onSave, tutorialFocusItemId }: Props) 
                       gives about a week of buffer. Currently set to {selectedItem?.reorderAt}.
                     </p>
                     <button
+                      data-tutorial="usage-apply-reorder"
                       onClick={applySuggestedReorderPoint}
                       className="shrink-0 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
                     >
