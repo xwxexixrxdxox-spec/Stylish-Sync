@@ -297,7 +297,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   // Trimmed down from the old combined step: the quantity-chip explanation
   // that used to open this step is gone, and what's left is a brief
-  // overview before three dedicated steps below let the customer try each
+  // overview before four dedicated steps below let the customer try each
   // icon themselves.
   {
     id: "item-action-icons",
@@ -316,6 +316,26 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     targetSelector: '[data-tutorial="item-action-breakdown"]',
     title: "Break down a case",
     body: "Tap this icon to split a sealed case into individual units. It's handy the moment a case actually gets opened, so the count stays accurate at both levels.",
+  },
+  // The icons overview above has always named four icons, and until now only
+  // three of them got a step of their own, so the tour introduced Move stock
+  // by name and then never came back to it. Sits second, matching the order
+  // the icons actually render in on the card.
+  //
+  // The button itself only renders when the item has a barcode, since a move
+  // is defined as shifting units between location rows that share one barcode
+  // (see MoveStockDialog.tsx). The tour's focus item, seed-1, has one, so it
+  // is there on the demo path. On the off chance it is not, a step whose
+  // targetSelector never matches is already skipped in the direction of
+  // travel, so no requiresSelector guard is needed here.
+  {
+    id: "item-action-move",
+    chapter: "Inventory",
+    tab: "inventory",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="item-action-move"]',
+    title: "Move stock somewhere else",
+    body: "Use this one when stock physically moves from one place to another, like a case coming out of the back room and into the front fridge. You say how many units and where they are headed, and the app takes them off this row and puts them on a row for that location. If that location does not have a row for this product yet, one is created for you with the same unit, price, and reorder point. Your total on hand does not change, only where the app thinks it is sitting.",
   },
   {
     id: "item-action-edit",

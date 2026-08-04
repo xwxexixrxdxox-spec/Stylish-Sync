@@ -34,6 +34,10 @@
       "text": "[Alice] Break down a case.\n[Alice] Tap this icon to split a sealed case into individual units.\n[Alice] It's handy the moment a case actually gets opened, so the count stays accurate at both levels."
     },
     {
+      "id": "item-action-move",
+      "text": "[Alice] Move stock somewhere else.\n[Alice] Use this one when stock physically moves from one place to another, like a case coming out of the back room and into the front fridge.\n[Alice] You say how many units and where they are headed, and the app takes them off this row and puts them on a row for that location.\n[Alice] If that location does not have a row for this product yet, one is created for you with the same unit, price, and reorder point.\n[Alice] Your total on hand does not change, only where the app thinks it is sitting."
+    },
+    {
       "id": "item-action-edit",
       "text": "[Alice] Edit the full details.\n[Alice] The pencil opens this item's full details, including name, barcode, reorder point, usage tracking window, and more."
     },
