@@ -544,6 +544,15 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
       // instead of requiring a Next tap. "idle"/"checking" are the two
       // in-flight states; anything else means a real answer came back.
       data-tutorial-lookup-status={lookupStatus}
+      // Read-only mirror of `scanning`, for the tour's "scan" step to hold
+      // itself while the camera is actually open (its `pauseWhile`, see
+      // tutorial.ts). Pointing a phone at a barcode is a two-handed job, and
+      // a voice still narrating over an amber ring around the viewfinder
+      // turns "point this at a barcode" into a competition for attention.
+      // The same attribute is what tells the tour the camera episode ended -
+      // whether that was a real scan or a cancel - which is the customer's
+      // own cue for moving the glow onto the barcode details below.
+      data-tutorial-scanning={scanning ? "true" : "false"}
     >
       <h1 className="mb-4 flex items-center gap-2 text-lg font-semibold text-neutral-900">
         <span aria-hidden>📷</span> Scan
@@ -693,7 +702,16 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
         <p className="mt-1 font-mono text-[10px] text-neutral-400">last photo: {photoDiagnostic}</p>
       )}
 
-      <div className="mt-5 space-y-3 rounded-xl2 border border-surface-border bg-white p-4 shadow-card">
+      {/* Where a scan actually lands. Tagged for the tour's "scan-details"
+          step, which glows the Barcode field first (that field plus its
+          status line is what the customer called "the barcode information
+          field") and then widens to this whole card, since the description,
+          location, quantity and price are all part of the same result. */}
+      <div
+        className="mt-5 space-y-3 rounded-xl2 border border-surface-border bg-white p-4 shadow-card"
+        data-tutorial="scan-details-card"
+      >
+        <div data-tutorial="scan-barcode-field">
         <Field label="Barcode">
           <input
             className="input"
@@ -775,6 +793,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
             </p>
           )}
         </Field>
+        </div>
         {lookupStatus === "existing-multi" && (
           <div className="space-y-1.5 rounded-lg border border-surface-border bg-surface-muted p-2">
             <p className="text-[11px] font-medium text-neutral-600">Which location?</p>

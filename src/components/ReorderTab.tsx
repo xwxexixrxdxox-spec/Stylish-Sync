@@ -140,6 +140,18 @@ export default function ReorderTab({ items }: Props) {
             <button
               key={opt}
               onClick={() => handleSearchByChange(opt)}
+              // Tour hooks on the two individual pills the tour actually
+              // asks for by name. The row as a whole is still tagged above
+              // for the step that introduces all three at once; these let
+              // the follow-up steps put the glow on the one pill they are
+              // talking about rather than the whole row.
+              data-tutorial={
+                opt === "barcode"
+                  ? "reorder-search-by-barcode"
+                  : opt === "name"
+                    ? "reorder-search-by-description"
+                    : undefined
+              }
               className={`rounded-full px-2 py-0.5 font-medium ${
                 searchBy === opt
                   ? "bg-neutral-900 text-white"
@@ -209,7 +221,18 @@ export default function ReorderTab({ items }: Props) {
                           the menu itself, same pattern used elsewhere in
                           this app for dismissible popovers. */}
                       <div className="fixed inset-0 z-10" onClick={() => setFindMenuFor(null)} />
-                      <div className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-lg border border-surface-border bg-white shadow-card">
+                      {/* Tour hook: the retailer list itself, not the button
+                          that opens it. The customer's note on the old tour
+                          was that the glow "didn't fit the store dropdown" -
+                          it was ringing a small button while the actual list
+                          of stores hung below it, unlit. This menu is
+                          absolutely positioned, so it can't grow the wrapper
+                          it lives in; the tour has to be able to name it
+                          directly (see retargetWhilePresent in tutorial.ts). */}
+                      <div
+                        className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-lg border border-surface-border bg-white shadow-card"
+                        data-tutorial={itemIndex === 0 ? "reorder-find-at-menu" : undefined}
+                      >
                         {RETAILERS.map((r) => (
                           <a
                             key={r.id}

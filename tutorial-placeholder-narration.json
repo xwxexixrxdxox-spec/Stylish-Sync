@@ -46,8 +46,24 @@
       "text": "[Alice] Two ways to log stock.\n[Alice] Barcode mode is for one item at a time.\n[Alice] Receipt mode reads a whole photographed receipt at once, which is great right after a big supply run.\n[Alice] Accuracy can be hit or miss on a crumpled or blurry receipt, so it's worth a quick double-check of the results before trusting them completely."
     },
     {
-      "id": "reorder-search-and-find",
-      "text": "[Alice] Choose how it searches, then where to buy.\n[Alice] This toggle controls whether Find at searches by barcode or by name.\n[Alice] Find at itself jumps straight to a search on a few common retailer sites.\n[Alice] Give both a try.\n[Alice] There's no rush, take whatever time you need."
+      "id": "scan",
+      "text": "[Alice] Scan barcodes or receipts.\n[Alice] Tap Scan Barcode and point the camera at any barcode you have to hand.\n[Alice] The tour waits quietly while the camera is open, so take as long as you need.\n[Alice] Nothing to scan right now?\n[Alice] Cancel the camera and we will carry on."
+    },
+    {
+      "id": "scan-details",
+      "text": "[Alice] What the scan filled in.\n[Alice] The barcode lands here, and the description and price fill themselves in whenever the product is one we can look up.\n[Alice] Anything left blank is yours to type.\n[Alice] Set the quantity, then use Add Stock or Remove to log the movement."
+    },
+    {
+      "id": "reorder-search-by",
+      "text": "[Alice] Decide what it searches for.\n[Alice] Before you go looking for anything, this row decides what gets typed into the store's search box for you.\n[Alice] Auto uses the barcode when the item has one and falls back to the name when it does not.\n[Alice] Barcode and Description pin it to one or the other.\n[Alice] It is remembered on this device, so it is a one time choice rather than something to think about on every order."
+    },
+    {
+      "id": "reorder-find-at-barcode",
+      "text": "[Alice] Search a store by barcode.\n[Alice] Tap Barcode, then tap Find at and pick a store.\n[Alice] A barcode is the most exact thing you can hand a retailer, so this usually lands you on the product page itself rather than a page of near misses.\n[Alice] It opens in a new tab, so this list stays right where it is.\n[Alice] Go and have a look, then come back and tap the arrow."
+    },
+    {
+      "id": "reorder-find-at-description",
+      "text": "[Alice] Now search the same store by description.\n[Alice] Now tap Description and try the same store again.\n[Alice] This is the one you will lean on for anything without a barcode, and for the supplies where any brand will do.\n[Alice] The results are broader, so check the size and the pack count before you buy.\n[Alice] Whichever of the two you leave selected is the one it will use next time."
     },
     {
       "id": "reorder-package-tracking",
@@ -62,8 +78,36 @@
       "text": "[Alice] Zoom in or out on any time frame.\n[Alice] These buttons switch the chart between a week, a month, a few months, or all-time.\n[Alice] It's the fastest way to tell a one-off spike apart from a real ongoing trend."
     },
     {
+      "id": "usage-timeframe-7",
+      "text": "[Alice] Seven days answers what changed.\n[Alice] Tap 7d.\n[Alice] A week is short enough that one busy day still shows up as a bump, which is what you want when somebody says we are going through these faster than usual.\n[Alice] If this number looks nothing like the longer ranges, something changed recently and it is worth finding out what."
+    },
+    {
+      "id": "usage-timeframe-30",
+      "text": "[Alice] Thirty days is your ordering rhythm.\n[Alice] Now tap 30d.\n[Alice] This is the one most people live in, because it lines up with how often orders actually get placed.\n[Alice] A single quiet weekend or one heavy Monday stops mattering at this length, so the average you see here is close to what you should be buying."
+    },
+    {
+      "id": "usage-timeframe-90",
+      "text": "[Alice] Ninety days shows the season.\n[Alice] Tap 90d.\n[Alice] Three months is long enough to see the shape of a year forming.\n[Alice] Salt and windshield fluid climb into winter, filters and coolant climb into summer, and none of that is visible in a week.\n[Alice] This is the range to check before you commit to a big order."
+    },
+    {
+      "id": "usage-timeframe-all",
+      "text": "[Alice] All time is the honest average.\n[Alice] Last one.\n[Alice] All uses every movement ever recorded for this item, back to the first one.\n[Alice] It is the fairest number you have for setting a reorder point, because it is not flattered by a good month or dragged down by a slow one.\n[Alice] Whichever range you leave selected only changes what you are looking at, never the underlying history."
+    },
+    {
+      "id": "google-signin",
+      "text": "[Alice] Here is the fork in the road.\n[Alice] Everything from here on is about the spreadsheet, so this is worth stopping on.\n[Alice] Signing in with Google puts your inventory in a spreadsheet you own, readable from any computer, and still there if this phone goes in a puddle.\n[Alice] If you want that, sign in now and I will walk you through sending it up and pulling it back.\n[Alice] If you would rather not have a Google account tied to this, that is a completely fair answer, and you can close the tour with the X in the corner.\n[Alice] Nothing you have learned so far depends on it."
+    },
+    {
       "id": "account-push-test",
-      "text": "[Alice] Push sends this device's copy up.\n[Alice] If you connected Google Sheets a moment ago, go ahead and tap Push to Sheet now.\n[Alice] It sends this device's current inventory up to your spreadsheet.\n[Alice] Nothing syncs automatically.\n[Alice] It only happens when you tap it."
+      "text": "[Alice] Push sends this device's copy up.\n[Alice] Tap Push to Sheet now.\n[Alice] It sends this device's current inventory up to your spreadsheet, and it is the half of syncing that people forget.\n[Alice] Nothing goes up on its own.\n[Alice] It happens when you tap this, and only when you tap this."
+    },
+    {
+      "id": "start-fresh",
+      "text": "[Alice] Clear this device's copy.\n[Alice] Tap Start Fresh whenever you are ready.\n[Alice] Read this part carefully, because it is the one people get wrong.\n[Alice] Start Fresh clears this device and only this device.\n[Alice] It does not delete your Google Sheet, it does not empty it, and it does not change a single row in it.\n[Alice] Your spreadsheet sits there exactly as you left it, which is why the very next step can bring the whole lot back down."
+    },
+    {
+      "id": "start-fresh-solo",
+      "text": "[Alice] Clear this device's copy.\n[Alice] Start Fresh clears this device: the sample items, and anything you have added or changed while we have been talking.\n[Alice] Since you have not connected a spreadsheet, there is nowhere to bring it back from afterwards, so this one is a one way trip today.\n[Alice] That changes the moment you connect a sheet and push to it.\n[Alice] Tap it if you want a clean slate to start your real stock on, or leave it alone and tap the arrow."
     },
     {
       "id": "account-name-tag",
@@ -71,7 +115,7 @@
     },
     {
       "id": "account-pull-test",
-      "text": "[Alice] Pull brings it back down.\n[Alice] And if you pushed earlier, tap Pull from Sheet now to bring that same inventory right back.\n[Alice] That's proof your data really does live safely in the spreadsheet, not just on this one device."
+      "text": "[Alice] Pull brings it back down.\n[Alice] Now tap Pull from Sheet, and watch everything you just cleared come straight back.\n[Alice] That is the whole point of the last three steps in one motion.\n[Alice] Your inventory does not live on this phone.\n[Alice] It lives in a spreadsheet you own, and this device is just one way of looking at it."
     },
     {
       "id": "account-manage-property",
@@ -93,27 +137,27 @@
   "property": [
     {
       "id": "property-sync-actions",
-      "text": "[Alice] Syncs to its own tab, same sheet.\n[Alice] Once Google Sheets is connected from the Account panel, Property gets its own Property tab on that same spreadsheet.\n[Alice] Push sends this device's list there, and Pull brings it back."
+      "text": "[Alice] It syncs to its own tab.\n[Alice] Property gets its own tab on the same Google Sheet your inventory already uses.\n[Alice] Push sends this device's list up to it, and Pull brings it back down.\n[Alice] We will come back here at the end, once you have built something worth sending."
     },
     {
       "id": "add-property",
-      "text": "[Alice] Add your own whenever you're ready.\n[Alice] This button opens a short form, with name, location, serial number, and notes, for anything you want to track going forward."
+      "text": "[Alice] Name the thing you look after.\n[Alice] Tap Add property, and the form opens right where the button was.\n[Alice] Give it a name you would actually recognize on a work order, like Washing Machine, Laundry Room.\n[Alice] Location, serial number, and notes are all optional, so fill in what you know and leave the rest empty.\n[Alice] Tap Add when you are happy with it, and I will pick things up from there."
     },
     {
-      "id": "example-edit",
-      "text": "[Alice] Edit the details any time.\n[Alice] Tap Edit to update a property's name, location, serial number, or notes.\n[Alice] Nothing here is locked in once it's added."
+      "id": "part-lookup",
+      "text": "[Alice] Let the part number do the typing.\n[Alice] If you have a part number, off the old part or out of the manual, type it here and tap Look up.\n[Alice] It fills in the description and a rough price for you, which beats typing all of it twice.\n[Alice] When more than one product matches, it shows you the choices instead of guessing, and you pick the one that looks right.\n[Alice] If you do not have a part number at all, skip this field completely."
     },
     {
-      "id": "example-status-dropdown",
-      "text": "[Alice] Or just set the status directly.\n[Alice] Logging a receipt isn't the only way to move a part along.\n[Alice] This dropdown lets you jump straight to Ordered, Shipped, Received, Installed, or Cancelled whenever that's a better fit."
+      "id": "part-description",
+      "text": "[Alice] No part number? Describe it instead.\n[Alice] This field is the only thing the form truly needs, and it is what you fall back on when there is no part number anywhere on the old part.\n[Alice] Write it the way you would say it out loud to somebody behind a trade counter, like GE dryer drive belt.\n[Alice] That description is also what gets searched when you go looking for it in a store in a moment, so a few extra words here save you scrolling through the wrong products later."
     },
     {
-      "id": "example-add-part",
-      "text": "[Alice] Add a part right from here.\n[Alice] Type or scan a part number to look it up, or just fill in the description yourself.\n[Alice] Quantity, price, and an expected delivery date are all optional."
+      "id": "part-details",
+      "text": "[Alice] Fill in what you know.\n[Alice] Quantity, price, and an expected by date are all optional, but the expected date earns its five seconds.\n[Alice] The row turns red on its own the day the part is late, so a delivery that quietly never arrived cannot hide from you.\n[Alice] Tap Add part when you are done."
     },
     {
-      "id": "example-add-task",
-      "text": "[Alice] Track maintenance the same way.\n[Alice] Type a repair or maintenance job here and hit enter to add it to the list.\n[Alice] Its own status and history work exactly like an ordered part's."
+      "id": "part-find-at-store",
+      "text": "[Alice] Go and price it, I'll wait.\n[Alice] Have not actually ordered it yet?\n[Alice] Tap the cart icon and pick a store from the list that drops down.\n[Alice] It searches that retailer for the description you just wrote, in a brand new tab, so you can compare prices, order it, and come straight back.\n[Alice] This page will still be sitting right here waiting for you.\n[Alice] Take as long as you need, and tap the arrow when you are back."
     },
     {
       "id": "replay-tour",
@@ -121,7 +165,7 @@
     },
     {
       "id": "wrap-up",
-      "text": "[Alice] That's Property tracking!\n[Alice] Delete the example with this icon whenever you're ready, then add your own.\n[Alice] When you're done, close this with the X up in the corner."
+      "text": "[Alice] That's Property tracking!\n[Alice] Everything you just built is real, and it is yours to keep.\n[Alice] If you made the equipment up, the trash icon removes it and you can start again on the real thing.\n[Alice] Close this with the X up in the corner whenever you are ready."
     }
   ]
 }

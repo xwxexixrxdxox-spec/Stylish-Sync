@@ -1094,7 +1094,15 @@ function PropertyCard({
             {findMenuForPartId === part.id && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setFindMenuForPartId(null)} />
-                <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-surface-border bg-white shadow-card">
+                {/* Tour hook: the retailer list, so the glow can grow onto it
+                    when it opens instead of ringing the little cart button
+                    while the store names hang below it unlit. Same fix, same
+                    reason, as the Reorder tab's reorder-find-at-menu - see
+                    retargetWhilePresent in propertyTutorial.ts. */}
+                <div
+                  className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-surface-border bg-white shadow-card"
+                  data-tutorial={isTourPart ? "tour-part-find-menu" : undefined}
+                >
                   {RETAILERS.map((r) => (
                     <a
                       key={r.id}
@@ -1554,7 +1562,15 @@ function PropertyCard({
               <p className="text-[11px] text-amber-700">No match for that part number — enter details manually.</p>
             )}
             {lookupStatus === "multiple" && (
-              <div className="space-y-1 rounded-lg bg-surface-muted p-1.5">
+              /* Tour hook: the candidates picker. It only exists when a
+                 lookup came back with more than one plausible match, which
+                 is exactly why the tour can't simply target it - the step
+                 points at the Look up row and lets the glow move onto this
+                 if and when it appears (retargetWhilePresent). */
+              <div
+                className="space-y-1 rounded-lg bg-surface-muted p-1.5"
+                data-tutorial={isTourProperty ? "tour-part-candidates" : undefined}
+              >
                 <p className="px-0.5 text-[11px] font-medium text-neutral-600">
                   {candidates.length} possible matches — pick one, or edit the description below.
                 </p>
@@ -1579,6 +1595,11 @@ function PropertyCard({
               value={partDescription}
               onChange={(e) => setPartDescription(e.target.value)}
               placeholder="Description"
+              // Tour hook: the one field this form genuinely requires, and
+              // the fallback when there is no part number to look up. The
+              // tour gives it its own step so "search by description"
+              // gets shown here as well as on the Reorder tab.
+              data-tutorial={isTourProperty ? "tour-part-description" : undefined}
               className="w-full rounded-lg border border-surface-border px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-neutral-900"
             />
             <div className="flex gap-1.5">

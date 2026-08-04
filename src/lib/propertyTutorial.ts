@@ -56,6 +56,18 @@ export interface PropertyTutorialStep {
   // the screen"): the glow was still measuring a button that no longer
   // existed. See PropertyTutorialOverlay.tsx's watchForElement.
   targetSelectorPhase2?: string;
+  // A selector that borrows the glow for as long as it matches, handing it
+  // back the moment it stops. Same field, same meaning as the main tour's —
+  // see TutorialStep.retargetWhilePresent in tutorial.ts. Here it is the
+  // part row's "Find at" menu: a cart icon the size of a thumbnail that
+  // drops a list of six stores below it, where the stores are the thing
+  // worth looking at.
+  //
+  // Different from targetSelectorPhase2 above in one way that matters: that
+  // one is a one-way handoff for a control that replaces itself and never
+  // comes back, this one is reversible because the customer can close what
+  // they opened.
+  retargetWhilePresent?: string;
   // Auto-advance when the customer really does the thing this step is
   // asking for. The overlay is handed a set of counters by PropertyManager
   // (one per real action) and moves on the moment the named counter goes up.
@@ -132,15 +144,31 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
   {
     id: "part-lookup",
     targetSelector: '[data-tutorial="tour-part-lookup"]',
+    // The picker only exists when a lookup comes back with more than one
+    // plausible match, so the glow moves onto it if and when it appears. The
+    // property tour's phase-2 has no deadline, which is exactly right here:
+    // the customer may sit and read for twenty seconds before they type
+    // anything, and a timer would have given up long before that.
+    targetSelectorPhase2: '[data-tutorial="tour-part-candidates"]',
     title: "Let the part number do the typing",
-    body: "If you have a part number, off the old part or out of the manual, type it here and tap Look up. It fills in the description and a rough price for you, which beats typing all of it twice. If you do not have one, skip this field completely. The description just below is the only thing this form actually needs.",
+    body: "If you have a part number, off the old part or out of the manual, type it here and tap Look up. It fills in the description and a rough price for you, which beats typing all of it twice. When more than one product matches, it shows you the choices instead of guessing, and you pick the one that looks right. If you do not have a part number at all, skip this field completely.",
+  },
+  {
+    id: "part-description",
+    targetSelector: '[data-tutorial="tour-part-description"]',
+    // The second half of the customer's "show me searching by description in
+    // both places" note - the Reorder tab covers it for stock items, this
+    // covers it for parts, where far more often than not there is no part
+    // number to be had.
+    title: "No part number? Describe it instead",
+    body: "This field is the only thing the form truly needs, and it is what you fall back on when there is no part number anywhere on the old part. Write it the way you would say it out loud to somebody behind a trade counter, like GE dryer drive belt. That description is also what gets searched when you go looking for it in a store in a moment, so a few extra words here save you scrolling through the wrong products later.",
   },
   {
     id: "part-details",
     targetSelector: '[data-tutorial="tour-add-part-form"]',
     advanceOn: "partAdded",
     title: "Fill in what you know",
-    body: "Put in a description, something like GE replacement belt. Quantity, price, and an expected by date are all optional, but the expected date earns its five seconds. The row turns red on its own the day the part is late, so a delivery that quietly never arrived cannot hide from you. Tap Add part when you are done.",
+    body: "Quantity, price, and an expected by date are all optional, but the expected date earns its five seconds. The row turns red on its own the day the part is late, so a delivery that quietly never arrived cannot hide from you. Tap Add part when you are done.",
   },
   {
     id: "new-part-row",
@@ -151,8 +179,12 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
   {
     id: "part-find-at-store",
     targetSelector: '[data-tutorial="tour-part-find"]',
+    // And once they open it, the glow grows onto the list of stores itself,
+    // which is the thing actually worth looking at. See retargetWhilePresent
+    // above for why a ResizeObserver on the icon could never manage this.
+    retargetWhilePresent: '[data-tutorial="tour-part-find-menu"]',
     title: "Go and price it, I'll wait",
-    body: "Have not actually ordered it yet? Tap the cart icon and pick a store. It searches that retailer for this exact part in a brand new tab, so you can compare prices, order it, and come straight back. This page will still be sitting right here waiting for you. Take as long as you need, and tap the arrow when you are back.",
+    body: "Have not actually ordered it yet? Tap the cart icon and pick a store from the list that drops down. It searches that retailer for the description you just wrote, in a brand new tab, so you can compare prices, order it, and come straight back. This page will still be sitting right here waiting for you. Take as long as you need, and tap the arrow when you are back.",
   },
   {
     id: "part-status",
@@ -210,8 +242,8 @@ export const PROPERTY_TUTORIAL_STEPS: PropertyTutorialStep[] = [
   {
     id: "replay-tour",
     targetSelector: '[data-tutorial="property-replay-tour"]',
-    title: "Come back any time",
-    body: "This link brings the whole walkthrough back whenever you want a refresher, or when you are showing somebody new how all of this works.",
+    title: "Come back to this tour any time",
+    body: "This link brings this exact walkthrough back whenever you want a refresher.",
   },
   {
     id: "wrap-up",

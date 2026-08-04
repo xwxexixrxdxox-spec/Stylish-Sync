@@ -339,6 +339,25 @@ export default function UsageTab({ items, onSave, tutorialFocusItemId }: Props) 
               {USAGE_RANGE_OPTIONS.map((r) => (
                 <button
                   key={r.label}
+                  // Per-button tour hooks. The row above is still tagged for
+                  // the step that introduces all six at once; these let the
+                  // four follow-up steps put the glow on the single button
+                  // they are talking about. Only four of the six get one,
+                  // because the customer asked for 7 days, 30 days, 90 days
+                  // and all time by name - 14d and 1y sit between them and
+                  // need no separate explanation once those four are
+                  // understood.
+                  data-tutorial={
+                    r.value === 7
+                      ? "usage-timeframe-7"
+                      : r.value === 30
+                        ? "usage-timeframe-30"
+                        : r.value === 90
+                          ? "usage-timeframe-90"
+                          : r.value === "all"
+                            ? "usage-timeframe-all"
+                            : undefined
+                  }
                   onClick={() => setRangeValue(r.value)}
                   className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
                     rangeValue === r.value

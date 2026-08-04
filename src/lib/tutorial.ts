@@ -66,6 +66,65 @@ export interface TutorialStep {
   // off of.
   targetSelectorPhase2?: string;
   phase2FallbackMs?: number;
+  // A CSS selector that, while it matches anything in the document, holds
+  // this step: narration pauses where it is and the glow hides, both
+  // returning the moment it stops matching. The HUD deliberately stays put,
+  // so there is always a way out of a held step.
+  //
+  // This exists for the one case where the tour asks the customer to do
+  // something it then has no business talking over - tapping Scan Barcode
+  // opens a live camera, and a voice still narrating around a ringed
+  // viewfinder turns "point this at a barcode" into two things competing
+  // for the same attention. It is deliberately expressed as a selector
+  // rather than a step id special-cased in the overlay, because the next
+  // step that needs it (a photo capture, a receipt scan) should only have
+  // to name its own condition.
+  pauseWhile?: string;
+  // A CSS selector that has to match for this step to run at all. When it
+  // does not match, the step is skipped in whichever direction the customer
+  // was already travelling, exactly as a missing target is.
+  //
+  // This exists for the one thing a missing target cannot express: two
+  // different things to say about the SAME control depending on the state of
+  // the app around it. "Start Fresh" is the case. To somebody with a
+  // connected sheet it is a safe round trip, and the sentence that matters is
+  // that their spreadsheet is not touched. To somebody who skipped Google
+  // sign-in it is a one-way wipe of the sample data, and saying "the next
+  // step brings it back" would be a lie. One recorded clip cannot say both,
+  // so there are two steps pointing at the same button, each gated on a
+  // selector that only renders in one of the two states.
+  //
+  // It is also how the customer's "only continue into push and pull if they
+  // actually sign in" is honoured. The push and pull steps need no gate of
+  // their own, because AccountTab only renders those buttons for a connected
+  // sheet and a step whose target never appears is already skipped - but that
+  // is emergent, and this field is the place the intent is written down.
+  //
+  // Prefix the selector with "!" to invert it: the step then runs only while
+  // nothing matches. Worth having because the interesting condition is often
+  // an absence, and the presence that would stand in for it is not always
+  // reliable - "no sheet connected" shows a Google sign-in button on a
+  // configured deployment and a line of explanatory text on one where Sheets
+  // was never set up, so gating on the button would silently drop the step
+  // for the second group.
+  requiresSelector?: string;
+  // A CSS selector that, whenever it matches, takes over as the glow's
+  // target, handing back to targetSelector the moment it stops matching.
+  //
+  // This is for the controls that reveal something bigger than themselves.
+  // "Find at" is a small pill; tapping it drops a list of six retailers
+  // below it, and that list is absolutely positioned, so it can never grow
+  // the wrapper it lives in and a ResizeObserver on the button never hears
+  // about it. The old tour therefore left a tight ring around the button
+  // while the thing it was actually talking about - the stores - hung
+  // underneath in the dark. That was the customer's own complaint about this
+  // step: the glow did not fit the store dropdown.
+  //
+  // Deliberately not the same mechanism as targetSelectorPhase2, which fires
+  // once, on a timer, whether or not the customer did anything. This one is
+  // a condition rather than a schedule: it follows the customer when they
+  // open the menu, and follows them back when they close it again.
+  retargetWhilePresent?: string;
 }
 
 export const TUTORIAL_STEPS: TutorialStep[] = [
@@ -125,7 +184,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="header-theme-toggle"]',
     title: "Light or dark, any time",
-    body: "This flips the whole app between light and dark mode whenever you like — it sticks until you tap it again.",
+    body: "This flips the whole app between light and dark mode whenever you like. It sticks until you tap it again.",
   },
   // Split out from the old combined "header-tools" step into its own, so
   // the customer can actually try the hold gesture rather than just being
@@ -145,8 +204,16 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     // "for real" three times in four sentences. Its title also produced the
     // single worst line in the tour back when a script transform turned em
     // dashes into periods: "Try the refresh button. safely."
-    title: "Try the refresh button — safely",
-    body: "This one is the refresh button, and it's safe to try right now. If the app ever looks stuck or out of date, holding this icon gives it a completely fresh start. Go ahead and press and hold it for a moment. While the tour is open it only runs a preview, so nothing on your device will actually be cleared. Outside the tour, holding it clears this device's saved settings and reloads the page — your inventory itself is never touched.",
+    // The em dash is gone from the title now, not just the body. That transform
+    // is dead code, but a spoken title reading "Try the refresh button. safely."
+    // is exactly what gets shipped again the moment somebody reintroduces it,
+    // and a comma reads correctly either way.
+    title: "Try the refresh button, safely",
+    // Only the em dash changed here. The recorded clip for this step is one of
+    // the few that opens straight into the body with no spoken title, so the
+    // first sentence has to stay exactly as recorded - it is the first thing the
+    // customer hears, and a screen reader has to say the same words.
+    body: "This one is the refresh button, and it's safe to try right now. If the app ever looks stuck or out of date, holding this icon gives it a completely fresh start. Go ahead and press and hold it for a moment. While the tour is open it only runs a preview, so nothing on your device will actually be cleared. Outside the tour, holding it clears this device's saved settings and reloads the page. Your inventory itself is never touched.",
   },
   // Split from a single "stock-controls" step into two, each waiting for
   // the customer to explicitly move on (moveOnLabel below) rather than
@@ -226,7 +293,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="inventory-share-barcodes"]',
     title: "Sharing is caring",
-    body: "Send your saved barcode-to-item matches to a teammate, or pull in theirs — handy the first time you're both starting from scratch, so neither of you has to scan everything twice.",
+    body: "Send your saved barcode-to-item matches to a teammate, or pull in theirs. It's handy the first time you're both starting from scratch, so neither of you has to scan everything twice.",
   },
   // Trimmed down from the old combined step: the quantity-chip explanation
   // that used to open this step is gone, and what's left is a brief
@@ -248,7 +315,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-action-breakdown"]',
     title: "Break down a case",
-    body: "Tap this icon to split a sealed case into individual units — handy the moment a case actually gets opened, so the count stays accurate at both levels.",
+    body: "Tap this icon to split a sealed case into individual units. It's handy the moment a case actually gets opened, so the count stays accurate at both levels.",
   },
   {
     id: "item-action-edit",
@@ -257,7 +324,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-action-edit"]',
     title: "Edit the full details",
-    body: "The pencil opens this item's full details — name, barcode, reorder point, usage tracking window, and more.",
+    body: "The pencil opens this item's full details, including name, barcode, reorder point, usage tracking window, and more.",
   },
   {
     id: "item-action-delete",
@@ -266,7 +333,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="item-action-delete"]',
     title: "Delete for good",
-    body: "And the trash icon removes an item entirely — it'll always ask you to confirm first, so there's no risk of an accidental tap losing anything.",
+    body: "And the trash icon removes an item entirely. It'll always ask you to confirm first, so there's no risk of an accidental tap losing anything.",
   },
   {
     id: "scan",
@@ -274,13 +341,38 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tab: "scan",
     sidebarOpen: false,
     // Points at the real blue "Scan Barcode" button rather than the
-    // bottom-nav tab icon that got you here. Self-resolves once a real
-    // scan produces a lookup response (see TutorialOverlay.tsx's scan
-    // effect) — the manual Next in the corner HUD still works too, for a
-    // customer with nothing on hand to scan right now.
+    // bottom-nav tab icon that got you here. Self-resolves once the camera
+    // episode ends - a real scan or a cancel, either one (see
+    // TutorialOverlay.tsx's scan effect) - and the manual Next in the corner
+    // HUD still works too, for a customer with nothing on hand to scan right
+    // now.
     targetSelector: '[data-tutorial="scan-action-area"]',
+    // Holds the whole step while the camera is open. See pauseWhile above,
+    // and ScanTab.tsx's data-tutorial-scanning.
+    pauseWhile: '[data-tutorial-scanning="true"]',
     title: "Scan barcodes or receipts",
-    body: "Point your camera at a barcode to add or remove stock instantly. Adding a whole order at once? Switch to Receipt mode to log several items from one photo.",
+    body: "Tap Scan Barcode and point the camera at any barcode you have to hand. The tour waits quietly while the camera is open, so take as long as you need. Nothing to scan right now? Cancel the camera and we will carry on.",
+  },
+  // The other half of the customer's ask: once the camera closes, the glow
+  // moves onto what the scan actually produced. Split off as its own step
+  // rather than folded into the one above, because the thing being explained
+  // changes completely - "go and scan something" and "here is what came
+  // back" are two moments, and the second one only makes sense once the
+  // first has happened.
+  {
+    id: "scan-details",
+    chapter: "Scan",
+    tab: "scan",
+    sidebarOpen: false,
+    // Starts tight on the Barcode field itself, which is literally what the
+    // customer pointed at, then widens to the whole card partway through -
+    // the description, location, quantity and price are all part of the same
+    // result and the narration reaches them in that order.
+    targetSelector: '[data-tutorial="scan-barcode-field"]',
+    targetSelectorPhase2: '[data-tutorial="scan-details-card"]',
+    phase2FallbackMs: 5000,
+    title: "What the scan filled in",
+    body: "The barcode lands here, and the description and price fill themselves in whenever the product is one we can look up. Anything left blank is yours to type. Set the quantity, then use Add Stock or Remove to log the movement.",
   },
   {
     id: "scan-modes",
@@ -289,7 +381,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="scan-mode-toggle"]',
     title: "Two ways to log stock",
-    body: "Barcode mode is for one item at a time. Receipt mode reads a whole photographed receipt at once — great right after a big supply run, though accuracy can be hit or miss on a crumpled or blurry receipt. Worth a quick double-check of the results before trusting them completely.",
+    body: "Barcode mode is for one item at a time. Receipt mode reads a whole photographed receipt at once, which is great right after a big supply run. Accuracy can be hit or miss on a crumpled or blurry receipt, so it's worth a quick double-check of the results before trusting them completely.",
   },
   // Rebuilt from a single combined step into four narrower ones (this one,
   // then search-and-find, then package tracking, then a dedicated share
@@ -306,16 +398,49 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "Never run out unexpectedly",
     body: "This is Reorder — it automatically lists everything at or below the reorder point you've set for it. Take a look at this item; its low-stock warning is right here.",
   },
+  // Was one step, "reorder-search-and-find", which introduced the search-by
+  // toggle and the Find at menu over a single clip and then let the customer
+  // work out the rest. Split into three on their note: how it searches, then
+  // a real search by barcode, then the same search by description. Three
+  // moments, because the middle one is the customer leaving for a retailer
+  // site and coming back, and a step they walk away from is not a good place
+  // to still be carrying an unrelated idea.
   {
-    id: "reorder-search-and-find",
+    id: "reorder-search-by",
     chapter: "Reorder",
     tab: "reorder",
     sidebarOpen: false,
     targetSelector: '[data-tutorial="reorder-search-by-toggle"]',
+    title: "Decide what it searches for",
+    body: "Before you go looking for anything, this row decides what gets typed into the store's search box for you. Auto uses the barcode when the item has one and falls back to the name when it does not. Barcode and Description pin it to one or the other. It is remembered on this device, so it is a one time choice rather than something to think about on every order.",
+  },
+  {
+    id: "reorder-find-at-barcode",
+    chapter: "Reorder",
+    tab: "reorder",
+    sidebarOpen: false,
+    // Starts on the Barcode pill (the thing the customer is being asked to
+    // tap) and moves to the Find at button once the narration reaches it.
+    targetSelector: '[data-tutorial="reorder-search-by-barcode"]',
     targetSelectorPhase2: '[data-tutorial="reorder-find-at-button"]',
-    phase2FallbackMs: 4200,
-    title: "Choose how it searches, then where to buy",
-    body: "This toggle controls whether Find at searches by barcode or by name, and Find at itself jumps straight to a search on a few common retailer sites. Give both a try — no rush, take whatever time you need.",
+    phase2FallbackMs: 5000,
+    // And once they open it, the glow grows onto the list of stores itself.
+    // See retargetWhilePresent above.
+    retargetWhilePresent: '[data-tutorial="reorder-find-at-menu"]',
+    title: "Search a store by barcode",
+    body: "Tap Barcode, then tap Find at and pick a store. A barcode is the most exact thing you can hand a retailer, so this usually lands you on the product page itself rather than a page of near misses. It opens in a new tab, so this list stays right where it is. Go and have a look, then come back and tap the arrow.",
+  },
+  {
+    id: "reorder-find-at-description",
+    chapter: "Reorder",
+    tab: "reorder",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="reorder-search-by-description"]',
+    targetSelectorPhase2: '[data-tutorial="reorder-find-at-button"]',
+    phase2FallbackMs: 5500,
+    retargetWhilePresent: '[data-tutorial="reorder-find-at-menu"]',
+    title: "Now search the same store by description",
+    body: "Now tap Description and try the same store again. This is the one you will lean on for anything without a barcode, and for the supplies where any brand will do. The results are broader, so check the size and the pack count before you buy. Whichever of the two you leave selected is the one it will use next time.",
   },
   // Moved ahead of the new dedicated share step per the customer's own
   // reordering.
@@ -326,7 +451,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="reorder-package-tracking"]',
     title: "Jot down a tracking number",
-    body: "Once you've ordered, save the tracking number here for a quick link to the carrier's tracking page. It's simple by design — just a place to keep the number handy, not a live delivery tracker.",
+    body: "Once you've ordered, save the tracking number here for a quick link to the carrier's tracking page. It's simple by design, just a place to keep the number handy, not a live delivery tracker.",
   },
   {
     id: "reorder-share",
@@ -335,7 +460,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="reorder-share-button"]',
     title: "Send the whole list to a supplier",
-    body: "Tap Share to text or email this entire reorder list straight to a supplier — everything currently at or below its reorder point, in one go.",
+    body: "Tap Share to text or email this entire reorder list straight to a supplier. That's everything currently at or below its reorder point, in one go.",
   },
   // Rebuilt: narrows the overview list to just this one item (see
   // UsageOverview.tsx's tutorialFocusItemId) so the customer isn't hunting
@@ -351,6 +476,19 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "See how fast things move",
     body: "Usage charts how quickly each item gets used and estimates how many days of stock are left at that pace. We've narrowed the list to just this one item for now — go ahead and tap into it to see its full detail view.",
   },
+  // The customer's item 6: this was one step that waved at the whole row of
+  // range buttons and left the customer to work out which one to press. Four
+  // sub-steps now follow it, one per range they named, because "7d, 14d, 30d,
+  // 90d, 1y, All" is only obvious to somebody who already knows what they are
+  // looking for. A fresh hire needs to be told which question each range
+  // answers, and the answers are genuinely different questions rather than
+  // the same one at different zoom levels.
+  //
+  // 14d and 1y deliberately get no step of their own. They are the in-between
+  // settings, and they explain themselves once the four either side of them
+  // have been explained; a step per button would be six steps of narration
+  // for a row of buttons, which is exactly the kind of thing that made the
+  // old tour a slog.
   {
     id: "usage-detail-timeframes",
     chapter: "Usage",
@@ -358,7 +496,43 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: false,
     targetSelector: '[data-tutorial="usage-timeframe-buttons"]',
     title: "Zoom in or out on any time frame",
-    body: "These buttons switch the chart between a week, a month, a few months, or all-time — the fastest way to tell a one-off spike apart from a real ongoing trend.",
+    body: "These buttons switch the chart between a week, a month, a few months, or all-time. It's the fastest way to tell a one-off spike apart from a real ongoing trend.",
+  },
+  {
+    id: "usage-timeframe-7",
+    chapter: "Usage",
+    tab: "usage",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="usage-timeframe-7"]',
+    title: "Seven days answers what changed",
+    body: "Tap 7d. A week is short enough that one busy day still shows up as a bump, which is what you want when somebody says we are going through these faster than usual. If this number looks nothing like the longer ranges, something changed recently and it is worth finding out what.",
+  },
+  {
+    id: "usage-timeframe-30",
+    chapter: "Usage",
+    tab: "usage",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="usage-timeframe-30"]',
+    title: "Thirty days is your ordering rhythm",
+    body: "Now tap 30d. This is the one most people live in, because it lines up with how often orders actually get placed. A single quiet weekend or one heavy Monday stops mattering at this length, so the average you see here is close to what you should be buying.",
+  },
+  {
+    id: "usage-timeframe-90",
+    chapter: "Usage",
+    tab: "usage",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="usage-timeframe-90"]',
+    title: "Ninety days shows the season",
+    body: "Tap 90d. Three months is long enough to see the shape of a year forming. Salt and windshield fluid climb into winter, filters and coolant climb into summer, and none of that is visible in a week. This is the range to check before you commit to a big order.",
+  },
+  {
+    id: "usage-timeframe-all",
+    chapter: "Usage",
+    tab: "usage",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="usage-timeframe-all"]',
+    title: "All time is the honest average",
+    body: "Last one. All uses every movement ever recorded for this item, back to the first one. It is the fairest number you have for setting a reorder point, because it is not flattered by a good month or dragged down by a slow one. Whichever range you leave selected only changes what you are looking at, never the underlying history.",
   },
   {
     id: "support",
@@ -394,8 +568,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     // amber glow is already on a real button, so a second animated element
     // was competing with the thing the narration is telling them to look
     // at.
-    title: "Optional: back up to Google Sheets",
-    body: "Sign in with Google to sync your inventory to a spreadsheet you own — readable from anywhere, and safe if this device is ever lost. Totally optional; tap Next to skip it for now, and the next few steps will just gracefully skip past anything that needs a connected sheet.",
+    title: "Here is the fork in the road",
+    // Rewritten for the customer's item 8: this step has to be an honest
+    // choice rather than an optional extra waved past. Everything after it is
+    // either about the sheet or short, so a customer who does not want a
+    // Google account should be told that plainly here instead of watching
+    // four steps get skipped and wondering what they missed.
+    body: "Everything from here on is about the spreadsheet, so this is worth stopping on. Signing in with Google puts your inventory in a spreadsheet you own, readable from any computer, and still there if this phone goes in a puddle. If you want that, sign in now and I will walk you through sending it up and pulling it back. If you would rather not have a Google account tied to this, that is a completely fair answer, and you can close the tour with the X in the corner. Nothing you have learned so far depends on it.",
   },
   // The next three steps (push, Start Fresh, pull) are a deliberate
   // sequence per the customer's own doc: push this device's current
@@ -411,7 +590,12 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-push-button"]',
     title: "Push sends this device's copy up",
-    body: "If you connected Google Sheets a moment ago, go ahead and tap Push to Sheet now — it sends this device's current inventory up to your spreadsheet. Nothing syncs automatically; it only happens when you tap it.",
+    // No longer hedged with "if you connected Google Sheets a moment ago" -
+    // AccountTab only renders this button for a connected sheet, so a
+    // customer who skipped sign-in never reaches this step at all. The old
+    // conditional wording was the tour apologising for a situation it was
+    // already handling.
+    body: "Tap Push to Sheet now. It sends this device's current inventory up to your spreadsheet, and it is the half of syncing that people forget. Nothing goes up on its own. It happens when you tap this, and only when you tap this.",
   },
   {
     id: "account-name-tag",
@@ -420,16 +604,38 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-name-tag"]',
     title: "Put a name on your changes",
-    body: "Add your name here so teammates working the same inventory can see who made a change and when — just a label, not a login, and anyone on this device can update it.",
+    body: "Add your name here so teammates working the same inventory can see who made a change and when. It's just a label, not a login, and anyone on this device can update it.",
   },
+  // Two steps, one button. See TutorialStep.requiresSelector above: "Start
+  // Fresh" is a safe round trip to somebody with a connected sheet and a
+  // one-way wipe to somebody without one, and telling the second group that
+  // the next step brings it all back would be a lie. The two gates are the
+  // same selector, one of them inverted, so exactly one of these always runs
+  // and neither customer is left without an explanation of the button.
   {
     id: "start-fresh",
     chapter: "Account",
     tab: null,
     sidebarOpen: true,
     targetSelector: '[data-tutorial="start-fresh-local"]',
+    requiresSelector: '[data-tutorial="account-sheets-actions"]',
     title: "Clear this device's copy",
-    body: "Tap Start Fresh below whenever you're ready — it clears these sample items and any changes you've made so far, right here on this device. If you pushed to a connected sheet a moment ago, nothing there is touched; the next step brings it right back.",
+    // The "does not delete the sheet" sentence is the point of this step, not
+    // a reassurance tacked on the end. The customer called it out by name as
+    // a data-loss-prevention point: somebody who believes Start Fresh wipes
+    // their spreadsheet will never touch it, and somebody who finds out the
+    // hard way that it does not will have pushed the wrong data up first.
+    body: "Tap Start Fresh whenever you are ready. Read this part carefully, because it is the one people get wrong. Start Fresh clears this device and only this device. It does not delete your Google Sheet, it does not empty it, and it does not change a single row in it. Your spreadsheet sits there exactly as you left it, which is why the very next step can bring the whole lot back down.",
+  },
+  {
+    id: "start-fresh-solo",
+    chapter: "Account",
+    tab: null,
+    sidebarOpen: true,
+    targetSelector: '[data-tutorial="start-fresh-local"]',
+    requiresSelector: '![data-tutorial="account-sheets-actions"]',
+    title: "Clear this device's copy",
+    body: "Start Fresh clears this device: the sample items, and anything you have added or changed while we have been talking. Since you have not connected a spreadsheet, there is nowhere to bring it back from afterwards, so this one is a one way trip today. That changes the moment you connect a sheet and push to it. Tap it if you want a clean slate to start your real stock on, or leave it alone and tap the arrow.",
   },
   {
     id: "account-pull-test",
@@ -438,7 +644,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-pull-button"]',
     title: "Pull brings it back down",
-    body: "And if you pushed earlier, tap Pull from Sheet now to bring that same inventory right back — proof that your data really does live safely in the spreadsheet, not just on this one device.",
+    body: "Now tap Pull from Sheet, and watch everything you just cleared come straight back. That is the whole point of the last three steps in one motion. Your inventory does not live on this phone. It lives in a spreadsheet you own, and this device is just one way of looking at it.",
   },
   {
     id: "account-manage-property",
@@ -447,7 +653,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-manage-property"]',
     title: "Track equipment, not just stock",
-    body: "Property is a separate space for tracking equipment and fixtures — ordered parts, maintenance status, all of it — synced to its own tab on the same spreadsheet.",
+    body: "Property is a separate space for tracking equipment and fixtures, including ordered parts and maintenance status. It syncs to its own tab on the same spreadsheet.",
   },
   {
     id: "account-reminders-install",
@@ -467,7 +673,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     sidebarOpen: true,
     targetSelector: '[data-tutorial="account-replay-tour"]',
     title: "Come back to this tour any time",
-    body: "This link brings this exact walkthrough back whenever you want a refresher — it's the only way to see it again now, since it no longer opens automatically.",
+    body: "This link brings this exact walkthrough back whenever you want a refresher. It's the only way to see it again now, since it no longer opens automatically.",
   },
   {
     id: "tour-complete",
@@ -482,7 +688,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     // HUD over the live app, which is the right note to end on.
     targetSelector: null,
     title: "That's the tour!",
-    body: "You're all set — explore Inventory on your own from here, or tap Manage Property above to keep going with equipment tracking.",
+    body: "You're all set. Explore Inventory on your own from here, or tap Manage Property above to keep going with equipment tracking.",
     nextLabel: "Finish tour",
   },
 ];

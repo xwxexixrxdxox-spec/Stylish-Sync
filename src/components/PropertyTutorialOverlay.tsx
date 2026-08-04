@@ -16,6 +16,7 @@ import {
 } from "@/lib/storage";
 import { inflateRect, type Rect } from "@/lib/tutorialMask";
 import TutorialVoiceWave from "./TutorialVoiceWave";
+import { useHudCorner } from "./useHudCorner";
 
 // Gap between the spotlighted element and the glow ring around it, in px.
 // Same value as TutorialOverlay.tsx.
@@ -144,6 +145,11 @@ function PropertyTutorialOverlayInner({
   // waitForElement resolving late for the *first* target can't yank the
   // spotlight back to a button that has already been replaced.
   const phase2AttachedRef = useRef(false);
+  // Where the glow goes home to when a retargetWhilePresent element stops
+  // matching, plus the flag saying one currently has it. Both mirror the
+  // main tour exactly — see TutorialOverlay.tsx for the full reasoning.
+  const baseTargetRef = useRef<HTMLElement | null>(null);
+  const retargetedRef = useRef(false);
   // Tracks which step index has already had playStepAt() called for it —
   // see the click-handler-driven calls below.
   const lastSpokenIndexRef = useRef(-1);
@@ -221,7 +227,13 @@ function PropertyTutorialOverlayInner({
   // when it didn't, the ring kept measuring a button that had already
   // unmounted, which is what the customer saw as the glow jumping across the
   // screen.
-  const attachTarget = (el: HTMLElement) => {
+  //
+  // `isRetarget` marks the temporary kind of attach — a retargetWhilePresent
+  // element borrowing the glow for as long as it exists. Those deliberately
+  // do not become the step's home, so that closing the menu can hand the glow
+  // back to the control that opened it. Same contract as the main tour's.
+  const attachTarget = (el: HTMLElement, isRetarget = false) => {
+    if (!isRetarget) baseTargetRef.current = el;
     resizeObserverRef.current?.disconnect();
     targetElRef.current = el;
     setRect(el.getBoundingClientRect());
@@ -247,6 +259,8 @@ function PropertyTutorialOverlayInner({
     setRect(null);
     targetElRef.current = null;
     phase2AttachedRef.current = false;
+    baseTargetRef.current = null;
+    retargetedRef.current = false;
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
     if (!step.targetSelector) return;
@@ -254,7 +268,11 @@ function PropertyTutorialOverlayInner({
       // phase2AttachedRef: on a fast tap the form can beat this promise, and
       // the newer target always wins.
       if (cancelled || !el || phase2AttachedRef.current) return;
-      attachTarget(el);
+      // A customer quick enough to open the menu before this promise settles
+      // keeps the glow they earned; the target still becomes this step's home,
+      // so closing the menu lands somewhere sensible.
+      if (retargetedRef.current) baseTargetRef.current = el;
+      else attachTarget(el);
     });
     return () => {
       cancelled = true;
@@ -284,12 +302,53 @@ function PropertyTutorialOverlayInner({
       found = true;
       phase2AttachedRef.current = true;
       observer.disconnect();
-      attachTarget(el);
+      // Same courtesy as the first-target search above: a phase-2 handoff has
+      // no business snatching the glow off a menu the customer has open in
+      // front of them. It still becomes the home the glow returns to once they
+      // close it.
+      if (retargetedRef.current) baseTargetRef.current = el;
+      else attachTarget(el);
       return true;
     };
     if (!tryAttach()) {
       observer.observe(document.body, { childList: true, subtree: true });
     }
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
+
+  // A step can lend its glow to something that only exists while the customer
+  // is holding it open — see PropertyTutorialStep.retargetWhilePresent in
+  // propertyTutorial.ts, and PropertyManager.tsx's tour-part-find-menu for the
+  // case it was built for. Tap the cart icon and the ring grows onto the list
+  // of stores; close it and the ring goes back to the icon.
+  //
+  // Watches document.body rather than a known element, because the whole point
+  // is that the element does not exist yet, and may never exist if the
+  // customer just listens and taps Next.
+  useEffect(() => {
+    const selector = step.retargetWhilePresent;
+    if (!selector) return;
+    const check = () => {
+      const el = document.querySelector<HTMLElement>(selector);
+      if (el) {
+        if (targetElRef.current !== el) {
+          retargetedRef.current = true;
+          attachTarget(el, true);
+        }
+        return;
+      }
+      if (!retargetedRef.current) return;
+      retargetedRef.current = false;
+      const home = baseTargetRef.current;
+      // isConnected: the control that opened the menu may itself have been
+      // re-rendered away while the menu was up, and re-attaching to a detached
+      // node would pin the glow to a rect frozen at 0,0.
+      if (home && home.isConnected) attachTarget(home);
+    };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
@@ -454,6 +513,11 @@ function PropertyTutorialOverlayInner({
     dragStateRef.current = null;
   };
 
+  // Keeps the pill off whatever this step is glowing at - see
+  // TutorialOverlay.tsx's identical call and useHudCorner.ts. Called above
+  // the early return below because it's a hook.
+  const hudCornerClass = useHudCorner(hudRef, rect ? inflateRect(rect, PAD) : null, hudPos !== null);
+
   if (typeof document === "undefined") return null;
 
   // Derived from position rather than read off the step: the step that used
@@ -520,9 +584,7 @@ function PropertyTutorialOverlayInner({
         onPointerMove={onHudPointerMove}
         onPointerUp={onHudPointerUp}
         onPointerCancel={onHudPointerUp}
-        className={`pointer-events-auto fixed z-[201] flex touch-none select-none items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur animate-label-in ${
-          hudPos ? "cursor-grab active:cursor-grabbing" : "right-3 top-3 cursor-grab active:cursor-grabbing"
-        }`}
+        className={`pointer-events-auto fixed z-[201] flex touch-none select-none items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur transition-[top,left,right,bottom] duration-300 animate-label-in cursor-grab active:cursor-grabbing ${hudCornerClass}`}
         style={hudPos ? { left: hudPos.left, top: hudPos.top } : undefined}
       >
         {audioSupported && (

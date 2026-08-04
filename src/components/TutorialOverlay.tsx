@@ -11,6 +11,7 @@ import {
   setTutorialVoiceEnabled,
 } from "@/lib/storage";
 import { inflateRect, type Rect } from "@/lib/tutorialMask";
+import { useHudCorner } from "./useHudCorner";
 import TutorialVoiceWave from "./TutorialVoiceWave";
 import type { TabId } from "./BottomNav";
 
@@ -171,6 +172,17 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
   const [targetRadius, setTargetRadius] = useState<string>("0.75rem");
   const targetElRef = useRef<HTMLElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  // Where the glow lives when nothing is temporarily borrowing it. Written
+  // by every ordinary attach (the step's own target, and its phase-2
+  // handoff); read only when a retargetWhilePresent element goes away and
+  // the glow needs somewhere to go home to. See the retarget effect below.
+  const baseTargetRef = useRef<HTMLElement | null>(null);
+  // True while a retargetWhilePresent element currently owns the glow. A ref
+  // rather than state because the two places that read it are async
+  // callbacks (a waitForElement promise, a phase-2 timer) that would
+  // otherwise close over a stale value and yank the glow back off the thing
+  // the customer just opened.
+  const retargetedRef = useRef(false);
   // False once this component unmounts - checked by the rAF loop in
   // settleRect(), which would otherwise keep calling setState on a tour that
   // has already closed.
@@ -330,7 +342,13 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
   // spotlight first lands keeps the hole glued to the target's actual
   // current size. Shared by the normal per-step target search below and by
   // switchTarget() (a step's mid-narration retarget).
-  const attachTarget = (el: HTMLElement) => {
+  //
+  // `isRetarget` marks the temporary kind of attach - a retargetWhilePresent
+  // element borrowing the glow for as long as it exists. Those deliberately
+  // do not become the step's home, so that closing the menu can hand the
+  // glow back to the control that opened it.
+  const attachTarget = (el: HTMLElement, isRetarget = false) => {
+    if (!isRetarget) baseTargetRef.current = el;
     resizeObserverRef.current?.disconnect();
     targetElRef.current = el;
     setRect(el.getBoundingClientRect());
@@ -392,6 +410,8 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     const enteredBackwards = enteredBackwardsRef.current;
     setRect(null);
     targetElRef.current = null;
+    baseTargetRef.current = null;
+    retargetedRef.current = false;
     resizeObserverRef.current?.disconnect();
     if (!step.targetSelector) return;
     // Generous timeout: the sidebar's own transition can take most of two
@@ -399,7 +419,27 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     waitForElement(step.targetSelector, 2500).then((el) => {
       if (cancelled) return;
       if (el) {
-        attachTarget(el);
+        // Checked here rather than before the wait above, and checked
+        // synchronously, because by the time the target has been found the
+        // sidebar around it has finished rendering - so a gate that is going
+        // to match already does, and one that does not never will. Doing it
+        // first would mean sitting through a second timeout for the common
+        // case of a gate that is simply absent. See
+        // TutorialStep.requiresSelector in tutorial.ts.
+        if (step.requiresSelector) {
+          const negated = step.requiresSelector.startsWith("!");
+          const gate = negated ? step.requiresSelector.slice(1) : step.requiresSelector;
+          if (!!document.querySelector(gate) === negated) {
+            if (enteredBackwards) goBack();
+            else advance();
+            return;
+          }
+        }
+        // A customer quick enough to open the menu before this promise
+        // settles keeps the glow they earned; the target still becomes this
+        // step's home, so closing the menu lands somewhere sensible.
+        if (retargetedRef.current) baseTargetRef.current = el;
+        else attachTarget(el);
         return;
       }
       if (enteredBackwards) goBack();
@@ -458,13 +498,24 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetId]);
 
-  // "scan" resolves itself once a real scan produces a lookup response —
-  // ScanTab mirrors its own lookupStatus state onto
-  // data-tutorial-lookup-status on the scan panel (see ScanTab.tsx).
-  // "idle"/"checking" are the two in-flight states; anything else means a
-  // real answer came back, so any of those advances. The manual Next in
-  // the corner HUD still works too - a customer with nothing on hand to
-  // scan right now isn't stuck.
+  // "scan" resolves itself once the camera episode is over, which is the
+  // customer's own wording for it: "once they exit the camera or scan
+  // something, a pulsating glow should land on the barcode information
+  // field." Two separate signals get there, both mirrored by ScanTab onto
+  // the scan panel (see ScanTab.tsx):
+  //
+  //   - data-tutorial-scanning going "true" and then back to "false". That
+  //     covers a cancelled scan, which resolves no lookup at all and so was
+  //     invisible to the older version of this check - a customer who opened
+  //     the camera, found nothing to point it at and backed out was left
+  //     sitting on a step that had already had its moment.
+  //   - data-tutorial-lookup-status landing on a real answer. That covers a
+  //     barcode typed into the field by hand, with the camera never opened.
+  //
+  // A real scan trips both (handleBarcodeDetected calls stopScan first);
+  // hasAdvancedRef makes the second one a no-op. The manual Next in the
+  // corner HUD still works too, for a customer with nothing on hand to scan
+  // right now.
   useEffect(() => {
     if (step.id !== "scan") return;
     // Entered backwards: the lookup already resolved, so this check would
@@ -472,20 +523,29 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     if (enteredBackwardsRef.current) return;
     let cancelled = false;
     let observer: MutationObserver | null = null;
+    // Latched rather than derived, because "the camera is closed" is also
+    // true before it was ever opened - only the transition means anything.
+    let cameraWasOpen = false;
     waitForElement('[data-tutorial="scan-panel"]').then((el) => {
       if (cancelled || !el) return;
-      const satisfied = () => {
+      const check = () => {
+        if (el.getAttribute("data-tutorial-scanning") === "true") {
+          cameraWasOpen = true;
+          return;
+        }
+        if (cameraWasOpen) {
+          advance();
+          return;
+        }
         const status = el.getAttribute("data-tutorial-lookup-status") || "idle";
-        return status !== "idle" && status !== "checking";
+        if (status !== "idle" && status !== "checking") advance();
       };
-      if (satisfied()) {
-        advance();
-        return;
-      }
-      observer = new MutationObserver(() => {
-        if (satisfied()) advance();
+      check();
+      observer = new MutationObserver(check);
+      observer.observe(el, {
+        attributes: true,
+        attributeFilter: ["data-tutorial-lookup-status", "data-tutorial-scanning"],
       });
-      observer.observe(el, { attributes: true, attributeFilter: ["data-tutorial-lookup-status"] });
     });
     return () => {
       cancelled = true;
@@ -493,6 +553,49 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
+
+  // A step can hold itself while the customer is mid-action - see
+  // TutorialStep.pauseWhile in tutorial.ts for why, and ScanTab.tsx for the
+  // one condition that uses it today. While held, narration pauses where it
+  // stands and the glow hides; the HUD stays exactly where it is, because a
+  // held step still needs a visible way out.
+  //
+  // Watches the whole document rather than a known element: the condition is
+  // an arbitrary selector, and the element carrying it may not exist yet (or
+  // at all) when the step opens.
+  const [paused, setPaused] = useState(false);
+  useEffect(() => {
+    setPaused(false);
+    const selector = step.pauseWhile;
+    if (!selector) return;
+    const check = () => setPaused(document.querySelector(selector) !== null);
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { attributes: true, childList: true, subtree: true });
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
+
+  // Applies that hold to the narration itself. The currentTime guard is what
+  // keeps this from restarting a clip it has no business touching: on a step
+  // change `paused` resets to false while audioRef has already moved on to
+  // the new step's freshly-created clip, which is sitting at 0 and is about
+  // to be played (or has just been played) by advance()/goBack() themselves.
+  // Only a clip that genuinely got interrupted partway is resumed here.
+  //
+  // A resume can be refused outright on mobile, since it is not running
+  // inside a user gesture - swallowed rather than surfaced, because the step
+  // is still on screen and its text is still in the live region.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (paused) {
+      audio.pause();
+    } else if (voiceEnabled && !audio.ended && audio.currentTime > 0) {
+      audio.play().catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused]);
 
   // "usage" resolves itself once the customer actually drills into an
   // item's detail view - the tour's own explicit exception to "nothing
@@ -575,9 +678,51 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
   // fire), so there's no need to guard against re-entrancy here.
   const switchTarget = (selector: string) => {
     waitForElement(selector).then((el) => {
-      if (el) attachTarget(el);
+      if (!el) return;
+      // Same courtesy as the first-target search above: a phase-2 switch is
+      // on a timer, and a timer has no business snatching the glow off a
+      // menu the customer has open in front of them. It still becomes the
+      // home the glow returns to once they close it.
+      if (retargetedRef.current) baseTargetRef.current = el;
+      else attachTarget(el);
     });
   };
+
+  // A step can lend its glow to something that only exists while the
+  // customer is holding it open - see TutorialStep.retargetWhilePresent in
+  // tutorial.ts for the why, and ReorderTab.tsx's reorder-find-at-menu for
+  // the case it was built for. Open the store list and the ring grows onto
+  // the stores; close it and the ring goes back to the button.
+  //
+  // Watches document.body rather than a known element, because the whole
+  // point is that the element does not exist yet, and may never exist if the
+  // customer just listens and taps Next.
+  useEffect(() => {
+    const selector = step.retargetWhilePresent;
+    if (!selector) return;
+    const check = () => {
+      const el = document.querySelector<HTMLElement>(selector);
+      if (el) {
+        if (targetElRef.current !== el) {
+          retargetedRef.current = true;
+          attachTarget(el, true);
+        }
+        return;
+      }
+      if (!retargetedRef.current) return;
+      retargetedRef.current = false;
+      const home = baseTargetRef.current;
+      // isConnected: the control that opened the menu may itself have been
+      // re-rendered away while the menu was up, and re-attaching to a
+      // detached node would pin the glow to a rect frozen at 0,0.
+      if (home && home.isConnected) attachTarget(home);
+    };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
 
   // Recorded narration lives in public/audio/tutorial/<step id>.mp3 — one
   // clip per step, generated from a local ComfyUI/Chatterbox TTS pipeline.
@@ -719,6 +864,18 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
     dragStateRef.current = null;
   };
 
+  // Which corner the control pill parks in, so it never lands on top of the
+  // control the voice is currently talking about - the account gear and the
+  // tour launcher both live top-right, which is exactly where this went
+  // wrong. Returns "" once the customer has dragged the pill themselves;
+  // hudPos takes over from there. See useHudCorner.ts.
+  //
+  // Called up here, above the early return below, because it's a hook and
+  // hooks have to run in the same order on every render. The rect is
+  // inflated inside rather than reusing `glowRect` further down for the same
+  // reason - that constant is computed after the return.
+  const hudCornerClass = useHudCorner(hudRef, rect ? inflateRect(rect, PAD) : null, hudPos !== null);
+
   if (typeof document === "undefined") return null;
 
   const isFirstStep = stepIndex === 0;
@@ -758,7 +915,13 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
       <div className="sr-only" aria-live="polite">
         {`${stripTrailingPunctuation(step.title)}. ${step.body}`}
       </div>
-      {glowRect && (
+      {/* `!paused` is the other half of a held step (see TutorialStep.pauseWhile
+          in tutorial.ts): while the customer is mid-action the glow gets out of
+          the way entirely, so an amber ring is never sitting on top of a live
+          camera view competing for the same attention. The HUD further down is
+          deliberately NOT gated on this, because a held step still needs a
+          visible way out. */}
+      {glowRect && !paused && (
         <>
           {/* The "quest marker" glow: an expanding, fading ping ring behind
               a breathing blurred-glow ring, hugging the real spotlighted
@@ -812,9 +975,7 @@ function TutorialOverlayInner({ tab, setTab, accountOpen, setAccountOpen, sheetI
         onPointerMove={onHudPointerMove}
         onPointerUp={onHudPointerUp}
         onPointerCancel={onHudPointerUp}
-        className={`pointer-events-auto fixed z-[201] flex touch-none select-none items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur animate-label-in ${
-          hudPos ? "cursor-grab active:cursor-grabbing" : "right-3 top-3 cursor-grab active:cursor-grabbing"
-        }`}
+        className={`pointer-events-auto fixed z-[201] flex touch-none select-none items-center gap-0.5 rounded-full bg-neutral-900/80 px-2 py-1 text-white shadow-card backdrop-blur transition-[top,left,right,bottom] duration-300 animate-label-in cursor-grab active:cursor-grabbing ${hudCornerClass}`}
         style={hudPos ? { left: hudPos.left, top: hudPos.top } : undefined}
       >
         {audioSupported && (
