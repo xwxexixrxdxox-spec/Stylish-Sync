@@ -394,6 +394,39 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "What the scan filled in",
     body: "The barcode lands here, and the description and price fill themselves in whenever the product is one we can look up. Anything left blank is yours to type. Set the quantity, then use Add Stock or Remove to log the movement.",
   },
+  // The step above says details "fill themselves in whenever the product is
+  // one we can look up" and leaves it there, which is fine as far as it goes
+  // and useless the first time the lookup comes back with three possible
+  // matches, or nothing at all. Those outcomes are the ones a new customer
+  // actually meets, and the status line that explains them is a single line
+  // of eleven-pixel text under the field, so it needs saying out loud.
+  //
+  // Same target as scan-details phase 1 on purpose: the status line renders
+  // inside the barcode field's wrapper, and it is conditional on
+  // lookupStatus, so there is nothing stabler to point at.
+  {
+    id: "scan-autofill",
+    chapter: "Scan",
+    tab: "scan",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="scan-barcode-field"]',
+    title: "Where the filled-in details come from",
+    body: "The small line of text under the barcode tells you what the app found. It checks a shared database built up by other people using this app, and an online product lookup, and fills in whatever either one knows. If it offers a few possible matches instead, pick the closest one, or ignore them and type your own. If it finds nothing, type the name and unit in yourself, and that name joins the shared database when you add the stock, so the next person who scans it does not have to.",
+  },
+  // Split out of the step above rather than tacked onto the end of it: all of
+  // this together ran to forty-two seconds of narration on one motionless
+  // glow, which is a long time to look at a text field. It also genuinely
+  // belongs somewhere else on screen, since the estimate warning renders
+  // under the Price field, not under the barcode.
+  {
+    id: "scan-price-estimate",
+    chapter: "Scan",
+    tab: "scan",
+    sidebarOpen: false,
+    targetSelector: '[data-tutorial="scan-price-field"]',
+    title: "Treat a looked-up price as a guess",
+    body: "Any price the lookup filled in came from an online listing rather than from your own shelf, so treat it as a rough figure. The app says as much underneath the field while that number is still untouched, and the note disappears the moment you change it. It is worth putting your real cost in, because that is the number your totals are working from.",
+  },
   {
     id: "scan-modes",
     chapter: "Scan",

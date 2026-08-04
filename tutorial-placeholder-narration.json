@@ -58,6 +58,14 @@
       "text": "[Alice] What the scan filled in.\n[Alice] The barcode lands here, and the description and price fill themselves in whenever the product is one we can look up.\n[Alice] Anything left blank is yours to type.\n[Alice] Set the quantity, then use Add Stock or Remove to log the movement."
     },
     {
+      "id": "scan-autofill",
+      "text": "[Alice] Where the filled-in details come from.\n[Alice] The small line of text under the barcode tells you what the app found.\n[Alice] It checks a shared database built up by other people using this app, and an online product lookup, and fills in whatever either one knows.\n[Alice] If it offers a few possible matches instead, pick the closest one, or ignore them and type your own.\n[Alice] If it finds nothing, type the name and unit in yourself, and that name joins the shared database when you add the stock, so the next person who scans it does not have to."
+    },
+    {
+      "id": "scan-price-estimate",
+      "text": "[Alice] Treat a looked-up price as a guess.\n[Alice] Any price the lookup filled in came from an online listing rather than from your own shelf, so treat it as a rough figure.\n[Alice] The app says as much underneath the field while that number is still untouched, and the note disappears the moment you change it.\n[Alice] It is worth putting your real cost in, because that is the number your totals are working from."
+    },
+    {
       "id": "reorder-search-by",
       "text": "[Alice] Decide what it searches for.\n[Alice] Before you go looking for anything, this row decides what gets typed into the store's search box for you.\n[Alice] Auto uses the barcode when the item has one and falls back to the name when it does not.\n[Alice] Barcode and Description pin it to one or the other.\n[Alice] It is remembered on this device, so it is a one time choice rather than something to think about on every order."
     },

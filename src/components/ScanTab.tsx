@@ -884,6 +884,11 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
             </select>
           </Field>
         </div>
+        {/* Wrapper exists purely so the tour's scan-price-estimate step has
+            something stable to glow: the disclaimer it talks about is
+            conditional on priceFromLookup, so it cannot be the target
+            itself. */}
+        <div data-tutorial="scan-price-field">
         <Field label="Price per Unit">
           <div className="flex items-center gap-1">
             <span className="text-neutral-400">$</span>
@@ -908,6 +913,7 @@ export default function ScanTab({ items, onAddStock, onRemoveStock, onSaveItem, 
             </p>
           )}
         </Field>
+        </div>
 
         <div className="flex gap-2 pt-1">
           <div className="relative flex-1">
